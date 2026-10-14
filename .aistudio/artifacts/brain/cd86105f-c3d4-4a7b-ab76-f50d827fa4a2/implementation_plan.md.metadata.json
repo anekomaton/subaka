@@ -1,6 +1,6 @@
 {
-  "summary": "Comprehensive implementation plan for the cross-platform desktop version of Subaka using Tauri v2, featuring native Rust SQLite integration for GrammarDB, bundled native FFmpeg sidecars, and cross-platform packaging for Windows, macOS, and Linux.",
-  "updatedAt": "2026-10-13T17:46:34.371703559Z",
+  "summary": "Абноўлены план стварэння README.md для рэпазітарыя рэдактара субцітраў «Субака» на GitHub з улікам усіх удакладненняў: распісаны падтрыманыя фарматы відэа/аўдыя і субцітраў, склад беларускага моўнага модуля і інтэлектуальных інструментаў, 4 падрабязныя карыстальніцкія сцэнарыі, а таксама поўны спіс крыніц з раздзела «Шчыры дзякуй» з прамымі спасылкамі і версіямі.",
+  "updatedAt": "2026-10-14T08:38:15.814353859Z",
   "requestFeedback": true,
   "userFacing": true
 }

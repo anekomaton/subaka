@@ -27,6 +27,11 @@ elif [ "$OS" = "Darwin" ]; then
     fi
     chmod +x "$TARGET"
     echo "Successfully downloaded $TARGET"
+elif [[ "$OS" == *"MINGW"* ]] || [[ "$OS" == *"MSYS"* ]] || [[ "$OS" == *"CYGWIN"* ]]; then
+    TARGET="ffmpeg-x86_64-pc-windows-msvc.exe"
+    echo "Downloading static FFmpeg for Windows ($TARGET)..."
+    curl -L "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/win32-x64" -o "$TARGET"
+    echo "Successfully downloaded $TARGET"
 else
-    echo "Unsupported OS: $OS. Please download FFmpeg binary manually or run Windows PowerShell script."
+    echo "Unsupported OS: $OS. Please download FFmpeg binary manually."
 fi
