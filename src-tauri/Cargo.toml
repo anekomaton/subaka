@@ -1,0 +1,25 @@
+[package]
+name = "subaka"
+version = "1.0.0"
+description = "Subaka - Belarusian Subtitle Editor & Workstation"
+authors = ["Subaka Team"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "subaka_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.1", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.1", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }

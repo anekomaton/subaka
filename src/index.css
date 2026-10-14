@@ -1,0 +1,164 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom glow and fade effects */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb,
+.dark-custom-scrollbar::-webkit-scrollbar-thumb,
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.7);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+.dark-custom-scrollbar::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.9);
+}
+
+.dark-custom-scrollbar {
+  color-scheme: dark !important;
+  scrollbar-width: thin;
+  scrollbar-color: #475569 #0f172a;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar-track {
+  background: #0f172a;
+  border-radius: 9999px;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #475569 !important;
+  border-radius: 9999px;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #64748b !important;
+}
+
+.light-custom-scrollbar {
+  color-scheme: light !important;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+
+.light-custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.light-custom-scrollbar::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 9999px;
+}
+
+.light-custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 9999px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+}
+
+/* Verbum.by Article Content Styling */
+.verbum-article-html p {
+  margin: 0.25rem 0;
+}
+.verbum-article-html .hw,
+.verbum-article-html .hw-alt,
+.verbum-article-html .phr {
+  font-weight: 700;
+  color: #38bdf8;
+}
+:root:not(.dark) .verbum-article-html .hw,
+:root:not(.dark) .verbum-article-html .hw-alt,
+:root:not(.dark) .verbum-article-html .phr {
+  color: #0369a1;
+}
+.verbum-article-html .accent {
+  color: #f43f5e;
+  font-weight: bold;
+}
+.verbum-article-html highlight {
+  background-color: rgba(234, 179, 8, 0.25);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.verbum-article-html v-abbr {
+  color: #10b981;
+  font-style: italic;
+}
+:root:not(.dark) .verbum-article-html v-abbr {
+  color: #047857;
+}
+.verbum-article-html v-ex {
+  color: #94a3b8;
+  font-style: italic;
+  display: inline-block;
+  margin-left: 0.5rem;
+}
+:root:not(.dark) .verbum-article-html v-ex {
+  color: #475569;
+}
+.verbum-article-html .ms-2 {
+  margin-left: 0.5rem;
+}
+.verbum-article-html .ms-4 {
+  margin-left: 1rem;
+}
+
+/* Workspace Split Columns Layout */
+@media (min-width: 1024px) {
+  .workspace-editor-column {
+    width: var(--editor-width, 50%) !important;
+    flex-basis: var(--editor-width, 50%) !important;
+    flex-shrink: 0 !important;
+  }
+  .workspace-player-column {
+    width: var(--player-width, 50%) !important;
+    flex-basis: var(--player-width, 50%) !important;
+    flex-shrink: 1 !important;
+    flex-grow: 1 !important;
+  }
+}

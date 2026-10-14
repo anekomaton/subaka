@@ -1,0 +1,12 @@
+{
+  "name": "Hunspell be-BY",
+  "version": "0.5.2",
+  "releaseDate": "2026-04-04",
+  "source": "https://spell.by-reservation.com/",
+  "authors": "RZR team / Belarusian N-corpus (bnkorpus.info)",
+  "package": "hunspell_be_v0.5.2.zip",
+  "files": [
+    "be_BY.aff",
+    "be_BY.dic"
+  ]
+}

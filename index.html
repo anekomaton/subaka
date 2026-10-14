@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="be">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=bright2" />
+    <link rel="alternate icon" type="image/svg+xml" href="/favicon.svg?v=bright2" />
+    <link rel="apple-touch-icon" href="/favicon.svg?v=bright2" />
+    <title>СУБАКА</title>
+    <meta name="description" content="Рэдактар субцітраў з выкарыстаннем тэхналогій штучнага інтэлекту." />
+    <meta property="og:title" content="СУБАКА" />
+    <meta property="og:description" content="Рэдактар субцітраў з выкарыстаннем тэхналогій штучнага інтэлекту." />
+    <script>
+      (function() {
+        try {
+          var isManual = localStorage.getItem('subaka_theme_manual') === 'true';
+          var saved = localStorage.getItem('subaka_theme');
+          var theme = 'light';
+          if (isManual && (saved === 'dark' || saved === 'light')) {
+            theme = saved;
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            theme = 'dark';
+          }
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.style.colorScheme = 'dark';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.setAttribute('data-theme', 'light');
+            document.documentElement.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script>
+      (function() {
+        var isResizeObserverError = function(e) {
+          if (!e) return false;
+          var msg = typeof e === 'string' ? e : e.message || (e.error && e.error.message) || '';
+          return (
+            typeof msg === 'string' &&
+            (msg.indexOf('ResizeObserver loop completed with undelivered notifications') !== -1 ||
+             msg.indexOf('ResizeObserver loop limit exceeded') !== -1 ||
+             msg.indexOf('ResizeObserver') !== -1)
+          );
+        };
+        window.addEventListener(
+          'error',
+          function(event) {
+            if (isResizeObserverError(event)) {
+              event.stopImmediatePropagation();
+              event.preventDefault();
+              return false;
+            }
+          },
+          true
+        );
+        var prevOnError = window.onerror;
+        window.onerror = function(message, source, lineno, colno, error) {
+          if (isResizeObserverError(message) || isResizeObserverError(error)) {
+            return true;
+          }
+          if (typeof prevOnError === 'function') {
+            return prevOnError.apply(this, arguments);
+          }
+        };
+      })();
+    </script>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-HFXMLHR2W4"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-HFXMLHR2W4');
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
