@@ -176,7 +176,7 @@ npm run tauri:build
 
 Праект **«Субака»** стаіць на плячах выдатных адкрытых ініцыятыў беларускіх лінгвістаў і супольнасці. Глыбокая ўдзячнасць аўтарам і даследчыкам:
 
-1. 🏛️ **[GrammarDB](https://github.com/Belarus/GrammarDB)** (`v0.4.3`) — граматычная база беларускай мовы (3.98M словаформаў у фармаце SQLite).
+1. 🏛️ **[GrammarDB](https://github.com/Belarus/GrammarDB)** (`v0.4.3`) — граматычная база беларускай мовы (3.98M словаформаў).
 2. 🗣️ **[BelG2P](https://github.com/Belarus/BelG2P)** — алгарытмы фанетычнай транскрыпцыі, правілы і базы беларускага націску.
 3. ✍️ **[PravilnaBy](https://github.com/alroniks/pravilnaby)** (`v0.1.0`) — алгарытмы і правілы беларускага правапісу.
 4. 🔍 **[Hunspell-BE](https://spell.by-reservation.com/)** (`v0.5.2`) — афіцыйны пакет праверкі арфаграфіі (RZR team / BNKorpus.info).
