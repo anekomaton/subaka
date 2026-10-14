@@ -5,7 +5,7 @@
 <h1 align="center">Субака · Subaka</h1>
 
 <p align="center">
-  <strong>Сучасны беларускамоўны рэдактар субцітраў</strong><br>
+  <strong>Сучасны беларускамоўны рэдактар субцітраў https://subaka.ai.studio/</strong><br>
   <em>Modern subtitle editor tailored for Belarusian language localization, AI tools, and cross-platform desktop integration.</em>
 </p>
 
@@ -115,7 +115,7 @@ https://subaka.ai.studio/
 | **macOS** | `.dmg` пакет | універсальны бінарнік: Apple Silicon (M1/M2/M3/M4) і Intel | не тэсціравалася |
 | **Linux** | `.deb` пакет / `.AppImage` | Ubuntu, Debian, Linux Mint, Fedora, Arch і інш. | не тэсціравалася |
 
-> Гатовыя інсталятары для дэсктопных аперацыйных сістэм даступныя ў раздзеле **[Releases](../../releases)** на GitHub.
+> Гатовыя інсталятары для дэсктопных аперацыйных сістэм даступныя ў раздзеле **[Releases](../../releases)**.
 
 ---
 
