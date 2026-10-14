@@ -44,9 +44,7 @@ impl MediaProbeService {
         // Try probing via tauri sidecar or system command
         let output = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
             // Run `ffmpeg -i file_path`
-            let out = sidecar
-                .args(["-i", file_path])
-                .output();
+            let out = tauri::async_runtime::block_on(sidecar.args(["-i", file_path]).output());
             match out {
                 Ok(o) => String::from_utf8_lossy(&o.stderr).to_string(),
                 Err(_) => Self::probe_with_system_cmd(file_path)?,
@@ -192,7 +190,7 @@ impl MediaProbeService {
 
         // Try sidecar first, fallback to system ffmpeg
         let output = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
-            let res = sidecar.args(&args).output();
+            let res = tauri::async_runtime::block_on(sidecar.args(&args).output());
             match res {
                 Ok(out) => {
                     if out.status.success() {

@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Subaka — Беларускія субтытры & Workstation",
         "width": 1280,
         "height": 820,
