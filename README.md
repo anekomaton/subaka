@@ -5,7 +5,7 @@
 <h1 align="center">Субака · Subaka</h1>
 
 <p align="center">
-  <strong>Сучасны беларускамоўны рэдактар субцітраў https://subaka.ai.studio/</strong><br>
+  <strong>Сучасны беларускамоўны рэдактар субцітраў <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a></strong><br>
   <em>Modern subtitle editor tailored for Belarusian language localization, AI tools, and cross-platform desktop integration.</em>
 </p>
 
@@ -33,7 +33,7 @@
 
 ## Пра праект
 
-**«Субака»** https://subaka.ai.studio/ створаны для таго, каб зрабіць працэс стварэння, рэдагавання і беларусізацыі відэакантэнту хуткім, зручным і дакладным. 
+**«Субака»** <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a> створаны для таго, каб зрабіць працэс стварэння, рэдагавання і беларусізацыі відэакантэнту хуткім, зручным і дакладным. 
 
 Пры лакалізацыі на беларускую мову аўтары часта сутыкаюцца з тым, што інструментаў патрэбна шмат: 
 адзін інструмент патрэбны для для канвертацыі відэа;
@@ -108,7 +108,7 @@
 
 Выберыце зручны спосаб працы:
 
-https://subaka.ai.studio/
+<a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a>
 | **🌐 Вэб-версія** | працуе проста ў браўзеры | не патрабуе ўсталёўкі | рэкамендую |
 
 | **Windows** | `.msi` інсталятар або партатыўны `.exe` | Windows 10 / 11 (x64, ARM64) |
