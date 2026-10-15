@@ -38,9 +38,24 @@ jobs:
         shell: bash
         run: |
           mkdir -p src-tauri/resources
-          # Copy any existing databases or assets if available
-          if [ -f "grammardb.sqlite3" ]; then cp grammardb.sqlite3 src-tauri/resources/; fi
-          if [ -f "verbum_offline.sqlite3" ]; then cp verbum_offline.sqlite3 src-tauri/resources/; fi
+          # Build Verbum offline SQLite database
+          echo "Building Verbum offline dictionary SQLite database..."
+          node scripts/build-verbum-db.cjs src-tauri/resources/verbum_offline.sqlite3 || true
+          
+          # Build GrammarDB SQLite database from official release
+          echo "Building GrammarDB SQLite database from official release..."
+          python server/buildGrammarDbFromRelease.py src-tauri/resources/grammardb.sqlite3 || true
+          
+          # Fallback check
+          if [ -f "grammardb.sqlite3" ] && [ ! -f "src-tauri/resources/grammardb.sqlite3" ]; then
+            cp grammardb.sqlite3 src-tauri/resources/;
+          fi
+          if [ -f "verbum_offline.sqlite3" ] && [ ! -f "src-tauri/resources/verbum_offline.sqlite3" ]; then
+            cp verbum_offline.sqlite3 src-tauri/resources/;
+          fi
+          
+          echo "Prepared resources folder contents:"
+          ls -lh src-tauri/resources/
 
       - name: Build Desktop Application with Tauri
         uses: tauri-apps/tauri-action@v1
