@@ -9,6 +9,7 @@ import {
   filterVerbumArticles 
 } from '../types/verbum';
 import { useVerbumDbFullStatus } from '../utils/useVerbumDbStatus';
+import { isTauriDesktop, lookupDesktopVerbum } from '../utils/tauriBridge';
 
 interface VerbumDictionaryModalProps {
   isOpen: boolean;
@@ -104,6 +105,30 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
     setError(null);
     setFromOfflineFallback(false);
     setOfflineNotice(null);
+
+    // If running in Desktop mode, try native offline SQLite dictionaries in resources/ first
+    if (isTauriDesktop()) {
+      try {
+        const desktopArticles = await lookupDesktopVerbum(term);
+        if (desktopArticles && desktopArticles.length > 0) {
+          const mapped: VerbumArticle[] = desktopArticles.map((a: any) => ({
+            DictionaryID: a.dict_id,
+            ID: a.id,
+            Content: a.html,
+            Headword: a.headword,
+            IsOffline: true,
+          }));
+          setArticles(mapped);
+          setLastSearchedWord(term);
+          setFromOfflineFallback(true);
+          setOfflineNotice('Аўтаномны пошук у лакальных слоўніках (папка resources)');
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('[Verbum Modal] Desktop offline search fallback:', e);
+      }
+    }
 
     try {
       const res = await fetch(`/api/verbum/search?q=${encodeURIComponent(term)}`);

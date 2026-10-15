@@ -35,7 +35,26 @@ function notify(status: VerbumDbStatus) {
   });
 }
 
+import { isTauriDesktop, getDesktopVerbumStatus } from './tauriBridge';
+
 export async function checkVerbumDbStatus(): Promise<VerbumDbStatus> {
+  if (isTauriDesktop()) {
+    try {
+      const dStatus = await getDesktopVerbumStatus();
+      if (dStatus) {
+        const status: VerbumDbStatus = {
+          ready: dStatus.ready,
+          path: dStatus.path || null,
+          sizeMb: typeof dStatus.size_mb === 'number' ? dStatus.size_mb : undefined,
+          articleCount: typeof dStatus.total_articles === 'number' ? dStatus.total_articles : undefined,
+          lastLog: dStatus.message,
+        };
+        notify(status);
+        return status;
+      }
+    } catch (_) {}
+  }
+
   try {
     const res = await fetch('/api/verbum/db-status', { cache: 'no-store' });
     if (res.ok) {

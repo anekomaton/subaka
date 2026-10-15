@@ -5,7 +5,7 @@
 <h1 align="center">Субака · Subaka</h1>
 
 <p align="center">
-  <strong>Сучасны беларускамоўны рэдактар субцітраў <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a></strong><br>
+  <strong>Беларускамоўны рэдактар субцітраў <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a></strong><br>
   <em>Modern subtitle editor tailored for Belarusian language localization, AI tools, and cross-platform desktop integration.</em>
 </p>
 
@@ -27,15 +27,15 @@
 - **Full Subtitle Formats Support:** SubRip (`.srt`) and Advanced SubStation Alpha (`.ass`) with rich text styling, actor/role management.
 - **Rich Media & Audio Engine:** Native playback of `.mp4`, `.webm`, `.mov`, and `.mkv` (x264/HEVC) and real-time audio extraction powered by native FFmpeg sidecars and WebAssembly.
 - **AI-Assisted Capabilities:** Context-aware subtitle translation and batch proofreading via Gemini API, phonetic school transcription converter for voice actors, and Belarusian text-to-speech synthesis (Corpus.by "Ales" voice & Edge TTS & AI).
-- **Cross-Platform:** Runs seamlessly right in modern web browsers or as high-performance desktop native binaries for Windows, macOS, and Linux (powered by Tauri v2 and Rust).
+- **Cross-Platform:** Runs seamlessly right in modern web browsers or as high-performance desktop native binaries for Windows (powered by Tauri v2 and Rust).
 
 ---
 
 ## Пра праект
 
-**«Субака»** <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a> створаны для таго, каб зрабіць працэс стварэння, рэдагавання і беларусізацыі відэакантэнту хуткім, зручным і дакладным. 
+**«Субака»** <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a> створаны для таго, каб зрабіць працэс стварэння і рэдагавання субцітраў хуткім, зручным і дакладным. 
 
-Пры лакалізацыі на беларускую мову аўтары часта сутыкаюцца з тым, што інструментаў патрэбна шмат: 
+Пры лакалізацыі аўтары часта сутыкаюцца з тым, што інструментаў патрэбна шмат: 
 адзін інструмент патрэбны для для канвертацыі відэа;
 іншы, каб дастаць субцітры з відэа;
 трэці -  гэта асобны рэдактар субцітраў, які можа быць не з тымі функцыямі, якія хацелася б;
@@ -57,7 +57,7 @@
   * `.mov` (кодэк H.264).
   * `.mkv` (кантэйнер Matroska):
     * Кодэк `x264` / `H.264` (Chrome, Edge, Safari, Tauri).
-    * Кодэк `x265` / `HEVC` (падтрымліваецца ў Chrome 107+, Safari і натыўнай зборцы).
+    * Кодэк `x265` / `HEVC` (падтрымліваецца ў Chrome 107+, Safari, Firefox не падтрымлівае з-за ліцэнзійных абмежаванняў).
 * **Падтрымка аўдыя:**
   * Аўтаматычная апрацоўка любых распаўсюджаных фарматаў: `.mp3`, `.wav`, `.aac`, `.m4a`, `.ogg`, `.flac`, `.ac3`, `.eac3`.
   * Выбар патрэбнай аўдыядарожкі проста ў плэеры.
@@ -69,7 +69,7 @@
   * Магчымасць адфільтраваць толькі субцітры з памылкамі, пошук і замена па субцітрах.
   * І зручныя дробязі, без якіх часам праца з субцітрамі дужа раздражняе.
 * **Гласарый праекта:**
-  * Падтрымка ўласнага слоўніка тэрмінаў, імёнаў і назваў. Імпарт і экспарт у фарматах `.csv` і `.txt`.
+  * Уласны спіс тэрмінаў, імёнаў і назваў. Імпарт і экспарт у фарматах `.csv` і `.txt`.
 
 ---
 
@@ -109,13 +109,11 @@
 Выберыце зручны спосаб працы:
 
 <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a>
-| **🌐 Вэб-версія** | працуе проста ў браўзеры | не патрабуе ўсталёўкі | рэкамендую |
+| **🌐 Вэб-версія** | працуе проста ў браўзеры | не патрабуе ўсталёўкі | рэкамендуецца |
 
-| **Windows** | `.msi` інсталятар або партатыўны `.exe` | Windows 10 / 11 (x64, ARM64) |
-| **macOS** | `.dmg` пакет | універсальны бінарнік: Apple Silicon (M1/M2/M3/M4) і Intel | не тэсціравалася |
-| **Linux** | `.deb` пакет / `.AppImage` | Ubuntu, Debian, Linux Mint, Fedora, Arch і інш. | не тэсціравалася |
+| **Windows** | 10 / 11 (x64, ARM64) |
 
-> Гатовыя інсталятары для дэсктопных аперацыйных сістэм даступныя ў раздзеле **[Releases](../../releases)**.
+> Гатовы інсталятар даступны ў раздзеле **[Releases](../../releases)**.
 
 ---
 

@@ -217,34 +217,68 @@ export async function openMediaOrSubtitleDialog(
 }
 
 /**
- * Opens native OS save dialog and saves file atomically
+ * Opens native OS save dialog and saves file atomically (Text or Binary)
  */
 export async function saveSubtitleFileNative(
   defaultName: string,
   content: string
 ): Promise<string | null> {
+  return saveFileUniversal(defaultName, content, 'text/plain;charset=utf-8;');
+}
+
+/**
+ * Universal file saver: handles Native OS Save Dialog in Desktop mode,
+ * with standard browser blob download as fallback for web.
+ */
+export async function saveFileUniversal(
+  defaultName: string,
+  content: string | Blob,
+  mimeType: string = 'text/plain;charset=utf-8;'
+): Promise<string | null> {
   if (isTauriDesktop()) {
     try {
+      const ext = defaultName.split('.').pop()?.toLowerCase() || '';
+      const filters = [];
+      if (ext === 'srt') filters.push({ name: 'SubRip Subtitles (*.srt)', extensions: ['srt'] });
+      else if (ext === 'ass') filters.push({ name: 'Advanced SubStation Alpha (*.ass)', extensions: ['ass'] });
+      else if (ext === 'vtt') filters.push({ name: 'WebVTT (*.vtt)', extensions: ['vtt'] });
+      else if (ext === 'csv') filters.push({ name: 'CSV File (*.csv)', extensions: ['csv'] });
+      else if (ext === 'txt') filters.push({ name: 'Text File (*.txt)', extensions: ['txt'] });
+      else if (ext === 'zip') filters.push({ name: 'ZIP Archive (*.zip)', extensions: ['zip'] });
+      else if (ext === 'wav') filters.push({ name: 'Waveform Audio (*.wav)', extensions: ['wav'] });
+      else if (ext) filters.push({ name: `Files (*.${ext})`, extensions: [ext] });
+      filters.push({ name: 'All Files (*.*)', extensions: ['*'] });
+
       const filePath = await save({
         defaultPath: defaultName,
-        filters: [
-          { name: 'SubRip Subtitles (*.srt)', extensions: ['srt'] },
-          { name: 'WebVTT (*.vtt)', extensions: ['vtt'] },
-          { name: 'Advanced SubStation Alpha (*.ass)', extensions: ['ass'] },
-        ],
+        filters,
       });
 
       if (filePath) {
-        await invoke('save_file_direct', { filePath, content });
+        if (typeof content === 'string') {
+          await invoke('save_file_direct', { filePath, content });
+        } else {
+          // Convert Blob to Base64 for native write
+          const buffer = await content.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          const len = bytes.byteLength;
+          for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const dataBase64 = btoa(binary);
+          await invoke('save_binary_file_direct', { filePath, dataBase64 });
+        }
         return filePath;
       }
+      return null;
     } catch (err) {
-      console.warn('[TauriBridge] Native save failed:', err);
+      console.warn('[TauriBridge] Native file save failed, using web download:', err);
     }
   }
 
   // Web fallback: download as blob
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const blob = typeof content === 'string' ? new Blob([content], { type: mimeType }) : content;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -253,7 +287,68 @@ export async function saveSubtitleFileNative(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  return defaultName;
+}
+
+export interface DesktopStorageInfo {
+  app_data_dir: string;
+  cache_dir: string;
+  temp_dir: string;
+  resources_dir: string;
+  grammardb_path?: string | null;
+  grammardb_size_mb?: number | null;
+  verbum_path?: string | null;
+  verbum_size_mb?: number | null;
+}
+
+export async function getDesktopStorageInfo(): Promise<DesktopStorageInfo | null> {
+  if (isTauriDesktop()) {
+    try {
+      return await invoke<DesktopStorageInfo>('get_desktop_storage_info');
+    } catch (e) {
+      console.warn('Failed to get desktop storage info:', e);
+    }
+  }
   return null;
+}
+
+export async function clearDesktopTempCache(): Promise<boolean> {
+  if (isTauriDesktop()) {
+    try {
+      return await invoke<boolean>('clear_desktop_temp_cache');
+    } catch (e) {
+      console.warn('Failed to clear desktop temp cache:', e);
+    }
+  }
+  return false;
+}
+
+export async function getDesktopVerbumStatus(): Promise<{
+  ready: boolean;
+  path?: string | null;
+  size_mb?: number | null;
+  total_articles?: number | null;
+  message: string;
+} | null> {
+  if (isTauriDesktop()) {
+    try {
+      return await invoke('get_verbum_status');
+    } catch (e) {
+      console.warn('Failed to get desktop verbum status:', e);
+    }
+  }
+  return null;
+}
+
+export async function lookupDesktopVerbum(word: string): Promise<any[]> {
+  if (isTauriDesktop()) {
+    try {
+      return await invoke<any[]>('lookup_verbum_word', { word });
+    } catch (e) {
+      console.warn('Failed to lookup desktop verbum word:', e);
+    }
+  }
+  return [];
 }
 
 /**

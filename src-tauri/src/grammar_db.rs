@@ -55,9 +55,12 @@ impl GrammarDbManager {
         // Potential paths to locate grammardb.sqlite3
         let mut candidate_paths: Vec<PathBuf> = Vec::new();
 
-        // 1. App local data directory (e.g. %LOCALAPPDATA%/Subaka or ~/Library/Application Support/Subaka)
-        if let Ok(app_dir) = app.path().app_local_data_dir() {
-            candidate_paths.push(app_dir.join("grammardb.sqlite3"));
+        // 1. Program resources directory: <exe_dir>/resources/grammardb.sqlite3
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                candidate_paths.push(exe_dir.join("resources").join("grammardb.sqlite3"));
+                candidate_paths.push(exe_dir.join("grammardb.sqlite3"));
+            }
         }
 
         // 2. Resource dir bundled with desktop application
@@ -66,13 +69,20 @@ impl GrammarDbManager {
             candidate_paths.push(res_dir.join("grammardb.sqlite3"));
         }
 
-        // 3. Current working directory
+        // 3. App local data directory (e.g. %LOCALAPPDATA%/SUBaka)
+        if let Ok(app_dir) = app.path().app_local_data_dir() {
+            candidate_paths.push(app_dir.join("resources").join("grammardb.sqlite3"));
+            candidate_paths.push(app_dir.join("grammardb.sqlite3"));
+        }
+
+        // 4. Current working directory
         if let Ok(cwd) = std::env::current_dir() {
+            candidate_paths.push(cwd.join("resources").join("grammardb.sqlite3"));
             candidate_paths.push(cwd.join("grammardb.sqlite3"));
             candidate_paths.push(cwd.join("dist").join("grammardb.sqlite3"));
         }
 
-        // 4. System temp directory
+        // 5. System temp directory
         candidate_paths.push(PathBuf::from("/tmp/grammardb.sqlite3"));
         candidate_paths.push(std::env::temp_dir().join("grammardb.sqlite3"));
 

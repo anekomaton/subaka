@@ -1,4 +1,4 @@
-name: Release Subaka Desktop
+name: Release SUBaka Desktop (Windows x64)
 
 on:
   push:
@@ -10,21 +10,7 @@ jobs:
   release:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-            target: 'aarch64-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
-            target: 'x86_64-unknown-linux-gnu'
-          - platform: 'windows-latest'
-            args: ''
-            target: 'x86_64-pc-windows-msvc'
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,22 +23,24 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Install Linux dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          targets: x86_64-pc-windows-msvc
 
       - name: Install npm dependencies
         run: npm install
 
-      - name: Download FFmpeg sidecars
+      - name: Download FFmpeg sidecar (Windows x64)
         shell: bash
         run: |
           chmod +x src-tauri/binaries/download_ffmpeg_sidecars.sh || true
-          bash src-tauri/binaries/download_ffmpeg_sidecars.sh "${{ matrix.target }}"
+          bash src-tauri/binaries/download_ffmpeg_sidecars.sh "x86_64-pc-windows-msvc"
+
+      - name: Prepare Resources folder for Desktop Bundle
+        shell: bash
+        run: |
+          mkdir -p src-tauri/resources
+          # Copy any existing databases or assets if available
+          if [ -f "grammardb.sqlite3" ]; then cp grammardb.sqlite3 src-tauri/resources/; fi
+          if [ -f "verbum_offline.sqlite3" ]; then cp verbum_offline.sqlite3 src-tauri/resources/; fi
 
       - name: Build Desktop Application with Tauri
         uses: tauri-apps/tauri-action@v1
@@ -60,21 +48,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: 'Subaka Desktop v__VERSION__'
-          releaseBody: 'See assets below to download Subaka Desktop for your platform.'
-          releaseDraft: true
+          releaseName: 'SUBaka v__VERSION__ (Windows x64)'
+          releaseBody: |
+            ## Рэліз SUBaka для Windows x64
+
+            ### Рэлізныя файлы для спампоўкі:
+            - **windows-x64-nsis** (`SUBaka_1.0.0_x64-setup.exe`) — **Галоўны ўсталёўшчык для Windows** (рэкамендаваны для ўсіх карыстальнікаў).
+            - **windows-x64-msi** (`SUBaka_1.0.0_x64_en-US.msi`) — Сістэмны MSI-пакет (для карпаратыўнага разгортвання).
+
+            *Пры першым запуску слоўнікі і граматычная база аўтаматычна разгортваюцца ў папку `resources`.*
+          releaseDraft: false
           prerelease: false
           uploadWorkflowArtifacts: true
           uploadUpdaterJson: false
           uploadUpdaterSignatures: false
-          args: ${{ matrix.args }}
 
-      - name: Upload Build Artifacts Fallback
+      - name: Upload Windows Build Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: subaka-${{ matrix.platform }}-${{ matrix.target }}
+          name: subaka-windows-x64
           path: |
-            src-tauri/target/release/bundle/
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/*/release/bundle/
           if-no-files-found: ignore

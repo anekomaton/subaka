@@ -62,8 +62,15 @@ import FormatHelpModal from './components/FormatHelpModal';
 import { SearchModal } from './components/SearchModal';
 import { GeminiApiKeyModal } from './components/GeminiApiKeyModal';
 import { GlossaryModal } from './components/GlossaryModal';
-import { useGrammarDbFullStatus, triggerGrammarDbInit } from './utils/useGrammarDbStatus';
+import { useGrammarDbFullStatus } from './utils/useGrammarDbStatus';
 import { useVerbumDbFullStatus } from './utils/useVerbumDbStatus';
+import {
+  saveFileUniversal,
+  isTauriDesktop,
+  getDesktopStorageInfo,
+  clearDesktopTempCache,
+  DesktopStorageInfo
+} from './utils/tauriBridge';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const isSupportedVoice = (v: any): boolean => typeof v === 'string' && SUPPORTED_VOICES.includes(v);
@@ -196,7 +203,6 @@ export default function App() {
     };
   }, []);
 
-  // Project name state for file downloads and exports
   const [projectName, setProjectName] = useState<string>(() => {
     try {
       return localStorage.getItem('subaka_project_name') || '';
@@ -204,6 +210,16 @@ export default function App() {
       return '';
     }
   });
+
+  const [desktopStorage, setDesktopStorage] = useState<DesktopStorageInfo | null>(null);
+
+  useEffect(() => {
+    if (isTauriDesktop()) {
+      getDesktopStorageInfo().then((info) => {
+        if (info) setDesktopStorage(info);
+      });
+    }
+  }, []);
 
   const handleProjectNameChange = useCallback((name: string) => {
     setProjectName(name);
@@ -1296,29 +1312,15 @@ export default function App() {
     if (format === 'csv') {
       // CSV with UTF-8 BOM so Excel/LibreOffice displays Belarusian Cyrillic correctly
       const csvContent = '\uFEFF' + 'Слова\r\n' + wordsArr.map((w) => `"${w.replace(/"/g, '""')}"`).join('\r\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `glasary_${namePart}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      addToast(`Гласарый захаваны ў .csv (${wordsArr.length} слоў)`, 'success');
+      saveFileUniversal(`glasary_${namePart}.csv`, csvContent, 'text/csv;charset=utf-8;').then((res) => {
+        if (res) addToast(`Гласарый захаваны ў .csv (${wordsArr.length} слоў)`, 'success');
+      });
     } else {
       // TXT with UTF-8 BOM (plain list, 1 word per line)
       const txtContent = '\uFEFF' + wordsArr.join('\r\n');
-      const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `glasary_${namePart}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      addToast(`Гласарый захаваны ў .txt (${wordsArr.length} слоў)`, 'success');
+      saveFileUniversal(`glasary_${namePart}.txt`, txtContent, 'text/plain;charset=utf-8;').then((res) => {
+        if (res) addToast(`Гласарый захаваны ў .txt (${wordsArr.length} слоў)`, 'success');
+      });
     }
   }, [ignoredWords, projectName]);
 
@@ -1575,16 +1577,8 @@ export default function App() {
     return 'subaka';
   }, [projectName, mediaFileName]);
 
-  const downloadFile = (content: string, fileName: string, mimeType: string = 'text/plain;charset=utf-8;') => {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const downloadFile = async (content: string | Blob, fileName: string, mimeType: string = 'text/plain;charset=utf-8;') => {
+    return await saveFileUniversal(fileName, content, mimeType);
   };
 
   const handleDownloadOriginalSrt = async () => {
@@ -1592,8 +1586,8 @@ export default function App() {
     const pName = getEffectiveProjectName();
     const fileName = `${pName}_orig.srt`;
     const srtContent = stringifySrt(subtitles, false);
-    downloadFile(srtContent, fileName, "text/srt;charset=utf-8;");
-    addToast("Зыходныя субцітры (.srt) спампаваныя", "success");
+    const res = await downloadFile(srtContent, fileName, "text/srt;charset=utf-8;");
+    if (res) addToast("Зыходныя субцітры (.srt) захаваныя", "success");
   };
 
   const handleDownloadOriginalAss = async () => {
@@ -1601,8 +1595,8 @@ export default function App() {
     const pName = getEffectiveProjectName();
     const fileName = `${pName}_orig.ass`;
     const assContent = stringifyAss(subtitles, false, originalAssHeader);
-    downloadFile(assContent, fileName, "text/x-ssa;charset=utf-8;");
-    addToast("Зыходныя субцітры (.ass) спампаваныя", "success");
+    const res = await downloadFile(assContent, fileName, "text/x-ssa;charset=utf-8;");
+    if (res) addToast("Зыходныя субцітры (.ass) захаваныя", "success");
   };
 
   const handleDownloadTranslatedSrt = async () => {
@@ -1610,8 +1604,8 @@ export default function App() {
     const pName = getEffectiveProjectName();
     const fileName = `${pName}_bel.srt`;
     const srtContent = stringifySrt(subtitles, true);
-    downloadFile(srtContent, fileName, "text/srt;charset=utf-8;");
-    addToast("Перакладзеныя субцітры (.srt) спампаваныя", "success");
+    const res = await downloadFile(srtContent, fileName, "text/srt;charset=utf-8;");
+    if (res) addToast("Перакладзеныя субцітры (.srt) захаваныя", "success");
   };
 
   const handleDownloadTranslatedAss = async () => {
@@ -1619,8 +1613,8 @@ export default function App() {
     const pName = getEffectiveProjectName();
     const fileName = `${pName}_bel.ass`;
     const assContent = stringifyAss(subtitles, true, originalAssHeader);
-    downloadFile(assContent, fileName, "text/x-ssa;charset=utf-8;");
-    addToast("Перакладзеныя субцітры (.ass) спампаваныя", "success");
+    const res = await downloadFile(assContent, fileName, "text/x-ssa;charset=utf-8;");
+    if (res) addToast("Перакладзеныя субцітры (.ass) захаваныя", "success");
   };
 
   const handleDownloadTranslatedByActorSrt = async () => {
@@ -1683,15 +1677,8 @@ export default function App() {
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const fileName = `${pName}_bel_by_actor.zip`;
 
-      const url = URL.createObjectURL(zipBlob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      addToast(`ZIP-архіў "${fileName}" паспяхова спампаваны!`, "success");
+      const res = await downloadFile(zipBlob, fileName, "application/zip");
+      if (res) addToast(`ZIP-архіў "${fileName}" паспяхова захаваны!`, "success");
     } catch (err: any) {
       console.error("ZIP creation error:", err);
       addToast("Памылка пры стварэнні ZIP-архіва", "error");
@@ -1714,15 +1701,8 @@ export default function App() {
     try {
       const mergedBlob = await mergeSubtitleAudio(subtitles);
       if (mergedBlob) {
-        const url = URL.createObjectURL(mergedBlob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        addToast("Поўная агучка паспяхова спампаваная.", "success");
+        const res = await downloadFile(mergedBlob, fileName, "audio/wav");
+        if (res) addToast("Поўная агучка паспяхова захаваная.", "success");
       } else {
         addToast("Не ўдалося аб'яднаць файлы агучкі.", "error");
       }
@@ -3049,7 +3029,10 @@ export default function App() {
     }));
 
     await clearWorkspaceFromStorage();
-    addToast("Працоўная вобласць і медыяфайл ачышчаны", "info");
+    if (isTauriDesktop()) {
+      await clearDesktopTempCache();
+    }
+    addToast("Працоўная вобласць, часовыя файлы і кэш ачышчаны (граматыка, слоўнікі, гласарый і настройкі захаваны)", "info");
   };
 
   const handleClearMedia = async () => {
@@ -4145,24 +4128,29 @@ export default function App() {
                       </div>
                     </div>
 
-                    {!grammarDbStatus.ready && !grammarDbStatus.building && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          triggerGrammarDbInit();
-                          addToast("Запуск разгортвання Граматычнай базы...", "info");
-                        }}
-                        className={`px-1.5 py-0.5 rounded text-[7px] font-bold border transition-colors cursor-pointer shrink-0 ${
-                          theme === 'dark'
-                            ? 'bg-indigo-950/40 hover:bg-indigo-900/50 text-indigo-300 border-indigo-500/30'
-                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-300'
-                        }`}
-                        title="Спампаваць і разгарнуць поўную граматычную базу з рэлізу Belarus/GrammarDB"
-                      >
-                        Разгарнуць ГБ
-                      </button>
-                    )}
                   </div>
+
+                  {/* Desktop Storage and Resources Details */}
+                  {isTauriDesktop() && desktopStorage && (
+                    <div className={`mt-1.5 pt-1.5 border-t text-[7.5px] flex flex-col gap-0.5 ${
+                      theme === 'dark' ? 'border-slate-800 text-slate-300' : 'border-slate-200 text-slate-700'
+                    }`}>
+                      <span className="font-bold text-[7px] uppercase tracking-wider text-amber-500 dark:text-amber-400">
+                        Дэсктопныя шляхі і сховішча (Windows):
+                      </span>
+                      <div className="font-mono text-[7px] space-y-0.5 bg-black/10 dark:bg-black/30 p-1.5 rounded border border-slate-700/30 break-all select-all">
+                        <div><span className="text-sky-400 font-semibold">Папка resources (слоўнікі і граматыка):</span> {desktopStorage.resources_dir || '(у папцы праграмы)'}</div>
+                        <div><span className="text-emerald-400 font-semibold">Бягучы стан/праекты:</span> {desktopStorage.app_data_dir}</div>
+                        <div><span className="text-amber-400 font-semibold">Кэш і часовыя файлы:</span> {desktopStorage.cache_dir || desktopStorage.temp_dir}</div>
+                        {desktopStorage.grammardb_path && (
+                          <div><span className="text-indigo-400 font-semibold">Граматычная база:</span> {desktopStorage.grammardb_path} {desktopStorage.grammardb_size_mb ? `(${desktopStorage.grammardb_size_mb} МБ)` : ''}</div>
+                        )}
+                        {desktopStorage.verbum_path && (
+                          <div><span className="text-indigo-400 font-semibold">Слоўнікі Verbum:</span> {desktopStorage.verbum_path} {desktopStorage.verbum_size_mb ? `(${desktopStorage.verbum_size_mb} МБ)` : ''}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Verbum Offline Dictionaries Deployment Status */}
                   <div className={`mt-1 pt-1 border-t flex items-center justify-between gap-1 text-[7.5px] ${

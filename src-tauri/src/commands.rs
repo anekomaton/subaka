@@ -88,6 +88,139 @@ pub fn save_file_direct(file_path: String, content: String) -> Result<bool, Stri
 }
 
 #[tauri::command]
+pub fn save_binary_file_direct(file_path: String, data_base64: String) -> Result<bool, String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let bytes = STANDARD.decode(&data_base64).map_err(|e| e.to_string())?;
+    let path = Path::new(&file_path);
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    fs::write(path, bytes).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn read_file_direct(file_path: String) -> Result<String, String> {
     fs::read_to_string(&file_path).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DesktopStorageInfo {
+    pub app_data_dir: String,
+    pub cache_dir: String,
+    pub temp_dir: String,
+    pub resources_dir: String,
+    pub grammardb_path: Option<String>,
+    pub grammardb_size_mb: Option<f64>,
+    pub verbum_path: Option<String>,
+    pub verbum_size_mb: Option<f64>,
+}
+
+#[tauri::command]
+pub fn get_desktop_storage_info(
+    app: AppHandle,
+    grammar_manager: State<'_, GrammarDbManager>,
+    verbum_manager: State<'_, crate::verbum_db::VerbumDbManager>,
+) -> DesktopStorageInfo {
+    use tauri::Manager;
+    let app_data = app.path().app_data_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let cache = app.path().app_cache_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let temp = std::env::temp_dir().to_string_lossy().to_string();
+
+    let mut resources_dir = String::new();
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res = exe_dir.join("resources");
+            resources_dir = res.to_string_lossy().to_string();
+        }
+    }
+    if resources_dir.is_empty() {
+        if let Ok(res) = app.path().resource_dir() {
+            resources_dir = res.join("resources").to_string_lossy().to_string();
+        }
+    }
+
+    let g_status = grammar_manager.get_status();
+    let v_status = verbum_manager.get_status();
+
+    DesktopStorageInfo {
+        app_data_dir: app_data,
+        cache_dir: cache,
+        temp_dir: temp,
+        resources_dir,
+        grammardb_path: g_status.path,
+        grammardb_size_mb: g_status.size_mb,
+        verbum_path: v_status.path,
+        verbum_size_mb: v_status.size_mb,
+    }
+}
+
+#[tauri::command]
+pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
+    use tauri::Manager;
+    // Cleans temporary cache files, keeping resources (grammardb, verbum, dictionaries) intact!
+    let mut deleted_count = 0;
+
+    // 1. App cache directory
+    if let Ok(cache_dir) = app.path().app_cache_dir() {
+        if cache_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&cache_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    // NEVER delete grammardb, verbum or dictionaries
+                    if name.contains("grammardb") || name.contains("verbum") || name.ends_with(".sqlite3") {
+                        continue;
+                    }
+                    if path.is_file() {
+                        let _ = fs::remove_file(path);
+                        deleted_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Temp directory subaka files
+    let temp_dir = std::env::temp_dir();
+    if let Ok(entries) = fs::read_dir(&temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if (name.starts_with("subaka_") || name.starts_with("subaka-") || name.contains("waveform"))
+                && !name.contains("grammardb")
+                && !name.contains("verbum")
+            {
+                if path.is_file() {
+                    let _ = fs::remove_file(path);
+                    deleted_count += 1;
+                }
+            }
+        }
+    }
+
+    log::info!("Cleaned {} temporary cache files", deleted_count);
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn get_verbum_status(
+    app: AppHandle,
+    manager: State<'_, crate::verbum_db::VerbumDbManager>,
+) -> crate::verbum_db::VerbumDbStatus {
+    let status = manager.get_status();
+    if !status.ready {
+        return manager.initialize(&app);
+    }
+    status
+}
+
+#[tauri::command]
+pub fn lookup_verbum_word(
+    word: String,
+    manager: State<'_, crate::verbum_db::VerbumDbManager>,
+) -> Vec<crate::verbum_db::VerbumArticle> {
+    manager.search(&word)
 }
