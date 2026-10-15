@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com"><img src="https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square" alt="Version 1.0.0" /></a>
-  <a href="https://github.com"><img src="https://img.shields.io/badge/platform-Web%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-brightgreen.svg?style=flat-square" alt="Platforms" /></a>
+  <a href="https://github.com"><img src="https://img.shields.io/badge/platform-Web%20%7C%20Windows%20%7C%20-brightgreen.svg?style=flat-square" alt="Platforms" /></a>
   <a href="https://github.com"><img src="https://img.shields.io/badge/built%20with-Tauri%20v2%20%2B%20React%20%2B%20Rust-orange.svg?style=flat-square" alt="Built with Tauri + React + Rust" /></a>
   <a href="https://github.com"><img src="https://img.shields.io/badge/license-GPL--3.0-blueviolet.svg?style=flat-square" alt="License" /></a>
 </p>
