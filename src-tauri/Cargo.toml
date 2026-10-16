@@ -2,7 +2,7 @@
 name = "subaka"
 version = "1.0.0"
 description = "Subaka - Belarusian Subtitle Editor & Workstation"
-authors = ["Subaka Team"]
+authors = ["anekomaton"]
 license = "GPL-3.0-or-later"
 edition = "2021"
 

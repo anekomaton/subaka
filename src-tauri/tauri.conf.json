@@ -29,6 +29,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "anekomaton",
+    "copyright": "Copyright © 2026 anekomaton",
     "targets": ["nsis", "msi"],
     "icon": [
       "icons/32x32.png",

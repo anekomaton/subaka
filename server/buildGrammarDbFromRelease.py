@@ -12,9 +12,11 @@ import urllib.request
 import sqlite3
 import xml.etree.cElementTree as ET
 
+import tempfile
+
 RELEASE_URL = "https://github.com/Belarus/GrammarDB/releases/download/RELEASE-202601/RELEASE-202601.zip"
-TARGET_DB = "/tmp/grammardb.sqlite3"
-TEMP_ZIP = "/tmp/grammardb_release.zip"
+TARGET_DB = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else os.path.join(tempfile.gettempdir(), "grammardb.sqlite3")
+TEMP_ZIP = os.path.join(tempfile.gettempdir(), "grammardb_release.zip")
 
 def clean(s: str) -> str:
     return s.replace('+', '').replace('\u0301', '').lower()
@@ -48,6 +50,7 @@ def ensure_release_zip():
     return TEMP_ZIP
 
 def build_database():
+    os.makedirs(os.path.dirname(os.path.abspath(TARGET_DB)), exist_ok=True)
     if os.path.exists(TARGET_DB) and os.path.getsize(TARGET_DB) > 100 * 1024 * 1024:
         print(f"[GrammarDB Builder] Database already exists at {TARGET_DB} ({os.path.getsize(TARGET_DB)/(1024*1024):.1f} MB)")
         return TARGET_DB

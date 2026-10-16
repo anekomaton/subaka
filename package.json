@@ -2,6 +2,7 @@
   "name": "subaka",
   "private": true,
   "version": "1.0.0",
+  "author": "anekomaton",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {

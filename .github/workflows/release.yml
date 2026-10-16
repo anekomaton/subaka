@@ -40,7 +40,7 @@ jobs:
           mkdir -p src-tauri/resources
           # Build Verbum offline SQLite database
           echo "Building Verbum offline dictionary SQLite database..."
-          node scripts/build-verbum-db.cjs src-tauri/resources/verbum_offline.sqlite3 || true
+          python scripts/build-verbum-db.py src-tauri/resources/verbum_offline.sqlite3 || node scripts/build-verbum-db.cjs src-tauri/resources/verbum_offline.sqlite3 || true
           
           # Build GrammarDB SQLite database from official release
           echo "Building GrammarDB SQLite database from official release..."

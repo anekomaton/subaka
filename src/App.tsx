@@ -71,6 +71,7 @@ import {
   clearDesktopTempCache,
   DesktopStorageInfo
 } from './utils/tauriBridge';
+import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const isSupportedVoice = (v: any): boolean => typeof v === 'string' && SUPPORTED_VOICES.includes(v);
@@ -2124,21 +2125,9 @@ export default function App() {
       : (isSupportedVoice(selectedVoice) ? selectedVoice : 'Ales');
 
     try {
-      const response = await fetch("/api/synthesize", {
-        method: "POST",
+      const blob = await synthesizeSubtitleAudioUniversal(synthText, safeVoice, {
         headers: getApiHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({
-          text: synthText,
-          voiceName: safeVoice,
-        }),
       });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || "Тэхнічная памылка сервера пры агучцы");
-      }
-
-      const blob = await response.blob();
       cacheAudioBlob(id, blob);
       
       const newUrl = URL.createObjectURL(blob);
@@ -2707,21 +2696,9 @@ export default function App() {
         }
 
         try {
-          const response = await fetch("/api/synthesize", {
-            method: "POST",
+          const blob = await synthesizeSubtitleAudioUniversal(textToUse, voiceToUse, {
             headers: getApiHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({
-              text: textToUse,
-              voiceName: voiceToUse,
-            }),
           });
-
-          if (!response.ok) {
-            const errJson = await response.json().catch(() => ({}));
-            throw new Error(errJson.error || "Failure synthesizing batch line");
-          }
-
-          const blob = await response.blob();
           cacheAudioBlob(sub.id, blob);
           const url = URL.createObjectURL(blob);
 
@@ -3700,6 +3677,7 @@ export default function App() {
         isOpen={isFormatHelpOpen}
         onClose={() => setIsFormatHelpOpen(false)}
         theme={theme}
+        desktopStorage={desktopStorage}
       />
 
       <HotkeysModal
@@ -4129,28 +4107,6 @@ export default function App() {
                     </div>
 
                   </div>
-
-                  {/* Desktop Storage and Resources Details */}
-                  {isTauriDesktop() && desktopStorage && (
-                    <div className={`mt-1.5 pt-1.5 border-t text-[7.5px] flex flex-col gap-0.5 ${
-                      theme === 'dark' ? 'border-slate-800 text-slate-300' : 'border-slate-200 text-slate-700'
-                    }`}>
-                      <span className="font-bold text-[7px] uppercase tracking-wider text-amber-500 dark:text-amber-400">
-                        Дэсктопныя шляхі і сховішча (Windows):
-                      </span>
-                      <div className="font-mono text-[7px] space-y-0.5 bg-black/10 dark:bg-black/30 p-1.5 rounded border border-slate-700/30 break-all select-all">
-                        <div><span className="text-sky-400 font-semibold">Папка resources (слоўнікі і граматыка):</span> {desktopStorage.resources_dir || '(у папцы праграмы)'}</div>
-                        <div><span className="text-emerald-400 font-semibold">Бягучы стан/праекты:</span> {desktopStorage.app_data_dir}</div>
-                        <div><span className="text-amber-400 font-semibold">Кэш і часовыя файлы:</span> {desktopStorage.cache_dir || desktopStorage.temp_dir}</div>
-                        {desktopStorage.grammardb_path && (
-                          <div><span className="text-indigo-400 font-semibold">Граматычная база:</span> {desktopStorage.grammardb_path} {desktopStorage.grammardb_size_mb ? `(${desktopStorage.grammardb_size_mb} МБ)` : ''}</div>
-                        )}
-                        {desktopStorage.verbum_path && (
-                          <div><span className="text-indigo-400 font-semibold">Слоўнікі Verbum:</span> {desktopStorage.verbum_path} {desktopStorage.verbum_size_mb ? `(${desktopStorage.verbum_size_mb} МБ)` : ''}</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {/* Verbum Offline Dictionaries Deployment Status */}
                   <div className={`mt-1 pt-1 border-t flex items-center justify-between gap-1 text-[7.5px] ${

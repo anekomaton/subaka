@@ -404,3 +404,24 @@ export async function extractAudioTrackNative(
     }
   }
 }
+
+/**
+ * Native audio fetch via curl in Tauri
+ */
+export async function fetchAudioBufferNative(url: string): Promise<string> {
+  if (isTauriDesktop()) {
+    return await invoke<string>('fetch_audio_buffer_native', { url });
+  }
+  throw new Error('fetchAudioBufferNative is only available on desktop');
+}
+
+/**
+ * Native POST JSON request via curl in Tauri
+ */
+export async function postJsonNative(url: string, jsonBody: string): Promise<string> {
+  if (isTauriDesktop()) {
+    return await invoke<string>('post_json_native', { url, jsonBody });
+  }
+  throw new Error('postJsonNative is only available on desktop');
+}
+

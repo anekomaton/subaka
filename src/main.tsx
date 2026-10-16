@@ -3,8 +3,21 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+import { isTauriDesktop } from './utils/tauriBridge';
+
 // Catch and handle global window errors
 if (typeof window !== 'undefined') {
+  // Disable right-click context menu exclusively on desktop version (browser version remains untouched)
+  const handleContextMenu = (event: MouseEvent) => {
+    if (isTauriDesktop() || Boolean((window as any).__TAURI_INTERNALS__) || Boolean((window as any).__TAURI__)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
+  };
+  window.addEventListener('contextmenu', handleContextMenu, { capture: true });
+  document.addEventListener('contextmenu', handleContextMenu, { capture: true });
+
   window.addEventListener('error', (event) => {
     // ResizeObserver loop notifications are standard benign browser notifications during fast resizes
     if (

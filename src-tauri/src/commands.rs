@@ -224,3 +224,114 @@ pub fn lookup_verbum_word(
 ) -> Vec<crate::verbum_db::VerbumArticle> {
     manager.search(&word)
 }
+
+#[tauri::command]
+pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
+    use std::process::Command;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    // 1. Try curl with browser User-Agent and Referer headers
+    let curl_res = Command::new("curl")
+        .args(&[
+            "-s",
+            "-L",
+            "--max-time", "30",
+            "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "-e", "https://translate.google.com/",
+            &url,
+        ])
+        .output();
+
+    if let Ok(output) = curl_res {
+        if output.status.success() && !output.stdout.is_empty() {
+            return Ok(STANDARD.encode(&output.stdout));
+        }
+    }
+
+    // 2. PowerShell fallback (Windows built-in)
+    #[cfg(windows)]
+    {
+        let ps_cmd = format!(
+            "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); $wc.Headers.Add('Referer', 'https://translate.google.com/'); $bytes = $wc.DownloadData($u); [Convert]::ToBase64String($bytes)",
+            url.replace("'", "''")
+        );
+        let ps_res = Command::new("powershell")
+            .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
+            .output();
+
+        if let Ok(output) = ps_res {
+            if output.status.success() {
+                let base64_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !base64_str.is_empty() {
+                    return Ok(base64_str);
+                }
+            }
+        }
+    }
+
+    Err("Не ўдалося спампаваць аўдыёструмень праз натыўны сеткавы драйвер".into())
+}
+
+#[tauri::command]
+pub fn post_json_native(url: String, json_body: String) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    // 1. Try curl using piped STDIN for the JSON body (avoids Windows cmd line quote corruption)
+    let child = Command::new("curl")
+        .args(&[
+            "-s",
+            "-X", "POST",
+            &url,
+            "-H", "Content-Type: application/json; charset=utf-8",
+            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--data-binary", "@-",
+            "--max-time", "45",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+
+    if let Ok(mut c) = child {
+        if let Some(mut stdin) = c.stdin.take() {
+            let _ = stdin.write_all(json_body.as_bytes());
+            let _ = stdin.flush();
+        }
+        if let Ok(output) = c.wait_with_output() {
+            if output.status.success() && !output.stdout.is_empty() {
+                return String::from_utf8(output.stdout)
+                    .map_err(|e| format!("Invalid UTF-8 response: {}", e));
+            }
+        }
+    }
+
+    // 2. PowerShell fallback (Windows built-in)
+    #[cfg(windows)]
+    {
+        let temp_json_path = std::env::temp_dir().join(format!("subaka_req_{}.json", std::process::id()));
+        if let Ok(_) = std::fs::write(&temp_json_path, json_body.as_bytes()) {
+            let ps_cmd = format!(
+                "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $body = Get-Content -Raw -Encoding UTF8 '{}'; $res = Invoke-RestMethod -Uri '{}' -Method POST -ContentType 'application/json; charset=utf-8' -Body $body -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'; if ($res -is [string]) {{ $res }} else {{ $res | ConvertTo-Json -Compress }}",
+                temp_json_path.to_string_lossy().replace("'", "''"),
+                url.replace("'", "''")
+            );
+            let ps_res = Command::new("powershell")
+                .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
+                .output();
+            let _ = std::fs::remove_file(&temp_json_path);
+
+            if let Ok(output) = ps_res {
+                if output.status.success() {
+                    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !text.is_empty() {
+                        return Ok(text);
+                    }
+                }
+            }
+        }
+    }
+
+    Err("Не ўдалося выканаць сеткавы POST запыт для сінтэзу маўлення".into())
+}
+

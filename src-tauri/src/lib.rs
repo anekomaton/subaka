@@ -104,6 +104,8 @@ pub fn run() {
             clear_desktop_temp_cache,
             get_verbum_status,
             lookup_verbum_word,
+            fetch_audio_buffer_native,
+            post_json_native,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SUBaka desktop application");

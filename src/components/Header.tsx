@@ -353,7 +353,7 @@ export default function Header({
                     )}
                   </span>
                   {isTauriDesktop() && (
-                    <span className="font-mono text-[8px] px-1 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30 font-semibold" title="Subaka Desktop Edition (Tauri + Rust + SQLite)">
+                    <span className="font-mono text-[8px] px-1 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30 font-semibold" title="Subaka Desktop Edition">
                       DESKTOP
                     </span>
                   )}
