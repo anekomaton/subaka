@@ -111,9 +111,7 @@
 <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a>
 | **🌐 Вэб-версія** | працуе проста ў браўзеры | не патрабуе ўсталёўкі | рэкамендуецца |
 
-| **Windows** | 10 / 11 (x64, ARM64) |
-
-> Гатовы інсталятар даступны ў раздзеле **[Releases](../../releases)**.
+| **Windows** | 10 / 11 (x64, ARM64) | > Гатовы інсталятар даступны ў раздзеле **[Releases](../../releases)**.
 
 ---
 
