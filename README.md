@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Беларускамоўны рэдактар субцітраў <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a></strong><br>
-  <em>Modern subtitle editor tailored for Belarusian language localization, AI tools, and cross-platform desktop integration.</em>
+  <em>Subtitle editor tailored for Belarusian language localization, AI tools, and cross-platform possibilities.</em>
 </p>
 
 <p align="center">
