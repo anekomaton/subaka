@@ -199,7 +199,7 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-1 pt-1">
                 <span className="flex items-center gap-1 text-[11px]">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  Ключ захоўваецца лакальна ў вашым браўзеры
+                  Ключ захоўваецца лакальна на вашым камп'ютары
                 </span>
                 {apiKey && (
                   <button
