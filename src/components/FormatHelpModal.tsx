@@ -193,7 +193,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                       <span className="text-amber-700 dark:text-amber-400 font-bold">Кэш і часовыя файлы:</span>{' '}
                       <span className="text-slate-900 dark:text-slate-100 font-semibold">{desktopStorage?.cache_dir || desktopStorage?.temp_dir || '%TEMP%\\subaka_*'}</span>
                       <span className="text-slate-600 dark:text-slate-400 text-[10px] block font-sans mt-0.5">
-                        Часовыя нарэзкі аўдыяхваль і прамежкавыя медыяфайлы. Ачышчаюцца кнопкай «Ачысціць усё» без выдалення баз і гласарыя.
+                        Часовыя і прамежкавыя файлы. Ачышчаюцца кнопкай «Ачысціць усё» без выдалення баз і гласарыя.
                       </span>
                     </div>
                     {desktopStorage?.grammardb_path && (
