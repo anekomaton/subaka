@@ -72,6 +72,8 @@ import {
   DesktopStorageInfo
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
+import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
+import { DuplicateTabModal } from './components/DuplicateTabModal';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const isSupportedVoice = (v: any): boolean => typeof v === 'string' && SUPPORTED_VOICES.includes(v);
@@ -92,6 +94,8 @@ export default function App() {
       return 'light';
     }
   });
+
+  const { isDuplicate: isDuplicateTab, takeOver: handleTakeOverTab } = useSingleBrowserTab();
 
   const {
     subtitles,
@@ -219,6 +223,17 @@ export default function App() {
       getDesktopStorageInfo().then((info) => {
         if (info) setDesktopStorage(info);
       });
+      let unlisten: (() => void) | null = null;
+      import('@tauri-apps/api/event').then(({ listen }) => {
+        listen('subaka-pause-playback', () => {
+          setPlaybackState((prev) => ({ ...prev, isPlaying: false }));
+        }).then((un) => {
+          unlisten = un;
+        });
+      }).catch(() => {});
+      return () => {
+        if (unlisten) unlisten();
+      };
     }
   }, []);
 
@@ -2111,6 +2126,15 @@ export default function App() {
 
   // INLINE TTS INDIVIDUAL
   const handleSynthesizeSingle = async (id: string, voiceName: string) => {
+    const targetIndex = subtitles.findIndex((sub) => sub.id === id);
+    if (targetIndex !== -1) {
+      setActiveSubtitleIndex(targetIndex);
+      try {
+        localStorage.setItem('subaka_active_subtitle_index', targetIndex.toString());
+        localStorage.setItem('subaka_active_subtitle_id', id);
+      } catch {}
+    }
+
     const target = subtitles.find((sub) => sub.id === id);
     if (!target) return;
 
@@ -4411,6 +4435,11 @@ export default function App() {
           )}
         </div>
       </footer>
+      <DuplicateTabModal
+        isOpen={isDuplicateTab}
+        onTakeOver={handleTakeOverTab}
+        theme={theme}
+      />
     </div>
   );
 }

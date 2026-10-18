@@ -1306,6 +1306,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
   // Playback of generated line TTS
   const handlePlayAudio = (e: React.MouseEvent) => {
     e.stopPropagation();
+    onSelect();
     
     if (audioInstanceRef.current) {
       audioInstanceRef.current.pause();
@@ -1370,6 +1371,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
 
   const handleTranslateClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    onSelect();
     if (!entry.text.trim()) return;
     setIsTranslating(true);
     try {
@@ -1383,6 +1385,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
 
   const handleSynthesizeClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    onSelect();
     const textToSynth = (entry.translatedText || '').trim();
     if (!textToSynth) return;
 

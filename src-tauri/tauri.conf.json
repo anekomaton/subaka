@@ -15,7 +15,7 @@
         "label": "main",
         "title": "SUBaka",
         "width": 1280,
-        "height": 820,
+        "height": 720,
         "minWidth": 1024,
         "minHeight": 700,
         "resizable": true,

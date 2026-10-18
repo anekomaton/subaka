@@ -86,7 +86,25 @@ impl GrammarDbManager {
         candidate_paths.push(PathBuf::from("/tmp/grammardb.sqlite3"));
         candidate_paths.push(std::env::temp_dir().join("grammardb.sqlite3"));
 
+        // Check candidate paths, including auto-recovery for grammardb.sqlite3.tmp
+        let mut final_paths: Vec<PathBuf> = Vec::new();
         for p in candidate_paths {
+            if !p.exists() {
+                let tmp_p = p.with_file_name("grammardb.sqlite3.tmp");
+                if tmp_p.exists() {
+                    // Try to rename .tmp to .sqlite3, or use .tmp directly if folder is read-only
+                    if std::fs::rename(&tmp_p, &p).is_ok() {
+                        final_paths.push(p);
+                    } else {
+                        final_paths.push(tmp_p);
+                    }
+                    continue;
+                }
+            }
+            final_paths.push(p);
+        }
+
+        for p in final_paths {
             if p.exists() {
                 if let Ok(conn) = Connection::open_with_flags(
                     &p,

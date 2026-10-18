@@ -127,8 +127,26 @@ def build_database():
     conn.execute("CREATE INDEX idx_lemma ON words (lemma)")
     conn.commit()
     conn.close()
+    del conn
+    import gc
+    gc.collect()
+    time.sleep(1.0)
 
-    os.rename(temp_db_path, TARGET_DB)
+    try:
+        if os.path.exists(TARGET_DB):
+            os.remove(TARGET_DB)
+    except Exception:
+        pass
+
+    try:
+        os.replace(temp_db_path, TARGET_DB)
+    except Exception as e:
+        print(f"[GrammarDB Builder] os.replace failed ({e}), attempting copy...")
+        import shutil
+        shutil.copy2(temp_db_path, TARGET_DB)
+        try: os.remove(temp_db_path)
+        except Exception: pass
+
     duration = time.time() - t0
     size_mb = os.path.getsize(TARGET_DB) / (1024 * 1024)
     print(f"[GrammarDB Builder] Success! Inserted {total_inserted:,} words into {TARGET_DB} in {duration:.1f}s ({size_mb:.1f} MB)")

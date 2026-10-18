@@ -8,7 +8,42 @@ use grammar_db::GrammarDbManager;
 use verbum_db::VerbumDbManager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+struct WindowState {
+    width: u32,
+    height: u32,
+    x: Option<i32>,
+    y: Option<i32>,
+    maximized: bool,
+}
+
+fn get_window_state_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_local_data_dir().ok().map(|d| d.join("window_state.json"))
+}
+
+fn save_window_state(window: &tauri::WebviewWindow) {
+    let app = window.app_handle();
+    if let Some(path) = get_window_state_path(app) {
+        let is_max = window.is_maximized().unwrap_or(false);
+        let size = window.inner_size().unwrap_or(tauri::PhysicalSize::new(1280, 720));
+        let pos = window.outer_position().ok();
+        let state = WindowState {
+            width: size.width,
+            height: size.height,
+            x: pos.map(|p| p.x),
+            y: pos.map(|p| p.y),
+            maximized: is_max,
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_string(&state) {
+            let _ = std::fs::write(&path, json);
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,18 +58,45 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .on_window_event(|window, event| {
-            // Close button (X) minimizes to tray
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    // Close button (X) pauses player and minimizes to tray
+                    api.prevent_close();
+                    let _ = window.emit("subaka-pause-playback", ());
+                    save_window_state(window);
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                    save_window_state(window);
+                }
+                _ => {}
             }
         })
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // Restore saved window size & position
+            if let Some(window) = app.get_webview_window("main") {
+                if let Some(path) = get_window_state_path(&handle) {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if let Ok(state) = serde_json::from_str::<WindowState>(&content) {
+                            if state.width >= 600 && state.height >= 400 {
+                                let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
+                            }
+                            if let (Some(x), Some(y)) = (state.x, state.y) {
+                                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                            }
+                            if state.maximized {
+                                let _ = window.maximize();
+                            }
+                        }
+                    }
+                }
+            }
+
             // Setup Tray Icon
             let open_i = MenuItem::with_id(app, "open", "Адкрыць SUBaka", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Закрыць", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Выйсці з SUBaka", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&open_i, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
@@ -51,6 +113,9 @@ pub fn run() {
                             }
                         }
                         "quit" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                save_window_state(&window);
+                            }
                             app.exit(0);
                         }
                         _ => {}

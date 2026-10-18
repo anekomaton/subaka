@@ -888,7 +888,7 @@ export default function Header({
               {isUploadDropdownOpen && (
                 <div
                   style={{ zIndex: 99999 }}
-                  className={`absolute left-0 mt-1 w-52 max-w-[calc(100vw-24px)] rounded-xl border shadow-2xl z-[99999] py-1 flex flex-col text-xs ${
+                  className={`absolute right-0 mt-1 w-52 max-w-[calc(100vw-24px)] rounded-xl border shadow-2xl z-[99999] py-1 flex flex-col text-xs ${
                     theme === 'dark'
                       ? 'bg-slate-900 border-slate-800/80 text-slate-200 shadow-slate-950/90'
                       : 'bg-white border-slate-200 text-slate-800 shadow-slate-400/50'
