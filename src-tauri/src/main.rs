@@ -5,6 +5,8 @@
 mod single_instance {
     use std::ptr::null_mut;
 
+    #[link(name = "kernel32")]
+    #[link(name = "user32")]
     extern "system" {
         fn CreateMutexW(
             lpMutexAttributes: *mut std::ffi::c_void,

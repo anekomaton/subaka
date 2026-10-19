@@ -230,6 +230,7 @@ use std::os::windows::process::CommandExt;
 
 #[inline]
 fn silent_command(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(program);
     #[cfg(windows)]
     {
@@ -244,13 +245,13 @@ pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
 
     // 1. Try curl with browser User-Agent and Referer headers
     let curl_res = silent_command("curl")
-        .args(&[
+        .args([
             "-s",
             "-L",
             "--max-time", "30",
             "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-e", "https://translate.google.com/",
-            &url,
+            url.as_str(),
         ])
         .output();
 
@@ -268,7 +269,7 @@ pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
             url.replace("'", "''")
         );
         let ps_res = silent_command("powershell")
-            .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
+            .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd.as_str()])
             .output();
 
         if let Ok(output) = ps_res {
@@ -291,10 +292,10 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
 
     // 1. Try curl using piped STDIN for the JSON body (avoids Windows cmd line quote corruption)
     let child = silent_command("curl")
-        .args(&[
+        .args([
             "-s",
             "-X", "POST",
-            &url,
+            url.as_str(),
             "-H", "Content-Type: application/json; charset=utf-8",
             "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--data-binary", "@-",
@@ -322,14 +323,14 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
     #[cfg(windows)]
     {
         let temp_json_path = std::env::temp_dir().join(format!("subaka_req_{}.json", std::process::id()));
-        if let Ok(_) = std::fs::write(&temp_json_path, json_body.as_bytes()) {
+        if std::fs::write(&temp_json_path, json_body.as_bytes()).is_ok() {
             let ps_cmd = format!(
                 "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $body = Get-Content -Raw -Encoding UTF8 '{}'; $res = Invoke-RestMethod -Uri '{}' -Method POST -ContentType 'application/json; charset=utf-8' -Body $body -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'; if ($res -is [string]) {{ $res }} else {{ $res | ConvertTo-Json -Compress }}",
                 temp_json_path.to_string_lossy().replace("'", "''"),
                 url.replace("'", "''")
             );
             let ps_res = silent_command("powershell")
-                .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
+                .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd.as_str()])
                 .output();
             let _ = std::fs::remove_file(&temp_json_path);
 

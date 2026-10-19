@@ -32,12 +32,17 @@ jobs:
         shell: bash
         run: |
           chmod +x src-tauri/binaries/download_ffmpeg_sidecars.sh || true
-          bash src-tauri/binaries/download_ffmpeg_sidecars.sh "x86_64-pc-windows-msvc"
+          bash src-tauri/binaries/download_ffmpeg_sidecars.sh "x86_64-pc-windows-msvc" || powershell -ExecutionPolicy Bypass -File src-tauri/binaries/download_ffmpeg_sidecars.ps1
+          if [ ! -f "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe" ]; then
+            powershell -ExecutionPolicy Bypass -File src-tauri/binaries/download_ffmpeg_sidecars.ps1
+          fi
+          ls -lh src-tauri/binaries/
 
       - name: Prepare Resources folder for Desktop Bundle
         shell: bash
         run: |
           mkdir -p src-tauri/resources
+          touch src-tauri/resources/.gitkeep
           # Build Verbum offline SQLite database
           echo "Building Verbum offline dictionary SQLite database..."
           python scripts/build-verbum-db.py src-tauri/resources/verbum_offline.sqlite3 || node scripts/build-verbum-db.cjs src-tauri/resources/verbum_offline.sqlite3 || true
@@ -46,6 +51,13 @@ jobs:
           echo "Building GrammarDB SQLite database from official release..."
           python server/buildGrammarDbFromRelease.py src-tauri/resources/grammardb.sqlite3 || true
           
+          # Rename any completed .tmp files to final names
+          if [ -f "src-tauri/resources/grammardb.sqlite3.tmp" ] && [ ! -f "src-tauri/resources/grammardb.sqlite3" ]; then
+            mv "src-tauri/resources/grammardb.sqlite3.tmp" "src-tauri/resources/grammardb.sqlite3" || cp "src-tauri/resources/grammardb.sqlite3.tmp" "src-tauri/resources/grammardb.sqlite3" || true
+          fi
+          if [ -f "src-tauri/resources/verbum_offline.sqlite3.tmp" ] && [ ! -f "src-tauri/resources/verbum_offline.sqlite3" ]; then
+            mv "src-tauri/resources/verbum_offline.sqlite3.tmp" "src-tauri/resources/verbum_offline.sqlite3" || cp "src-tauri/resources/verbum_offline.sqlite3.tmp" "src-tauri/resources/verbum_offline.sqlite3" || true
+          fi
           # Fallback check
           if [ -f "grammardb.sqlite3" ] && [ ! -f "src-tauri/resources/grammardb.sqlite3" ]; then
             cp grammardb.sqlite3 src-tauri/resources/;
