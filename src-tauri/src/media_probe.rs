@@ -57,9 +57,13 @@ impl MediaProbeService {
     }
 
     fn probe_with_system_cmd(file_path: &str) -> Result<String, String> {
-        let child = Command::new("ffmpeg")
-            .args(["-i", file_path])
-            .output();
+        let mut cmd = Command::new("ffmpeg");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let child = cmd.args(["-i", file_path]).output();
 
         match child {
             Ok(out) => Ok(String::from_utf8_lossy(&out.stderr).to_string()),
@@ -234,9 +238,13 @@ impl MediaProbeService {
     }
 
     fn run_system_extract(args: &[&str], output_path: &str) -> Result<String, String> {
-        let child = Command::new("ffmpeg")
-            .args(args)
-            .output();
+        let mut cmd = Command::new("ffmpeg");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let child = cmd.args(args).output();
 
         match child {
             Ok(out) => {

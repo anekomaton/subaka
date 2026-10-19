@@ -128,12 +128,46 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
       } catch (e) {
         console.warn('[Verbum Modal] Desktop offline search fallback:', e);
       }
+
+      // In desktop mode, if not found in offline DB, try direct verbum.by API if online
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(`https://verbum.by/api/search?q=${encodeURIComponent(term)}`, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timeout);
+        const cType = res.headers.get('content-type') || '';
+        if (res.ok && cType.includes('application/json')) {
+          const data = await res.json();
+          const rawArticles: VerbumArticle[] = Array.isArray(data.Articles) ? data.Articles : [];
+          const cleanArticles = rawArticles.filter(a => a.DictionaryID !== 'grammardb');
+          if (cleanArticles.length > 0) {
+            setArticles(cleanArticles);
+            setLastSearchedWord(term);
+            setFromOfflineFallback(false);
+            setOfflineNotice(null);
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (_) {
+        // verbum.by direct is offline or blocked by CORS
+      }
+
+      setArticles([]);
+      setLastSearchedWord(term);
+      setError(`Слова «${term}» не знойдзена ў аўтаномных слоўніках (папка resources) і на verbum.by`);
+      setIsLoading(false);
+      return;
     }
 
     try {
       const res = await fetch(`/api/verbum/search?q=${encodeURIComponent(term)}`);
-      if (!res.ok) {
-        throw new Error(`Памылка злучэння са слоўнікам (код ${res.status})`);
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('application/json')) {
+        throw new Error(`Слоўнік verbum.by часова недасяжны (код ${res.status})`);
       }
       const data = await res.json();
       const rawArticles: VerbumArticle[] = Array.isArray(data.Articles) ? data.Articles : [];

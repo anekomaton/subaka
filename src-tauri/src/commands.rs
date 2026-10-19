@@ -225,13 +225,25 @@ pub fn lookup_verbum_word(
     manager.search(&word)
 }
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[inline]
+fn silent_command(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 #[tauri::command]
 pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
-    use std::process::Command;
     use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     // 1. Try curl with browser User-Agent and Referer headers
-    let curl_res = Command::new("curl")
+    let curl_res = silent_command("curl")
         .args(&[
             "-s",
             "-L",
@@ -255,7 +267,7 @@ pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
             "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); $wc.Headers.Add('Referer', 'https://translate.google.com/'); $bytes = $wc.DownloadData($u); [Convert]::ToBase64String($bytes)",
             url.replace("'", "''")
         );
-        let ps_res = Command::new("powershell")
+        let ps_res = silent_command("powershell")
             .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
             .output();
 
@@ -275,10 +287,10 @@ pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
 #[tauri::command]
 pub fn post_json_native(url: String, json_body: String) -> Result<String, String> {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     // 1. Try curl using piped STDIN for the JSON body (avoids Windows cmd line quote corruption)
-    let child = Command::new("curl")
+    let child = silent_command("curl")
         .args(&[
             "-s",
             "-X", "POST",
@@ -316,7 +328,7 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
                 temp_json_path.to_string_lossy().replace("'", "''"),
                 url.replace("'", "''")
             );
-            let ps_res = Command::new("powershell")
+            let ps_res = silent_command("powershell")
                 .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
                 .output();
             let _ = std::fs::remove_file(&temp_json_path);

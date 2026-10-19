@@ -10,6 +10,7 @@ import { srtTimeToSeconds, secondsToSrtTime, sanitizeSrtHtml, parseSrt } from '.
 import { extractAudioFromMkv, probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
 import { extractAudioWithFFmpeg, terminateFFmpegWorker } from '../utils/ffmpegExtractor';
 import { extractSrtSubtitles, probeSubtitles, SubtitleTrackInfo, isSupportedSubtitleCodec, downloadRawSubtitleTrack } from '../utils/srtSubtitleExtractor';
+import { saveFileUniversal } from '../utils/tauriBridge';
 
 interface TimelinePlayerProps {
   subtitles: SubtitleEntry[];
@@ -588,16 +589,17 @@ function TimelinePlayerComponent({
     }
   };
 
-  const downloadAudioFile = (file: File, label?: string) => {
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name || (label ? `${label}.aac` : 'audio.aac');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    addToast?.(`Файл ${file.name || 'аўдыя'} захаваны ў спампоўкі!`, 'success');
+  const downloadAudioFile = async (file: File, label?: string) => {
+    const defaultName = file.name || (label ? `${label}.aac` : 'audio.aac');
+    try {
+      const savedPath = await saveFileUniversal(defaultName, file, file.type || 'audio/aac');
+      if (savedPath) {
+        addToast?.(`Файл "${defaultName}" паспяхова захаваны!`, 'success');
+      }
+    } catch (err) {
+      console.error('Audio download error:', err);
+      addToast?.(`Памылка захавання файла "${defaultName}".`, 'error');
+    }
   };
 
   const deleteProcessedTrack = (trackNumber: number) => {
@@ -1064,7 +1066,8 @@ function TimelinePlayerComponent({
 
     const syncPause = () => {
       audio.pause();
-      if (video) {
+      // If the video is paused only because it is actively seeking/scrubbing, do not pause playback
+      if (video && !video.seeking) {
         onPlaybackStateChange({ currentTime: video.currentTime, isPlaying: false });
       }
     };
@@ -1100,8 +1103,6 @@ function TimelinePlayerComponent({
     video.addEventListener('playing', syncPlay);
     video.addEventListener('pause', syncPause);
     video.addEventListener('ended', syncEnded);
-    video.addEventListener('waiting', syncPause);
-    video.addEventListener('stalled', syncPause);
     video.addEventListener('seeking', syncSeek);
     video.addEventListener('seeked', syncSeek);
     video.addEventListener('ratechange', syncRate);
@@ -1121,8 +1122,6 @@ function TimelinePlayerComponent({
       video.removeEventListener('playing', syncPlay);
       video.removeEventListener('pause', syncPause);
       video.removeEventListener('ended', syncEnded);
-      video.removeEventListener('waiting', syncPause);
-      video.removeEventListener('stalled', syncPause);
       video.removeEventListener('seeking', syncSeek);
       video.removeEventListener('seeked', syncSeek);
       video.removeEventListener('ratechange', syncRate);
@@ -1136,7 +1135,9 @@ function TimelinePlayerComponent({
     if (!audio || mediaType !== 'audio') return;
 
     const onPause = () => {
-      onPlaybackStateChange({ currentTime: audio.currentTime, isPlaying: false });
+      if (!audio.seeking) {
+        onPlaybackStateChange({ currentTime: audio.currentTime, isPlaying: false });
+      }
     };
     const onSeeked = () => {
       onPlaybackStateChange({ currentTime: audio.currentTime });

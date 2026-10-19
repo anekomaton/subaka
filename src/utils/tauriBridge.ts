@@ -258,15 +258,17 @@ export async function saveFileUniversal(
         if (typeof content === 'string') {
           await invoke('save_file_direct', { filePath, content });
         } else {
-          // Convert Blob to Base64 for native write
-          const buffer = await content.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
-          let binary = '';
-          const len = bytes.byteLength;
-          for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          const dataBase64 = btoa(binary);
+          // Asynchronously convert Blob to Base64 using native FileReader (non-blocking for large WAV files)
+          const dataBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const res = reader.result as string;
+              const base64 = res.split(',')[1] || '';
+              resolve(base64);
+            };
+            reader.onerror = () => reject(new Error('Failed to encode audio file'));
+            reader.readAsDataURL(content);
+          });
           await invoke('save_binary_file_direct', { filePath, dataBase64 });
         }
         return filePath;

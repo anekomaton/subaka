@@ -74,6 +74,7 @@ import {
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
 import { DuplicateTabModal } from './components/DuplicateTabModal';
+import { desktopTranslateBatch, desktopProofreadBatch, getDesktopGeminiApiKey } from './utils/desktopAiClient';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const isSupportedVoice = (v: any): boolean => typeof v === 'string' && SUPPORTED_VOICES.includes(v);
@@ -854,6 +855,7 @@ export default function App() {
   const cancelProofreadingRef = React.useRef(false);
   const proofreadAbortControllerRef = React.useRef<AbortController | null>(null);
   const [isConvertingPhoneticsAll, setIsConvertingPhoneticsAll] = useState(false);
+  const isClearingWorkspaceRef = React.useRef(false);
 
   // GrammarDB Deployment & Ready Status tracking
   const grammarDbStatus = useGrammarDbFullStatus();
@@ -981,7 +983,7 @@ export default function App() {
 
   // Robust Auto-Save function (saves to IndexedDB and records timestamp)
   const triggerAutosave = useCallback(async (isManual = false) => {
-    if (!isRestored) return;
+    if (!isRestored || isClearingWorkspaceRef.current) return;
     try {
       setIsSaving(true);
       await saveWorkspaceToStorage(
@@ -2096,6 +2098,28 @@ export default function App() {
     const target = subtitles.find((sub) => sub.id === id);
     if (!target || !target.text.trim()) return;
 
+    if (isTauriDesktop()) {
+      const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+      if (!apiKey) {
+        setIsGeminiKeyModalOpen(true);
+        addToast("Для працы перакладу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        return;
+      }
+      try {
+        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }]);
+        if (translations && translations.length > 0) {
+          handleUpdateSubtitle(id, {
+            translatedText: translations[0].translatedText,
+          });
+          addToast("Частковы пераклад паспяховы", "success");
+        }
+      } catch (err: any) {
+        addToast(err.message || "Памылка перакладу", "error");
+        throw err;
+      }
+      return;
+    }
+
     try {
       const response = await fetch("/api/translate", {
         method: "POST",
@@ -2183,6 +2207,61 @@ export default function App() {
     const isArray = targetSubtitles && Array.isArray(targetSubtitles);
     const listToTranslate = isArray ? [...targetSubtitles] : [...subtitles];
     if (listToTranslate.length === 0) return;
+
+    if (isTauriDesktop()) {
+      const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+      if (!apiKey) {
+        setIsGeminiKeyModalOpen(true);
+        addToast("Для працы перакладу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        return;
+      }
+
+      setIsTranslatingAll(true);
+      cancelTranslatingRef.current = false;
+      addToast("Запуск пакетнага перакладу субцітраў праз Gemini AI...", "info");
+
+      try {
+        const chunkSize = 25;
+        const chunks: SubtitleEntry[][] = [];
+        for (let i = 0; i < listToTranslate.length; i += chunkSize) {
+          chunks.push(listToTranslate.slice(i, i + chunkSize));
+        }
+
+        for (let c = 0; c < chunks.length; c++) {
+          if (cancelTranslatingRef.current) break;
+          const chunk = chunks[c];
+          if (chunks.length > 1) {
+            addToast(`Пераклад фрагмента ${c + 1} з ${chunks.length}...`, "info");
+          }
+          const packets = chunk.map((sub) => ({ id: sub.id, text: sub.text }));
+          const translations = await desktopTranslateBatch(packets);
+
+          if (translations && translations.length > 0) {
+            setSubtitles((prev) => {
+              const baseList = isArray ? listToTranslate : prev;
+              const updatedList = baseList.map((sub) => {
+                const match = translations.find((t: any) => String(t.id) === String(sub.id));
+                if (match) return { ...sub, translatedText: match.translatedText };
+                return sub;
+              });
+              return updatedList;
+            });
+          }
+        }
+
+        if (cancelTranslatingRef.current) {
+          addToast("Пакетны пераклад быў прыпынены карыстальнікам.", "info");
+        } else {
+          addToast("Усе субцітры перакладзены на беларускую мову!", "success");
+        }
+      } catch (err: any) {
+        addToast(err.message || "Пакетны пераклад не атрымаўся", "error");
+      } finally {
+        setIsTranslatingAll(false);
+      }
+      return;
+    }
+
     setIsTranslatingAll(true);
     cancelTranslatingRef.current = false;
 
@@ -2804,6 +2883,33 @@ export default function App() {
       return;
     }
 
+    if (isTauriDesktop()) {
+      const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+      if (!apiKey) {
+        setIsGeminiKeyModalOpen(true);
+        addToast("Для працы праверкі правапісу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        return;
+      }
+      addToast("Праверка карткі ШІ...", "info");
+      try {
+        const results = await desktopProofreadBatch([{ id: target.id, text: target.translatedText }]);
+        const match = results.find((r) => String(r.id) === String(id));
+        const issues = match?.issues || [];
+        setSubtitles((prev) =>
+          prev.map((sub) => (String(sub.id) === String(id) ? { ...sub, proofreadIssues: issues } : sub))
+        );
+
+        if (issues.length > 0) {
+          addToast(`Праверка завершана. Знойдзена заўваг/памылак: ${issues.length}. Яны падкрэслены фіялетавым.`, "info");
+        } else {
+          addToast("Памылак не знойдзена.", "success");
+        }
+      } catch (err: any) {
+        addToast(err.message || "Памылка праверкі карткі", "error");
+      }
+      return;
+    }
+
     addToast("Праверка карткі ШІ...", "info");
     try {
       const response = await fetch("/api/proofread", {
@@ -2841,6 +2947,63 @@ export default function App() {
     const listToProofread = subtitles.filter((sub) => (sub.translatedText || "").trim());
     if (listToProofread.length === 0) {
       addToast("Няма тэксту перакладу для праверкі", "info");
+      return;
+    }
+
+    if (isTauriDesktop()) {
+      const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+      if (!apiKey) {
+        setIsGeminiKeyModalOpen(true);
+        addToast("Для працы праверкі правапісу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        return;
+      }
+
+      setIsProofreadingTranslation(true);
+      cancelProofreadingRef.current = false;
+      addToast("Пачалася праверка беларускага перакладу ШІ...", "info");
+
+      try {
+        const chunkSize = 25;
+        const chunks: SubtitleEntry[][] = [];
+        for (let i = 0; i < listToProofread.length; i += chunkSize) {
+          chunks.push(listToProofread.slice(i, i + chunkSize));
+        }
+
+        for (let c = 0; c < chunks.length; c++) {
+          if (cancelProofreadingRef.current) break;
+
+          const chunk = chunks[c];
+          if (chunks.length > 1) {
+            addToast(`Праверка фрагмента ${c + 1} з ${chunks.length}...`, "info");
+          }
+
+          const packets = chunk.map((sub) => ({ id: sub.id, text: sub.translatedText }));
+          const results = await desktopProofreadBatch(packets);
+          if (cancelProofreadingRef.current) break;
+
+          if (results && Array.isArray(results)) {
+            setSubtitles((prev) =>
+              prev.map((sub) => {
+                const match = results.find((r: any) => String(r.id) === String(sub.id));
+                if (match) {
+                  return { ...sub, proofreadIssues: match.issues };
+                }
+                return sub;
+              })
+            );
+          }
+        }
+
+        if (cancelProofreadingRef.current) {
+          addToast("Праверка перакладу спынена", "info");
+        } else {
+          addToast("Праверка ўсяго перакладу паспяхова завершана!", "success");
+        }
+      } catch (err: any) {
+        addToast(err.message || "Памылка праверкі перакладу", "error");
+      } finally {
+        setIsProofreadingTranslation(false);
+      }
       return;
     }
 
@@ -2986,6 +3149,8 @@ export default function App() {
 
   // Clear workspace
   const handleClearAll = async () => {
+    isClearingWorkspaceRef.current = true;
+
     // Interrupted active tasks
     handleCancelTranslate();
     handleCancelTranscribe();
@@ -3033,6 +3198,9 @@ export default function App() {
     if (isTauriDesktop()) {
       await clearDesktopTempCache();
     }
+    setTimeout(() => {
+      isClearingWorkspaceRef.current = false;
+    }, 1500);
     addToast("Працоўная вобласць, часовыя файлы і кэш ачышчаны (граматыка, слоўнікі, гласарый і настройкі захаваны)", "info");
   };
 

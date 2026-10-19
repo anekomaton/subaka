@@ -35,6 +35,7 @@ import { srtTimeToSeconds, secondsToSrtTime, stripSrtTags, getBelarusianSpellTok
 import { stretchSingleAudio } from '../utils/audioMerger';
 import { getPhoneticTranscription } from '../utils/phoneticConverter';
 import { useGrammarDbStatus } from '../utils/useGrammarDbStatus';
+import { saveFileUniversal } from '../utils/tauriBridge';
 
 interface SubtitleItemProps {
   entry: SubtitleEntry;
@@ -3016,14 +3017,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                       throw new Error('Не ўдалося атрымаць аўдыяфайл');
                     }
 
-                    const downloadUrl = URL.createObjectURL(audioBlob);
-                    const link = document.createElement('a');
-                    link.href = downloadUrl;
-                    link.download = filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000);
+                    await saveFileUniversal(filename, audioBlob, 'audio/wav');
                   } catch (err) {
                     console.error("Error stretching or downloading single voiceover:", err);
                   } finally {
