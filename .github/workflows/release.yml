@@ -76,12 +76,12 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'SUBaka v__VERSION__ (Windows x64)'
+          args: --target x86_64-pc-windows-msvc
           releaseBody: |
             ## Рэліз SUBaka для Windows x64
 
-            ### Рэлізныя файлы для спампоўкі:
+            ### Рэлізны файл для спампоўкі:
             - **windows-x64-nsis** (`SUBaka_1.0.0_x64-setup.exe`) — **Галоўны ўсталёўшчык для Windows** (рэкамендаваны для ўсіх карыстальнікаў).
-            - **windows-x64-msi** (`SUBaka_1.0.0_x64-setup.msi`) — Сістэмны MSI-пакет (для карпаратыўнага разгортвання).
 
             *Пры першым запуску слоўнікі і граматычная база аўтаматычна разгортваюцца ў папку `resources`.*
           releaseDraft: false
@@ -97,6 +97,6 @@ jobs:
           name: subaka-windows-x64
           path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
-            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
             src-tauri/target/*/release/bundle/
           if-no-files-found: ignore
