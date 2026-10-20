@@ -11,8 +11,12 @@ import zipfile
 import urllib.request
 import sqlite3
 import xml.etree.cElementTree as ET
-
 import tempfile
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 RELEASE_URL = "https://github.com/Belarus/GrammarDB/releases/download/RELEASE-202601/RELEASE-202601.zip"
 TARGET_DB = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else os.path.join(tempfile.gettempdir(), "grammardb.sqlite3")

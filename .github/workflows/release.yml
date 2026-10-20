@@ -49,29 +49,43 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/resources
           Set-Content -Path src-tauri/resources/.gitkeep -Value "# keep"
+          $env:PYTHONIOENCODING = "utf-8"
+          $env:PYTHONUTF8 = "1"
           
           # Build Verbum offline SQLite database if possible
           Write-Host "Building Verbum offline dictionary SQLite database..."
           try {
             python scripts/build-verbum-db.py src-tauri/resources/verbum_offline.sqlite3
           } catch {
-            Write-Warning "Verbum DB build skipped: $_"
+            Write-Warning "Verbum DB build note: $_"
           }
+          $global:LASTEXITCODE = 0
           
           # Build GrammarDB SQLite database from official release
           Write-Host "Building GrammarDB SQLite database from official release..."
           try {
             python server/buildGrammarDbFromRelease.py src-tauri/resources/grammardb.sqlite3
           } catch {
-            Write-Warning "GrammarDB build skipped: $_"
+            Write-Warning "GrammarDB build note: $_"
           }
+          $global:LASTEXITCODE = 0
           
-          # Ensure any completed .tmp files are renamed
+          # If complete, rename .tmp to .sqlite3; if incomplete/corrupted (< 10MB), delete stub
           if (Test-Path "src-tauri/resources/grammardb.sqlite3.tmp") {
-            Move-Item -Force "src-tauri/resources/grammardb.sqlite3.tmp" "src-tauri/resources/grammardb.sqlite3" -ErrorAction SilentlyContinue
+            $tmpSize = (Get-Item "src-tauri/resources/grammardb.sqlite3.tmp").Length
+            if ($tmpSize -gt 50000000) {
+              Move-Item -Force "src-tauri/resources/grammardb.sqlite3.tmp" "src-tauri/resources/grammardb.sqlite3" -ErrorAction SilentlyContinue
+            } else {
+              Remove-Item -Force "src-tauri/resources/grammardb.sqlite3.tmp" -ErrorAction SilentlyContinue
+            }
           }
           if (Test-Path "src-tauri/resources/verbum_offline.sqlite3.tmp") {
-            Move-Item -Force "src-tauri/resources/verbum_offline.sqlite3.tmp" "src-tauri/resources/verbum_offline.sqlite3" -ErrorAction SilentlyContinue
+            $tmpSize = (Get-Item "src-tauri/resources/verbum_offline.sqlite3.tmp").Length
+            if ($tmpSize -gt 10000000) {
+              Move-Item -Force "src-tauri/resources/verbum_offline.sqlite3.tmp" "src-tauri/resources/verbum_offline.sqlite3" -ErrorAction SilentlyContinue
+            } else {
+              Remove-Item -Force "src-tauri/resources/verbum_offline.sqlite3.tmp" -ErrorAction SilentlyContinue
+            }
           }
           
           # Fallback check from root
@@ -82,6 +96,7 @@ jobs:
             Copy-Item "verbum_offline.sqlite3" "src-tauri/resources/"
           }
           
+          $global:LASTEXITCODE = 0
           Write-Host "Prepared resources folder contents:"
           Get-ChildItem src-tauri/resources/
 
