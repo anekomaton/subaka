@@ -225,15 +225,13 @@ pub fn lookup_verbum_word(
     manager.search(&word)
 }
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
 #[inline]
 fn silent_command(program: &str) -> std::process::Command {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(program);
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     cmd

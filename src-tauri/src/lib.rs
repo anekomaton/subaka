@@ -6,7 +6,7 @@ mod verbum_db;
 use commands::*;
 use grammar_db::GrammarDbManager;
 use verbum_db::VerbumDbManager;
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 
@@ -95,11 +95,11 @@ pub fn run() {
             }
 
             // Setup Tray Icon
-            let open_i = MenuItem::with_id(app, "open", "Адкрыць SUBaka", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Выйсці з SUBaka", true, None::<&str>)?;
+            let open_i = MenuItemBuilder::with_id("open", "Адкрыць SUBaka").build(app)?;
+            let quit_i = MenuItemBuilder::with_id("quit", "Выйсці з SUBaka").build(app)?;
             let tray_menu = Menu::with_items(app, &[&open_i, &quit_i])?;
 
-            let mut tray_builder = TrayIconBuilder::new()
+            let mut tray_builder = TrayIconBuilder::with_id("main-tray")
                 .tooltip("SUBaka")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
@@ -142,7 +142,7 @@ pub fn run() {
                 tray_builder = tray_builder.icon(icon.clone());
             }
 
-            let _tray = tray_builder.build(app)?;
+            let _ = tray_builder.build(app)?;
 
             // Initialize managers
             let g_state: tauri::State<GrammarDbManager> = handle.state();
