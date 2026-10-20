@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   release:
     permissions:
@@ -40,6 +43,8 @@ jobs:
           }
           $item = Get-Item $target
           Write-Host "FFmpeg sidecar ready: $($item.FullName) ($($item.Length) bytes)"
+          # Also place fallback ffmpeg.exe
+          Copy-Item $target "src-tauri/binaries/ffmpeg.exe" -Force
 
       - name: Build Frontend for Desktop
         run: npm run build:client
@@ -100,34 +105,41 @@ jobs:
           Write-Host "Prepared resources folder contents:"
           Get-ChildItem src-tauri/resources/
 
-      - name: Build Desktop Application with Tauri
-        uses: tauri-apps/tauri-action@v1
+      - name: Build Desktop NSIS Installer
+        run: npx tauri build --target x86_64-pc-windows-msvc
+
+      - name: Locate and Stage Windows Installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "src-tauri/target" -Recurse -Filter "*setup.exe" | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "Could not find NSIS setup installer under src-tauri/target!"
+            exit 1
+          }
+          Write-Host "Successfully built: $($installer.FullName) ($($installer.Length) bytes)"
+          New-Item -ItemType Directory -Force -Path "release_artifacts"
+          Copy-Item $installer.FullName "release_artifacts/SUBaka_1.0.0_x64-setup.exe"
+
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SUBaka_1.0.0_x64-setup
+          path: release_artifacts/SUBaka_1.0.0_x64-setup.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ github.ref_name || 'v1.0.0' }}
+          name: 'SUBaka v1.0.0 (Windows x64)'
+          files: release_artifacts/SUBaka_1.0.0_x64-setup.exe
+          body: |
+            ## Рэліз SUBaka для Windows x64 (Галоўны самадастатковы ўсталёўшчык)
+
+            - **`SUBaka_1.0.0_x64-setup.exe`** — адзіны галоўны аўтаномны ўсталёўшчык для Windows (x64).
+            - Уключае ўбудаваны FFmpeg sidecar і базу слоўнікаў у тэчцы `resources/`.
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v__VERSION__
-          releaseName: 'SUBaka v__VERSION__ (Windows x64)'
-          args: --target x86_64-pc-windows-msvc
-          releaseBody: |
-            ## Рэліз SUBaka для Windows x64
-
-            ### Рэлізны файл для спампоўкі:
-            - **windows-x64-nsis** (`SUBaka_1.0.0_x64-setup.exe`) — **Галоўны ўсталёўшчык для Windows** (рэкамендаваны для ўсіх карыстальнікаў).
-
-            *Пры першым запуску слоўнікі і граматычная база аўтаматычна разгортваюцца ў папку `resources`.*
-          releaseDraft: false
-          prerelease: false
-          uploadWorkflowArtifacts: true
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
-
-      - name: Upload Windows Build Artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: subaka-windows-x64
-          path: |
-            src-tauri/target/release/bundle/nsis/*-setup.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-            src-tauri/target/*/release/bundle/
-          if-no-files-found: ignore

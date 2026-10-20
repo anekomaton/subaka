@@ -46,9 +46,7 @@
       "resources/*"
     ],
     "windows": {
-      "certificateThumbprint": null,
-      "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "certificateThumbprint": null
     }
   },
   "plugins": {
