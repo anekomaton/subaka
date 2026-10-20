@@ -15,7 +15,19 @@ if (Test-Path $target) {
 
 Write-Host "Downloading static FFmpeg for Windows ($target)..."
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Invoke-WebRequest -Uri $url -OutFile $target
+
+if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+    & curl.exe -f -L --retry 3 $url -o $target
+} else {
+    $client = New-Object System.Net.WebClient
+    $client.DownloadFile($url, (Join-Path $PSScriptRoot $target))
+}
+
+if (-not (Test-Path $target)) {
+    Write-Error "Error: $target does not exist after download attempt."
+    exit 1
+}
+
 $size = (Get-Item $target).Length
 if ($size -lt 5000000) {
     Write-Error "Downloaded file is smaller than expected ($size bytes). Download failed or returned 404."

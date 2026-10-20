@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build:client"
   },
   "app": {
     "windows": [
@@ -48,10 +48,7 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": "",
-      "nsis": {
-        "installerHooks": "nsis_hooks.nsh"
-      }
+      "timestampUrl": ""
     }
   },
   "plugins": {
