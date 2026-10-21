@@ -6,7 +6,7 @@ mod verbum_db;
 use commands::*;
 use grammar_db::GrammarDbManager;
 use verbum_db::VerbumDbManager;
-use tauri::menu::{Menu, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 
@@ -97,9 +97,12 @@ pub fn run() {
             // Setup Tray Icon
             let open_i = MenuItemBuilder::with_id("open", "Адкрыць SUBaka").build(app)?;
             let quit_i = MenuItemBuilder::with_id("quit", "Выйсці з SUBaka").build(app)?;
-            let tray_menu = Menu::with_items(app, &[&open_i, &quit_i])?;
+            let tray_menu = MenuBuilder::new(app)
+                .item(&open_i)
+                .item(&quit_i)
+                .build()?;
 
-            let mut tray_builder = TrayIconBuilder::with_id("main-tray")
+            let mut tray_builder = TrayIconBuilder::new()
                 .tooltip("SUBaka")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
