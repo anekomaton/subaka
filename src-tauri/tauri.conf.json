@@ -45,9 +45,7 @@
     "resources": [
       "resources/"
     ],
-    "windows": {
-      "certificateThumbprint": null
-    }
+    "windows": {}
   },
   "plugins": {
     "shell": {

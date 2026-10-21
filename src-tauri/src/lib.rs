@@ -145,7 +145,9 @@ pub fn run() {
                 tray_builder = tray_builder.icon(icon.clone());
             }
 
-            let _ = tray_builder.build(app)?;
+            if let Err(e) = tray_builder.build(app) {
+                log::warn!("Could not create system tray icon: {}", e);
+            }
 
             // Initialize managers
             let g_state: tauri::State<GrammarDbManager> = handle.state();
