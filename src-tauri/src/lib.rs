@@ -23,7 +23,7 @@ fn get_window_state_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_local_data_dir().ok().map(|d| d.join("window_state.json"))
 }
 
-fn save_window_state(window: &tauri::WebviewWindow) {
+fn save_window_state(window: &tauri::Window) {
     let app = window.app_handle();
     if let Some(path) = get_window_state_path(app) {
         let is_max = window.is_maximized().unwrap_or(false);
@@ -116,7 +116,7 @@ pub fn run() {
                             }
                         }
                         "quit" => {
-                            if let Some(window) = app.get_webview_window("main") {
+                            if let Some(window) = app.get_window("main") {
                                 save_window_state(&window);
                             }
                             app.exit(0);
