@@ -78,19 +78,39 @@ jobs:
       - name: Build Frontend for Desktop
         run: npm run build:client
 
-      - name: Prepare Resources folder for Desktop Bundle
+      - name: Build Offline Dictionaries & GrammarDB into Resources
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
-          Set-Content -Path src-tauri/resources/.gitkeep -Value "# keep"
-          if (Test-Path "grammardb.sqlite3") {
-            Copy-Item "grammardb.sqlite3" "src-tauri/resources/" -Force
+          $resDir = Join-Path (Get-Location) "src-tauri/resources"
+          New-Item -ItemType Directory -Force -Path $resDir | Out-Null
+          Set-Content -Path (Join-Path $resDir ".gitkeep") -Value "# keep"
+
+          # 1. Build Verbum Offline Dictionaries (TSBLM, Klyshka, RBS, ESBM)
+          $verbumTarget = Join-Path $resDir "verbum_offline.sqlite3"
+          if (-not (Test-Path $verbumTarget) -or (Get-Item $verbumTarget).Length -lt 10000000) {
+            Write-Host "Building offline Verbum dictionaries (TSBLM, Klyshka, RBS, ESBM) into resources..."
+            try {
+              python scripts/build-verbum-db.py $verbumTarget
+            } catch {
+              Write-Host "Warning: build-verbum-db.py caught error: $_"
+            }
           }
-          if (Test-Path "verbum_offline.sqlite3") {
-            Copy-Item "verbum_offline.sqlite3" "src-tauri/resources/" -Force
+
+          # 2. Build GrammarDB from Official Belarus/GrammarDB Release
+          $grammarTarget = Join-Path $resDir "grammardb.sqlite3"
+          if (-not (Test-Path $grammarTarget) -or (Get-Item $grammarTarget).Length -lt 10000000) {
+            Write-Host "Building offline GrammarDB (2M+ word forms) into resources..."
+            try {
+              python server/buildGrammarDbFromRelease.py $grammarTarget
+            } catch {
+              Write-Host "Warning: buildGrammarDbFromRelease.py caught error: $_"
+            }
           }
+
           Write-Host "Prepared resources folder contents:"
-          Get-ChildItem src-tauri/resources/
+          Get-ChildItem $resDir | ForEach-Object {
+            Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1MB, 2)) MB"
+          }
 
       - name: Build Desktop NSIS Installer
         run: npx tauri build --ci --no-sign --ignore-version-mismatches --verbose
@@ -161,7 +181,7 @@ jobs:
             ## Рэліз SUBaka для Windows x64 (інсталятар)
 
             - **`SUBaka_1.0.0_x64-setup.exe`** — аўтаномны інсталятар для Windows (x64).
-            - Уключае ўбудаваны FFmpeg sidecar і базы ў `resources/`.
+            - Уключае ўбудаваны FFmpeg sidecar і гатовыя афлайн-базы (`verbum_offline.sqlite3` і `grammardb.sqlite3` на 2+ млн словаформаў) у каталогу `resources/`.
           draft: false
           prerelease: false
           make_latest: true

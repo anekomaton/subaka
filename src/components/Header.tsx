@@ -335,28 +335,23 @@ export default function Header({
               title={theme === 'dark' ? 'Пераключыць на светлую тэму' : 'Пераключыць на цёмную тэму'}
             >
               <div className="w-9 h-9 rounded-xl border border-transparent bg-transparent flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:border-amber-500/50 transition-all p-1 overflow-hidden">
-                <SubakaLogo className="w-full h-full object-contain" id="header-dog-logo" aria-label="Лагатып СУБАКА" />
+                <SubakaLogo className="w-full h-full object-contain" id="header-dog-logo" aria-label="Лагатып SUBaka" />
               </div>
               <div className="leading-tight">
-                <h1 className="text-xs sm:text-sm font-extrabold tracking-tight text-amber-500 dark:text-amber-400 flex items-center gap-0.5">
-                  {isTauriDesktop() ? 'SUBaka' : 'СУБАКА'} 
-                  <span className={`font-medium text-[8px] border px-0.5 rounded flex items-center gap-0.5 ${
+                <h1 className="text-xs sm:text-sm font-extrabold tracking-tight text-amber-500 dark:text-amber-400 flex items-center gap-1">
+                  SUBaka
+                  <span className={`font-mono text-[8px] border px-1 py-0.5 rounded flex items-center gap-0.5 leading-none ${
                     theme === 'dark'
                       ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
                       : 'text-blue-700 bg-blue-50 border-blue-200'
                   }`}>
-                    ENBE
                     {theme === 'dark' ? (
-                      <Sun className="w-2 h-2 text-amber-400 fill-amber-400" />
+                      <Sun className="w-2 h-2 text-amber-400 fill-amber-400 shrink-0" />
                     ) : (
-                      <Moon className="w-2 h-2 text-indigo-600 fill-indigo-600" />
+                      <Moon className="w-2 h-2 text-indigo-600 fill-indigo-600 shrink-0" />
                     )}
+                    {isTauriDesktop() && <span>пк</span>}
                   </span>
-                  {isTauriDesktop() && (
-                    <span className="font-mono text-[8px] px-1 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30 font-semibold" title="Subaka Desktop Edition">
-                      DESKTOP
-                    </span>
-                  )}
                 </h1>
                 <p className={`text-[8px] leading-none ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600 font-semibold'}`}>
                   рэдактар субцітраў
