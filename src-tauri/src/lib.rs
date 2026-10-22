@@ -116,9 +116,6 @@ pub fn run() {
                             }
                         }
                         "quit" => {
-                            if let Some(window) = app.get_window("main") {
-                                save_window_state(&window);
-                            }
                             app.exit(0);
                         }
                         _ => {}
