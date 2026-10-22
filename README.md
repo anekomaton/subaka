@@ -2,7 +2,7 @@
   <img src="public/favicon.svg" alt="Субака Лагатып" width="100" height="100" />
 </p>
 
-<h1 align="center">Субака · Subaka</h1>
+<h1 align="center">SUBaka · Субака</h1>
 
 <p align="center">
   <strong>Беларускамоўны рэдактар субцітраў <a href="https://subaka.ai.studio/" target="_blank" rel="noopener noreferrer">https://subaka.ai.studio/</a></strong><br>
@@ -20,7 +20,7 @@
 
 ## English Summary
 
-**Subaka** is an open-source, full-featured subtitle editor and audiovisual localization workstation designed for translators, editors, voiceover artists, and content creators focusing on the Belarusian language. 
+**SUBaka** is an open-source, full-featured subtitle editor and audiovisual localization workstation designed for translators, editors, voiceover artists, and content creators focusing on the Belarusian language. 
 
 ### Key Highlights:
 - **Comprehensive Belarusian NLP Stack:** Built-in offline GrammarDB database (3.98M inflected word forms), BelG2P phonetics and stress mark placement, Hunspell-BE spellchecking, PravilnaBy orthographic rule validation, and native integration with Verbum.by dictionaries.
