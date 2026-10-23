@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Key, X, ExternalLink, Eye, EyeOff, Check, Trash2, ShieldCheck, Sparkles } from 'lucide-react';
+import { isTauriDesktop } from '../utils/tauriBridge';
 
 interface GeminiApiKeyModalProps {
   isOpen: boolean;
@@ -138,7 +139,10 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
                     і атрымаць асабісты ключ (GEMINI_API_KEY)
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
-                    Бясплатна - Free Tier без уводу банкаўскай карты. Ключ забяспечвае асабісты ліміт запытаў. Калі ключ не ўведзены, выкарыстоўваецца агульны API-ключ праграмы.
+                    Бясплатна - Free Tier без уводу банкаўскай карты. Ключ забяспечвае асабісты ліміт запытаў.{' '}
+                    {isTauriDesktop()
+                      ? 'Калі ключ не ўведзены, AI функцыі не працуюць.'
+                      : 'Калі ключ не ўведзены, выкарыстоўваецца агульны API-ключ праграмы.'}
                   </p>
                 </div>
               </div>

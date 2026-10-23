@@ -644,6 +644,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
   };
 
   const handleGrammarDbSearch = async () => {
+    onSelect();
     const transTextarea = transTextareaRef.current;
     const origTextarea = origTextareaRef.current;
     const transText = localTransText;
@@ -806,6 +807,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
   };
 
   const handleVerbumSearch = () => {
+    onSelect();
     const transTextarea = transTextareaRef.current;
     const origTextarea = origTextareaRef.current;
     const transText = localTransText;
@@ -1388,6 +1390,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
   const hasTransText = Boolean((localTransText || entry.translatedText || '').trim());
 
   const handleProofreadCard = async () => {
+    onSelect();
     if (!hasTransText) return;
     if (entry.proofreadIssues && entry.proofreadIssues.length > 0) {
       if (activeIssue) {
@@ -1744,6 +1747,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                       setOrigActorHighlightedIndex(-1);
                     }}
                     onFocus={() => {
+                      onSelect();
                       openOrigActorDropdown();
                     }}
                     onBlur={handleOrigActorBlur}
@@ -1941,7 +1945,13 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
             <textarea
               ref={origTextareaRef}
               value={localText}
-              onChange={(e) => handleOrigTextChange(e.target.value)}
+              onChange={(e) => {
+                onSelect();
+                handleOrigTextChange(e.target.value);
+              }}
+              onFocus={() => {
+                onSelect();
+              }}
               onBlur={handleOrigTextBlur}
               onScroll={(e) => {
                 if (origBackdropRef.current) {
@@ -1966,7 +1976,10 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                   ? 'bg-slate-950 border-slate-900 focus:border-white text-slate-200 focus:ring-1 focus:ring-white/20'
                   : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20'
               }`}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+              }}
             />
           </div>
         </div>
@@ -1993,6 +2006,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                       setActorHighlightedIndex(-1);
                     }}
                     onFocus={() => {
+                      onSelect();
                       openActorDropdown();
                     }}
                     onBlur={handleActorBlur}
@@ -2137,6 +2151,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    onSelect();
                     handleProofreadCard();
                   }}
                   disabled={!hasTransText || isProofreadingCard}
@@ -2185,6 +2200,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    onSelect();
                     handleVerbumSearch();
                   }}
                   className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded border transition-all flex items-center gap-0.5 whitespace-nowrap shrink-0 shadow-xs cursor-pointer ${
@@ -2205,6 +2221,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    onSelect();
                     if (!isGrammarDbReady) return;
                     handleGrammarDbSearch();
                   }}
@@ -2887,7 +2904,13 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
               <textarea
                 ref={transTextareaRef}
                 value={localTransText}
-                onChange={(e) => handleTransTextChange(e.target.value)}
+                onChange={(e) => {
+                  onSelect();
+                  handleTransTextChange(e.target.value);
+                }}
+                onFocus={() => {
+                  onSelect();
+                }}
                 onBlur={handleTransTextBlur}
                 onScroll={(e) => {
                   if (transBackdropRef.current) {
@@ -2897,6 +2920,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  onSelect();
                 }}
                 placeholder="Пераклад..."
                 spellCheck={false}

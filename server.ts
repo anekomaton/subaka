@@ -215,9 +215,14 @@ const MODEL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
 const DEFAULT_FALLBACK_MODELS = [
   "gemini-3.8-flash",
+  "gemini-3.7-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-3.7-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
 ];
 
 const quotaExhaustedModels = new Map<string, number>();
@@ -282,7 +287,6 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
             const cleanName = m.name.replace(/^models\//, "");
             if (
               cleanName.includes("gemini") &&
-              !cleanName.includes("1.5") &&
               !cleanName.includes("embedding") &&
               !cleanName.includes("imagen") &&
               !cleanName.includes("image") &&
@@ -304,19 +308,44 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
     if (pool.length > 0) {
       const sorted = pool.sort((a, b) => {
         const getScore = (id: string) => {
-          if (id === "gemini-3.1-flash-lite") return 130;
-          if (id === "gemini-3.7-flash") return 125;
-          if (id === "gemini-flash-latest") return 120;
-          if (id === "gemini-3.8-flash") return 115;
-          if (id === "gemini-2.5-flash") return 110;
-          if (id === "gemini-2.5-flash-lite") return 105;
-          if (id.includes("3.1-flash")) return 100;
-          if (id.includes("3.7")) return 95;
-          if (id.includes("3.8")) return 90;
-          if (id.includes("2.5")) return 85;
-          if (id.includes("flash") && !id.includes("lite")) return 80;
-          if (id.includes("flash")) return 70;
+          // 3.8 (newest)
+          if (id === "gemini-3.8-flash") return 200;
+          if (id.includes("3.8-flash")) return 195;
+          if (id.includes("3.8")) return 190;
+
+          // 3.7
+          if (id === "gemini-3.7-flash") return 180;
+          if (id.includes("3.7")) return 175;
+
+          // 3.1
+          if (id === "gemini-3.1-flash-lite") return 170;
+          if (id.includes("3.1-flash")) return 165;
+          if (id.includes("3.1")) return 160;
+
+          // Latest alias
+          if (id === "gemini-flash-latest") return 155;
+
+          // 2.5
+          if (id === "gemini-2.5-flash") return 150;
+          if (id === "gemini-2.5-flash-lite") return 145;
+          if (id.includes("2.5")) return 140;
+
+          // 2.0
+          if (id === "gemini-2.0-flash") return 130;
+          if (id === "gemini-2.0-flash-lite") return 125;
+          if (id.includes("2.0")) return 120;
+
+          // Flash general
+          if (id.includes("flash") && !id.includes("lite") && !id.includes("1.5")) return 110;
+
+          // 1.5
+          if (id === "gemini-1.5-flash") return 100;
+          if (id.includes("1.5-flash")) return 95;
+          if (id.includes("1.5")) return 90;
+
+          // Pro models as last resort
           if (id.includes("pro")) return 50;
+
           return 10;
         };
         return getScore(b) - getScore(a);
@@ -1538,13 +1567,12 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
     let transcribeResponse: any = null;
     const allModels = await getDynamicModels(client);
 
-    // Filter models to valid supported Gemini models
+    // Filter models to valid supported Gemini models ordered newest to oldest
     let transcribeModels = allModels.filter(m =>
-      (m === "gemini-3.8-flash" || m === "gemini-3.1-flash-lite" || m === "gemini-flash-latest" || m === "gemini-3.7-flash" || m.includes("3.8") || m.includes("3.1-flash-lite") || m.includes("flash-latest") || m.includes("3.7")) &&
       !m.includes("image") && !m.includes("tts") && !m.includes("live") && !m.includes("pro")
     );
     if (transcribeModels.length === 0) {
-      transcribeModels = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"];
+      transcribeModels = [...DEFAULT_FALLBACK_MODELS];
     }
 
     let currentPercent = Math.max(startPercent + 15, Math.floor((startPercent + endPercent) / 2));
