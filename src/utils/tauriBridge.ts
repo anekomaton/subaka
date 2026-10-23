@@ -136,6 +136,14 @@ export async function lookupGrammarWord(query: string): Promise<DesktopGrammarSe
     } catch (err) {
       console.warn('[TauriBridge] Native lookup_grammar_word failed:', err);
     }
+    return {
+      query,
+      clean: query.trim().toLowerCase(),
+      found: false,
+      stressed: query,
+      forms: [],
+      db_ready: false,
+    };
   }
 
   // Web endpoint fallback
@@ -160,6 +168,7 @@ export async function batchCheckWords(words: string[]): Promise<Record<string, b
     } catch (err) {
       console.warn('[TauriBridge] Native batch_check_words failed:', err);
     }
+    return {};
   }
 
   // Web endpoint fallback
@@ -425,5 +434,31 @@ export async function postJsonNative(url: string, jsonBody: string): Promise<str
     return await invoke<string>('post_json_native', { url, jsonBody });
   }
   throw new Error('postJsonNative is only available on desktop');
+}
+
+/**
+ * Native GET request for verbum.by in Tauri (bypasses CORS in desktop WebView)
+ */
+export async function fetchVerbumOnlineNative(url: string): Promise<any | null> {
+  if (isTauriDesktop()) {
+    try {
+      const res = await invoke<string>('fetch_verbum_online_native', { url });
+      if (res) {
+        return JSON.parse(res);
+      }
+    } catch (err) {
+      console.warn('[TauriBridge] Native verbum online fetch failed:', err);
+    }
+    return null;
+  }
+
+  // In web browser, use proxy or direct fetch
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (_) {}
+  return null;
 }
 

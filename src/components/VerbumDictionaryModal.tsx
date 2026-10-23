@@ -9,7 +9,7 @@ import {
   filterVerbumArticles 
 } from '../types/verbum';
 import { useVerbumDbFullStatus } from '../utils/useVerbumDbStatus';
-import { isTauriDesktop, lookupDesktopVerbum } from '../utils/tauriBridge';
+import { isTauriDesktop, lookupDesktopVerbum, fetchVerbumOnlineNative } from '../utils/tauriBridge';
 
 interface VerbumDictionaryModalProps {
   isOpen: boolean;
@@ -129,31 +129,24 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
         console.warn('[Verbum Modal] Desktop offline search fallback:', e);
       }
 
-      // In desktop mode, if not found in offline DB, try direct verbum.by API if online
+      // In desktop mode, if not found in offline DB, try online verbum.by API via native network driver (bypasses CORS)
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`https://verbum.by/api/search?q=${encodeURIComponent(term)}`, {
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        });
-        clearTimeout(timeout);
-        const cType = res.headers.get('content-type') || '';
-        if (res.ok && cType.includes('application/json')) {
-          const data = await res.json();
-          const rawArticles: VerbumArticle[] = Array.isArray(data.Articles) ? data.Articles : [];
+        const targetUrl = `https://verbum.by/api/search?q=${encodeURIComponent(term)}`;
+        const onlineData = await fetchVerbumOnlineNative(targetUrl);
+        if (onlineData && Array.isArray(onlineData.Articles)) {
+          const rawArticles: VerbumArticle[] = onlineData.Articles;
           const cleanArticles = rawArticles.filter(a => a.DictionaryID !== 'grammardb');
           if (cleanArticles.length > 0) {
             setArticles(cleanArticles);
             setLastSearchedWord(term);
             setFromOfflineFallback(false);
-            setOfflineNotice(null);
+            setOfflineNotice('Анлайн-пошук на verbum.by');
             setIsLoading(false);
             return;
           }
         }
-      } catch (_) {
-        // verbum.by direct is offline or blocked by CORS
+      } catch (err) {
+        console.warn('[Verbum Modal] Desktop native online search error:', err);
       }
 
       setArticles([]);

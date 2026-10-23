@@ -35,7 +35,7 @@ import { srtTimeToSeconds, secondsToSrtTime, stripSrtTags, getBelarusianSpellTok
 import { stretchSingleAudio } from '../utils/audioMerger';
 import { getPhoneticTranscription } from '../utils/phoneticConverter';
 import { useGrammarDbStatus } from '../utils/useGrammarDbStatus';
-import { saveFileUniversal } from '../utils/tauriBridge';
+import { saveFileUniversal, lookupGrammarWord } from '../utils/tauriBridge';
 
 interface SubtitleItemProps {
   entry: SubtitleEntry;
@@ -783,29 +783,12 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
 
     setIsGrammarDbLoading(true);
     try {
-      const res = await fetch('/api/grammardb/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: queryText }),
+      const data = await lookupGrammarWord(queryText);
+      setGrammarDbResult({
+        ...data,
+        sourceField: targetField,
+        selectionRange: savedRange,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setGrammarDbResult({
-          ...data,
-          sourceField: targetField,
-          selectionRange: savedRange,
-        });
-      } else {
-        setGrammarDbResult({
-          query: queryText,
-          stressed: '',
-          found: false,
-          forms: [],
-          errorMessage: 'Граматычная база яшчэ рыхтуецца або недаступная на серверы. Паспрабуйце яшчэ раз праз момант.',
-          sourceField: targetField,
-          selectionRange: savedRange
-        });
-      }
     } catch (e) {
       console.error('GrammarDB search error:', e);
       setGrammarDbResult({
@@ -813,7 +796,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
         stressed: '',
         found: false,
         forms: [],
-        errorMessage: 'Памылка злучэння з серверам. Паспрабуйце яшчэ раз.',
+        errorMessage: 'Памылка злучэння з граматычнай базай. Паспрабуйце яшчэ раз.',
         sourceField: targetField,
         selectionRange: savedRange
       });

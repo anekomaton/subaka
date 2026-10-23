@@ -21,6 +21,7 @@ tauri = { version = "2.1", features = ["tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-fs = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"

@@ -1305,8 +1305,10 @@ export default function App() {
     try {
       if (trimmed) {
         localStorage.setItem('subaka_gemini_api_key', trimmed);
+        localStorage.setItem('gemini_api_key', trimmed);
       } else {
         localStorage.removeItem('subaka_gemini_api_key');
+        localStorage.removeItem('gemini_api_key');
       }
     } catch {}
     if (trimmed) {
@@ -2106,7 +2108,7 @@ export default function App() {
         return;
       }
       try {
-        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }]);
+        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }], apiKey);
         if (translations && translations.length > 0) {
           handleUpdateSubtitle(id, {
             translatedText: translations[0].translatedText,
@@ -2234,7 +2236,7 @@ export default function App() {
             addToast(`Пераклад фрагмента ${c + 1} з ${chunks.length}...`, "info");
           }
           const packets = chunk.map((sub) => ({ id: sub.id, text: sub.text }));
-          const translations = await desktopTranslateBatch(packets);
+          const translations = await desktopTranslateBatch(packets, apiKey);
 
           if (translations && translations.length > 0) {
             setSubtitles((prev) => {
@@ -2892,7 +2894,7 @@ export default function App() {
       }
       addToast("Праверка карткі ШІ...", "info");
       try {
-        const results = await desktopProofreadBatch([{ id: target.id, text: target.translatedText }]);
+        const results = await desktopProofreadBatch([{ id: target.id, text: target.translatedText }], apiKey);
         const match = results.find((r) => String(r.id) === String(id));
         const issues = match?.issues || [];
         setSubtitles((prev) =>
@@ -2978,7 +2980,7 @@ export default function App() {
           }
 
           const packets = chunk.map((sub) => ({ id: sub.id, text: sub.translatedText }));
-          const results = await desktopProofreadBatch(packets);
+          const results = await desktopProofreadBatch(packets, apiKey);
           if (cancelProofreadingRef.current) break;
 
           if (results && Array.isArray(results)) {

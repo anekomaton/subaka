@@ -43,17 +43,27 @@ pub fn get_grammar_status(
 
 #[tauri::command]
 pub fn lookup_grammar_word(
+    app: AppHandle,
     word: String,
     manager: State<'_, GrammarDbManager>,
 ) -> GrammarSearchResult {
+    let status = manager.get_status();
+    if !status.ready {
+        let _ = manager.initialize(&app);
+    }
     manager.lookup(&word)
 }
 
 #[tauri::command]
 pub fn batch_check_words(
+    app: AppHandle,
     words: Vec<String>,
     manager: State<'_, GrammarDbManager>,
 ) -> HashMap<String, bool> {
+    let status = manager.get_status();
+    if !status.ready {
+        let _ = manager.initialize(&app);
+    }
     manager.batch_check(words)
 }
 
@@ -219,9 +229,14 @@ pub fn get_verbum_status(
 
 #[tauri::command]
 pub fn lookup_verbum_word(
+    app: AppHandle,
     word: String,
     manager: State<'_, crate::verbum_db::VerbumDbManager>,
 ) -> Vec<crate::verbum_db::VerbumArticle> {
+    let status = manager.get_status();
+    if !status.ready {
+        let _ = manager.initialize(&app);
+    }
     manager.search(&word)
 }
 
@@ -344,5 +359,51 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
     }
 
     Err("Не ўдалося выканаць сеткавы POST запыт для сінтэзу маўлення".into())
+}
+
+#[tauri::command]
+pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
+    // 1. Try curl with browser User-Agent and Referer headers
+    let curl_res = silent_command("curl")
+        .args([
+            "-s",
+            "-L",
+            "--max-time", "15",
+            "-H", "Accept: application/json",
+            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "-H", "Referer: https://verbum.by/",
+            url.as_str(),
+        ])
+        .output();
+
+    if let Ok(output) = curl_res {
+        if output.status.success() && !output.stdout.is_empty() {
+            return String::from_utf8(output.stdout)
+                .map_err(|e| format!("Invalid UTF-8 response: {}", e));
+        }
+    }
+
+    // 2. PowerShell fallback (Windows built-in)
+    #[cfg(windows)]
+    {
+        let ps_cmd = format!(
+            "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Encoding = [System.Text.Encoding]::UTF8; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); $wc.Headers.Add('Referer', 'https://verbum.by/'); $wc.Headers.Add('Accept', 'application/json'); $wc.DownloadString($u)",
+            url.replace("'", "''")
+        );
+        let ps_res = silent_command("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd.as_str()])
+            .output();
+
+        if let Ok(output) = ps_res {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+    }
+
+    Err("Не ўдалося злучыцца з verbum.by праз натыўны сеткавы кліент".into())
 }
 

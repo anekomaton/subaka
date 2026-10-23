@@ -51,6 +51,13 @@ pub fn run() {
     let verbum_manager = VerbumDbManager::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(grammar_manager)
         .manage(verbum_manager)
         .plugin(tauri_plugin_log::Builder::default().build())
@@ -173,6 +180,7 @@ pub fn run() {
             lookup_verbum_word,
             fetch_audio_buffer_native,
             post_json_native,
+            fetch_verbum_online_native,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SUBaka desktop application");
