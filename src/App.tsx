@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0 license
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -74,7 +74,11 @@ import {
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
 import { DuplicateTabModal } from './components/DuplicateTabModal';
-import { desktopTranslateBatch, desktopProofreadBatch, getDesktopGeminiApiKey } from './utils/desktopAiClient';
+import {
+  desktopTranslateBatch,
+  desktopProofreadBatch,
+  getDesktopGeminiApiKey,
+} from './utils/desktopAiClient';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const isSupportedVoice = (v: any): boolean => typeof v === 'string' && SUPPORTED_VOICES.includes(v);
@@ -2108,7 +2112,7 @@ export default function App() {
         return;
       }
       try {
-        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }], apiKey);
+        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }], 'Belarusian', apiKey);
         if (translations && translations.length > 0) {
           handleUpdateSubtitle(id, {
             translatedText: translations[0].translatedText,
@@ -2236,7 +2240,7 @@ export default function App() {
             addToast(`Пераклад фрагмента ${c + 1} з ${chunks.length}...`, "info");
           }
           const packets = chunk.map((sub) => ({ id: sub.id, text: sub.text }));
-          const translations = await desktopTranslateBatch(packets, apiKey);
+          const translations = await desktopTranslateBatch(packets, 'Belarusian', apiKey);
 
           if (translations && translations.length > 0) {
             setSubtitles((prev) => {

@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0 license
  */
 
 import React, { useRef, useState, useEffect } from 'react';
@@ -309,7 +309,7 @@ export default function Header({
               <button
                 type="button"
                 onClick={onOpenGeminiKeyModal}
-                className={`flex items-center gap-1 px-1 py-0.5 text-[7px] leading-[14px] font-bold border rounded-lg transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap ${
+                className={`flex items-center gap-1 px-1.5 py-0.5 text-[7px] leading-[14px] font-bold border rounded-lg transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap ${
                   geminiApiKey
                     ? theme === 'dark'
                       ? 'bg-purple-950/40 hover:bg-purple-900/60 border-purple-500/50 text-purple-300 shadow-purple-950/30'

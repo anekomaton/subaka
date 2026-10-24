@@ -216,13 +216,9 @@ const MODEL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 const DEFAULT_FALLBACK_MODELS = [
   "gemini-3.8-flash",
   "gemini-3.7-flash",
+  "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
 ];
 
 const quotaExhaustedModels = new Map<string, number>();
@@ -247,12 +243,30 @@ export function markModelQuotaExhausted(modelName: string) {
   markModelTemporaryUnavailable(modelName, "quota exhausted");
 }
 
+function isModelDeprecated(name: string): boolean {
+  return (
+    name.includes("1.5") ||
+    name.includes("2.0") ||
+    name.includes("2.5") ||
+    name.includes("pro") ||
+    name.includes("embedding") ||
+    name.includes("imagen") ||
+    name.includes("image") ||
+    name.includes("tts") ||
+    name.includes("live") ||
+    name.includes("aqa") ||
+    name.includes("bison") ||
+    name.includes("robotics")
+  );
+}
+
 function filterAndPrioritizeModels(modelsList: string[]): string[] {
   const now = Date.now();
   const active: string[] = [];
   const deprioritized: string[] = [];
 
   for (const m of modelsList) {
+    if (isModelDeprecated(m)) continue;
     const time = quotaExhaustedModels.get(m);
     if (time && now - time < QUOTA_EXHAUSTED_TTL_MS) {
       deprioritized.push(m);
@@ -262,9 +276,9 @@ function filterAndPrioritizeModels(modelsList: string[]): string[] {
     }
   }
 
-  // If all models are deprioritized, return full list so we still have fallbacks
+  // If all models are deprioritized, return full active list so we still have fallbacks
   if (active.length === 0) {
-    return modelsList;
+    return modelsList.filter((m) => !isModelDeprecated(m));
   }
   return [...active, ...deprioritized];
 }
@@ -285,18 +299,7 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
           const supported = (m as any).supportedGenerationMethods || (m as any).supportedActions || [];
           if (supported.includes("generateContent") || supported.length === 0) {
             const cleanName = m.name.replace(/^models\//, "");
-            if (
-              cleanName.includes("gemini") &&
-              !cleanName.includes("embedding") &&
-              !cleanName.includes("imagen") &&
-              !cleanName.includes("image") &&
-              !cleanName.includes("tts") &&
-              !cleanName.includes("live") &&
-              !cleanName.includes("pro") &&
-              !cleanName.includes("aqa") &&
-              !cleanName.includes("bison") &&
-              !cleanName.includes("robotics")
-            ) {
+            if (cleanName.includes("gemini") && !isModelDeprecated(cleanName)) {
               modelsList.push(cleanName);
             }
           }
@@ -304,48 +307,20 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
       }
     }
 
-    const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...modelsList]));
+    const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...modelsList])).filter((m) => !isModelDeprecated(m));
     if (pool.length > 0) {
       const sorted = pool.sort((a, b) => {
         const getScore = (id: string) => {
-          // 3.8 (newest)
+          // Ordered strictly from newest to older active models
           if (id === "gemini-3.8-flash") return 200;
-          if (id.includes("3.8-flash")) return 195;
-          if (id.includes("3.8")) return 190;
-
-          // 3.7
+          if (id.includes("3.8")) return 195;
           if (id === "gemini-3.7-flash") return 180;
           if (id.includes("3.7")) return 175;
-
-          // 3.1
-          if (id === "gemini-3.1-flash-lite") return 170;
-          if (id.includes("3.1-flash")) return 165;
-          if (id.includes("3.1")) return 160;
-
-          // Latest alias
-          if (id === "gemini-flash-latest") return 155;
-
-          // 2.5
-          if (id === "gemini-2.5-flash") return 150;
-          if (id === "gemini-2.5-flash-lite") return 145;
-          if (id.includes("2.5")) return 140;
-
-          // 2.0
-          if (id === "gemini-2.0-flash") return 130;
-          if (id === "gemini-2.0-flash-lite") return 125;
-          if (id.includes("2.0")) return 120;
-
-          // Flash general
-          if (id.includes("flash") && !id.includes("lite") && !id.includes("1.5")) return 110;
-
-          // 1.5
-          if (id === "gemini-1.5-flash") return 100;
-          if (id.includes("1.5-flash")) return 95;
-          if (id.includes("1.5")) return 90;
-
-          // Pro models as last resort
-          if (id.includes("pro")) return 50;
-
+          if (id === "gemini-3.5-flash") return 170;
+          if (id.includes("3.5")) return 165;
+          if (id === "gemini-3.1-flash-lite") return 160;
+          if (id.includes("3.1")) return 155;
+          if (id === "gemini-flash-latest") return 150;
           return 10;
         };
         return getScore(b) - getScore(a);
@@ -367,8 +342,11 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
   return filterAndPrioritizeModels(cachedModels);
 }
 
-async function generateContentWithRetryAndFallback(client: GoogleGenAI, prompt: string, schema: any) {
-  const modelsToTry = await getDynamicModels(client);
+async function generateContentWithRetryAndFallback(client: GoogleGenAI, prompt: string, schema: any, preferredModel?: string) {
+  const dynamicModels = await getDynamicModels(client);
+  const modelsToTry = preferredModel
+    ? Array.from(new Set([preferredModel, ...dynamicModels])).filter((m) => !isModelDeprecated(m))
+    : dynamicModels;
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -452,7 +430,7 @@ async function generateContentWithRetryAndFallback(client: GoogleGenAI, prompt: 
 // Translate subtitle batch
 app.post("/api/translate", async (req, res) => {
   try {
-    const { entries, targetLanguage = "Belarusian", autoSpellCheck = false } = req.body;
+    const { entries, targetLanguage = "Belarusian", autoSpellCheck = false, model } = req.body;
     if (!entries || !Array.isArray(entries)) {
       return res.status(400).json({ error: "Missing or invalid entries array" });
     }
@@ -460,6 +438,8 @@ app.post("/api/translate", async (req, res) => {
     if (entries.length === 0) {
       return res.json({ translations: [] });
     }
+
+    const requestedModel = (model || req.headers["x-gemini-model"]) as string | undefined;
 
     // Limit the batch to prevent extreme payload sizes
     const targetLangName = targetLanguage === "English" ? "English" : "standard literary Belarusian (\"беларуская мова\", Narkamawka spelling)";
@@ -487,7 +467,7 @@ ${JSON.stringify(entries, null, 2)}`;
     };
 
     const client = getAiClientForRequest(req);
-    const response = await generateContentWithRetryAndFallback(client, prompt, schema);
+    const response = await generateContentWithRetryAndFallback(client, prompt, schema, requestedModel);
     const resultText = response.text;
     if (!resultText) {
       throw new Error("Empty translation returned from model");
@@ -538,7 +518,7 @@ app.post("/api/spellcheck", async (req, res) => {
 // Proofread subtitle batch (returns issues/errors per subtitle entry without changing text)
 app.post("/api/proofread", async (req, res) => {
   try {
-    const { entries } = req.body;
+    const { entries, model } = req.body;
     if (!entries || !Array.isArray(entries)) {
       return res.status(400).json({ error: "Missing or invalid entries array" });
     }
@@ -546,6 +526,8 @@ app.post("/api/proofread", async (req, res) => {
     if (entries.length === 0) {
       return res.json({ results: [] });
     }
+
+    const requestedModel = (model || req.headers["x-gemini-model"]) as string | undefined;
 
     // Load leading prompt directly from shired.md file
     let shiredInstructions = "";
@@ -601,7 +583,7 @@ ${JSON.stringify(entries, null, 2)}`;
     };
 
     const client = getAiClientForRequest(req);
-    const response = await generateContentWithRetryAndFallback(client, prompt, schema);
+    const response = await generateContentWithRetryAndFallback(client, prompt, schema, requestedModel);
     const resultText = response.text;
     if (!resultText) {
       throw new Error("Empty proofread result returned from model");
@@ -991,7 +973,7 @@ ${prompt}`
         : `Ты — ${voiceName}, ${speakerRole}. Агучвай гэты тэкст чыстай літаратурнай беларускай мовай з натуральнай фанетыкай без украінскага ці рускага вымаўлення:
 ${prompt}`;
       const response = await client.models.generateContent({
-        model: "gemini-3.1-flash-tts-preview",
+        model: "gemini-3.8-flash-lite-tts",
         contents: [{ parts: [{ text: ttsPrompt }] }],
         config: {
           responseModalities: ["AUDIO"],

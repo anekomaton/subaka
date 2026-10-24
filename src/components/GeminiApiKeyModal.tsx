@@ -218,6 +218,23 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
               </div>
             </div>
 
+            {/* Automatic Model Selection Indicator */}
+            <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+              isDark
+                ? 'bg-slate-950/60 border-slate-800/80 text-slate-300'
+                : 'bg-slate-50 border-slate-200 text-slate-700'
+            }`}>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  Аўтаматычны выбар мадэлі Gemini AI
+                </span>
+              </div>
+              <span className="text-[11px] text-purple-600 dark:text-purple-400 font-mono">
+                ад самых новых (Flash 3.8)
+              </span>
+            </div>
+
             {/* Actions */}
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
               <button

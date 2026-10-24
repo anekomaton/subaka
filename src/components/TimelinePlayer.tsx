@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0 license
  */
 
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
@@ -190,7 +190,7 @@ function TimelinePlayerComponent({
         channelsTag: channelsText,
         isDefault: tr.isDefault,
         isProcessed: !!processedTracks[tr.trackNumber],
-        isActive: activeExternalTrackId === null && activeTrackNumber === tr.trackNumber,
+        isActive: activeExternalTrackId === null && (activeTrackNumber === tr.trackNumber || (activeTrackNumber === null && tr.trackNumber === 1)),
         isUnsupportedCodec: tr.isUnsupportedCodec,
         rawEmbeddedTrack: tr,
         extTrack: null,
@@ -395,7 +395,7 @@ function TimelinePlayerComponent({
 
     const trackNumKey = targetTrackNumber || 1;
 
-    // 0. Check if target track is natively supported and does NOT require transcoding (e.g. AAC, MP3, Opus, FLAC)
+    // 0. Ensure we have probed track info
     let trackInfo = availableAudioTracks.find(t => t.trackNumber === trackNumKey);
     if (!trackInfo && availableAudioTracks.length === 0) {
       try {
@@ -407,10 +407,34 @@ function TimelinePlayerComponent({
       } catch {}
     }
 
-    const hasNativeAudioTrackSwitching = !!(videoRef.current && (videoRef.current as any).audioTracks && (videoRef.current as any).audioTracks.length > 0);
+    // 1. Check if target track is already processed and cached in processedTracks
+    if (processedTracks[trackNumKey]) {
+      const cached = processedTracks[trackNumKey];
+      setActiveTrackNumberAndRef(trackNumKey);
+      setExtAudioFileName(`${targetFile.name} [Аўдыя: ${cached.label}]`);
+      onExtAudioFileChange?.(cached.audioFile);
+      if (extAudioUrl) URL.revokeObjectURL(extAudioUrl);
+      setExtAudioUrl(URL.createObjectURL(cached.audioFile));
+      const isUnsupported = availableAudioTracks.find(t => t.trackNumber === trackNumKey)?.isUnsupportedCodec ?? false;
+      setRequiresTranscode(isUnsupported);
+      addToast?.(`Пераключана на раней апрацаваную дарожку #${trackNumKey} (${cached.label})`, 'success');
+      return;
+    }
 
-    // Skip extraction if trackInfo is NOT unsupported (native browser-playable track like AAC, MP3, Opus, FLAC <= 2ch)
-    if (trackInfo && !trackInfo.isUnsupportedCodec) {
+    const hasNativeAudioTrackSwitching = !!(videoRef.current && (videoRef.current as any).audioTracks && (videoRef.current as any).audioTracks.length > 0);
+    const isSupportedCodec = trackInfo ? !trackInfo.isUnsupportedCodec : true;
+
+    // Native playback without extraction is ONLY possible if:
+    // 1) The track is a supported browser codec (!trackInfo.isUnsupportedCodec), AND
+    // 2) EITHER the browser supports HTMLMediaElement.audioTracks native switching,
+    //    OR this is track #1 (which <video> naturally plays by default).
+    // In Chromium / WebView2 (Tauri Desktop), audioTracks is not available.
+    // Therefore track #2+ CANNOT play natively and must be extracted into extAudioUrl.
+    const canPlayNatively = !forceExtraction && isSupportedCodec && (
+      hasNativeAudioTrackSwitching || trackNumKey === 1
+    );
+
+    if (canPlayNatively) {
       setActiveTrackNumberAndRef(trackNumKey);
       if (extAudioUrl) {
         URL.revokeObjectURL(extAudioUrl);
@@ -429,22 +453,8 @@ function TimelinePlayerComponent({
         }
       }
 
-      const codecLabel = trackInfo.codecName || 'AAC';
+      const codecLabel = trackInfo?.codecName || 'AAC';
       addToast?.(`Пераключана на дарожку #${trackNumKey} (${codecLabel}). Гук прайграецца натыўна.`, 'success');
-      return;
-    }
-
-    // 1. Check if target track is already processed and cached in processedTracks
-    if (processedTracks[trackNumKey]) {
-      const cached = processedTracks[trackNumKey];
-      setActiveTrackNumberAndRef(trackNumKey);
-      setExtAudioFileName(`${targetFile.name} [Аўдыя: ${cached.label}]`);
-      onExtAudioFileChange?.(cached.audioFile);
-      if (extAudioUrl) URL.revokeObjectURL(extAudioUrl);
-      setExtAudioUrl(URL.createObjectURL(cached.audioFile));
-      const isUnsupported = availableAudioTracks.find(t => t.trackNumber === trackNumKey)?.isUnsupportedCodec ?? false;
-      setRequiresTranscode(isUnsupported);
-      addToast?.(`Пераключана на раней апрацаваную дарожку #${trackNumKey} (${cached.label})`, 'success');
       return;
     }
 
@@ -467,12 +477,12 @@ function TimelinePlayerComponent({
     setActiveTrackNumberAndRef(trackNumKey);
 
     trackInfo = trackInfo || availableAudioTracks.find(t => t.trackNumber === trackNumKey);
-    const isSupportedCodec = trackInfo && !trackInfo.isUnsupportedCodec;
-    setRequiresTranscode(!isSupportedCodec);
+    const requiresTranscodeNeeded = trackInfo?.isUnsupportedCodec ?? !isSupportedCodec;
+    setRequiresTranscode(requiresTranscodeNeeded);
 
     setAudioProcessingStatus({
       isProcessing: true,
-      message: isSupportedCodec ? 'выцягванне аўдыя 5%' : 'транскод аўдыя 5%',
+      message: !requiresTranscodeNeeded ? 'выцягванне аўдыя 5%' : 'транскод аўдыя 5%',
       progress: 5,
     });
 
@@ -480,7 +490,7 @@ function TimelinePlayerComponent({
     const trackCodecTag = trackInfo?.codecName || '';
     const displayTag = trackNameTag || trackCodecTag;
 
-    if (isSupportedCodec) {
+    if (!requiresTranscodeNeeded) {
       addToast?.(`Выцягванне аўдыядарожкі ${displayTag ? `(${displayTag})` : ''} (без транскадавання)...`, 'info');
     } else {
       addToast?.(`Запуск транскоду аўдыядарожкі ${displayTag ? `(${displayTag})` : ''}...`, 'info');
@@ -1584,6 +1594,13 @@ function TimelinePlayerComponent({
                   if (extAudioRef.current) {
                     extAudioRef.current.volume = isMediaMuted ? 0 : mediaVolume;
                     extAudioRef.current.muted = isMediaMuted;
+                    if (videoRef.current) {
+                      extAudioRef.current.currentTime = videoRef.current.currentTime;
+                      extAudioRef.current.playbackRate = videoRef.current.playbackRate;
+                    }
+                    if (isPlaying) {
+                      extAudioRef.current.play().catch(() => {});
+                    }
                   }
                 }}
               />
@@ -2301,6 +2318,22 @@ function TimelinePlayerComponent({
                   <div
                     key={tr.key}
                     onClick={() => setSelectedTrackKey(tr.key)}
+                    onDoubleClick={() => {
+                      setShowAudioTrackSelectModal(false);
+                      if (tr.type === 'external' && tr.extTrack) {
+                        setActiveExternalTrackId(tr.extTrack.id);
+                        setActiveTrackNumberAndRef(null);
+                        setExtAudioFileName(tr.extTrack.label);
+                        onExtAudioFileChange?.(tr.extTrack.file);
+                        const extName = (tr.extTrack.originalName || '').toLowerCase();
+                        const isUnsupportedExt = ['ac3', 'eac3', 'e-ac-3', 'dts', 'truehd', 'dtshd'].some(c => extName.includes(c));
+                        setRequiresTranscode(isUnsupportedExt);
+                        addToast?.(`Пераключана на знешнюю аўдыядарожку: ${tr.extTrack.originalName}`, 'info');
+                      } else {
+                        setActiveExternalTrackId(null);
+                        executeAudioExtraction(tr.trackNumber, undefined, false);
+                      }
+                    }}
                     className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-all ${
                       isSelected
                         ? theme === 'dark'
@@ -2432,7 +2465,7 @@ function TimelinePlayerComponent({
                     addToast?.(`Пераключана на знешнюю аўдыядарожку: ${chosen.extTrack.originalName}`, 'info');
                   } else {
                     setActiveExternalTrackId(null);
-                    executeAudioExtraction(chosen.trackNumber, undefined, true);
+                    executeAudioExtraction(chosen.trackNumber, undefined, false);
                   }
                 }}
                 className="px-3.5 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
