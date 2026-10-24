@@ -141,7 +141,7 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
                   <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
                     Бясплатна - Free Tier без уводу банкаўскай карты. Ключ забяспечвае асабісты ліміт запытаў.{' '}
                     {isTauriDesktop()
-                      ? 'Калі ключ не ўведзены, AI функцыі не працуюць.'
+                      ? 'Калі ключ не ўведзены, AI функцыі не працуюць (з Беларусі спатрэбіцца VPN).'
                       : 'Калі ключ не ўведзены, выкарыстоўваецца агульны API-ключ праграмы.'}
                   </p>
                 </div>
@@ -231,7 +231,7 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
                 </span>
               </div>
               <span className="text-[11px] text-purple-600 dark:text-purple-400 font-mono">
-                ад самых новых (Flash 3.8)
+                ад самай новай
               </span>
             </div>
 
