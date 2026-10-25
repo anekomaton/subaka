@@ -4,6 +4,8 @@
  * without requiring a local Node.js Express server.
  */
 
+import { isTauriDesktop, postJsonNative, fetchVerbumOnlineNative } from './tauriBridge';
+
 export interface DesktopProofreadIssue {
   word: string;
   suggestion: string;
@@ -188,10 +190,23 @@ async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
   }
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (res.ok) {
-      const data = await res.json();
-      const rawList = Array.isArray(data?.models) ? data.models : [];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+    let data: any = null;
+
+    if (isTauriDesktop()) {
+      const text = await fetchVerbumOnlineNative(url);
+      if (text) {
+        data = JSON.parse(text);
+      }
+    } else {
+      const res = await fetch(url);
+      if (res.ok) {
+        data = await res.json();
+      }
+    }
+
+    if (data && Array.isArray(data.models)) {
+      const rawList = data.models;
       const modelsList: string[] = [];
 
       for (const m of rawList) {
@@ -253,72 +268,100 @@ async function callGenerativeLanguageApi(
     while (attempts > 0) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bodyObj),
-        });
+        let isSuccess = false;
+        let statusCode = 200;
+        let responseJson: any = null;
+        let rawText: string | undefined = undefined;
 
-        if (response.ok) {
-          const data = await response.json();
-          const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawText) {
-            const clean = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-            return JSON.parse(clean);
+        // In Desktop mode: execute directly through native subaka.exe process (postJsonNative).
+        // This ensures VPN Split Tunneling routes ALL AI traffic with just subaka.exe (no msedgewebview2.exe needed)!
+        if (isTauriDesktop()) {
+          try {
+            const nativeResp = await postJsonNative(url, JSON.stringify(bodyObj));
+            if (nativeResp) {
+              responseJson = JSON.parse(nativeResp);
+              if (responseJson?.error) {
+                isSuccess = false;
+                statusCode = responseJson.error.code || 400;
+              } else {
+                isSuccess = true;
+                statusCode = 200;
+                rawText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+              }
+            }
+          } catch (nativeErr: any) {
+            console.warn(`[Desktop AI] Native subaka.exe call failed, trying webview fallback:`, nativeErr);
           }
-        } else {
-          const errJson = await response.json().catch(() => ({}));
-          const errMsg = errJson?.error?.message || `HTTP ${response.status}`;
-          lastError = errMsg;
+        }
 
-          const isAuthError =
-            errMsg.includes('401') ||
-            errMsg.includes('UNAUTHENTICATED') ||
-            errMsg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
-            errMsg.includes('API_KEY_INVALID') ||
-            errMsg.includes('API key not valid') ||
-            errMsg.includes('API_KEY_SERVICE_BLOCKED');
+        // Browser or webview fallback
+        if (!responseJson) {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyObj),
+          });
+          statusCode = response.status;
+          isSuccess = response.ok;
+          responseJson = await response.json().catch(() => ({}));
+          rawText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+        }
 
-          if (isAuthError) {
-            throw new Error(`Няправільны Gemini API Key: ${errMsg}`);
-          }
+        if (isSuccess && rawText) {
+          const clean = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+          return JSON.parse(clean);
+        }
 
-          const isOverloaded =
-            response.status === 503 ||
-            errMsg.includes('503') ||
-            errMsg.includes('UNAVAILABLE') ||
-            errMsg.includes('high demand') ||
-            errMsg.includes('temporary');
+        const errMsg = responseJson?.error?.message || `HTTP ${statusCode}`;
+        lastError = errMsg;
 
-          const isRateLimited =
-            response.status === 429 ||
-            errMsg.includes('429') ||
-            errMsg.includes('RESOURCE_EXHAUSTED') ||
-            errMsg.includes('Quota exceeded') ||
-            errMsg.includes('quota');
+        const isAuthError =
+          errMsg.includes('401') ||
+          errMsg.includes('UNAUTHENTICATED') ||
+          errMsg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+          errMsg.includes('API_KEY_INVALID') ||
+          errMsg.includes('API key not valid') ||
+          errMsg.includes('API_KEY_SERVICE_BLOCKED');
 
-          if (isOverloaded || isRateLimited) {
-            const reason = isOverloaded ? '503 перагрузка' : '429 ліміт запытаў';
-            console.warn(`[Desktop AI] Model ${model} is busy (${reason}), switching to next model...`);
-            markDesktopModelTemporaryUnavailable(model, reason);
-            // Wait 1.2s before attempting next model to avoid rapid burst rate limits
-            await new Promise((r) => setTimeout(r, 1200));
-            break;
-          }
+        if (isAuthError) {
+          throw new Error(`Няправільны Gemini API Key: ${errMsg}`);
+        }
 
-          if (response.status === 404 || errMsg.includes('not found') || errMsg.includes('NOT_FOUND') || errMsg.includes('no longer available')) {
-            console.warn(`[Desktop AI] Model ${model} not available (404/not found), skipping to next model...`);
-            break;
-          }
+        const isOverloaded =
+          statusCode === 503 ||
+          errMsg.includes('503') ||
+          errMsg.includes('UNAVAILABLE') ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('temporary');
 
-          console.warn(`[Desktop AI] Model ${model} returned error, retrying:`, errMsg);
-          attempts--;
-          if (attempts > 0) {
-            await new Promise((r) => setTimeout(r, 1000));
-            continue;
-          }
+        const isRateLimited =
+          statusCode === 429 ||
+          errMsg.includes('429') ||
+          errMsg.includes('RESOURCE_EXHAUSTED') ||
+          errMsg.includes('Quota exceeded') ||
+          errMsg.includes('quota');
+
+        if (isOverloaded || isRateLimited) {
+          const reason = isOverloaded ? '503 перагрузка' : '429 ліміт запытаў';
+          console.warn(`[Desktop AI] Model ${model} is busy (${reason}), switching to next model...`);
+          markDesktopModelTemporaryUnavailable(model, reason);
+          // Wait 1.2s before attempting next model to avoid rapid burst rate limits
+          await new Promise((r) => setTimeout(r, 1200));
           break;
         }
+
+        if (statusCode === 404 || errMsg.includes('not found') || errMsg.includes('NOT_FOUND') || errMsg.includes('no longer available')) {
+          console.warn(`[Desktop AI] Model ${model} not available (404/not found), skipping to next model...`);
+          break;
+        }
+
+        console.warn(`[Desktop AI] Model ${model} returned error, retrying:`, errMsg);
+        attempts--;
+        if (attempts > 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        break;
       } catch (netErr: any) {
         lastError = netErr?.message || String(netErr);
         console.warn(`[Desktop AI] Network error calling ${model}:`, lastError);

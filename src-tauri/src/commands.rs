@@ -363,17 +363,23 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
 
 #[tauri::command]
 pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
-    // 1. Try curl with browser User-Agent and Referer headers
+    // 1. Try curl with browser User-Agent
+    let is_verbum = url.contains("verbum.by");
+    let mut args = vec![
+        "-s",
+        "-L",
+        "--max-time", "20",
+        "-H", "Accept: application/json",
+        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    ];
+    if is_verbum {
+        args.push("-H");
+        args.push("Referer: https://verbum.by/");
+    }
+    args.push(url.as_str());
+
     let curl_res = silent_command("curl")
-        .args([
-            "-s",
-            "-L",
-            "--max-time", "15",
-            "-H", "Accept: application/json",
-            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "-H", "Referer: https://verbum.by/",
-            url.as_str(),
-        ])
+        .args(&args)
         .output();
 
     if let Ok(output) = curl_res {
@@ -386,9 +392,11 @@ pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
     // 2. PowerShell fallback (Windows built-in)
     #[cfg(windows)]
     {
+        let referer_part = if is_verbum { "$wc.Headers.Add('Referer', 'https://verbum.by/');" } else { "" };
         let ps_cmd = format!(
-            "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Encoding = [System.Text.Encoding]::UTF8; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); $wc.Headers.Add('Referer', 'https://verbum.by/'); $wc.Headers.Add('Accept', 'application/json'); $wc.DownloadString($u)",
-            url.replace("'", "''")
+            "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Encoding = [System.Text.Encoding]::UTF8; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); {} $wc.Headers.Add('Accept', 'application/json'); $wc.DownloadString($u)",
+            url.replace("'", "''"),
+            referer_part
         );
         let ps_res = silent_command("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd.as_str()])
@@ -404,6 +412,6 @@ pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
         }
     }
 
-    Err("Не ўдалося злучыцца з verbum.by праз натыўны сеткавы кліент".into())
+    Err("Не ўдалося выканаць натыўны сеткавы запыт".into())
 }
 
