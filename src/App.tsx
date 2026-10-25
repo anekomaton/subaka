@@ -2240,7 +2240,23 @@ export default function App() {
             addToast(`Пераклад фрагмента ${c + 1} з ${chunks.length}...`, "info");
           }
           const packets = chunk.map((sub) => ({ id: sub.id, text: sub.text }));
-          const translations = await desktopTranslateBatch(packets, 'Belarusian', apiKey);
+          let translations: any = null;
+          let chunkAttempts = 2;
+          while (chunkAttempts > 0) {
+            try {
+              translations = await desktopTranslateBatch(packets, 'Belarusian', apiKey);
+              break;
+            } catch (chunkErr: any) {
+              const errMsg = chunkErr?.message || '';
+              if ((errMsg.includes('429') || errMsg.includes('квот') || errMsg.includes('503')) && chunkAttempts > 1) {
+                addToast("Пераключэнне мадэлі Gemini... Чакаем 2 сек.", "info");
+                await new Promise((r) => setTimeout(r, 2000));
+                chunkAttempts--;
+                continue;
+              }
+              throw chunkErr;
+            }
+          }
 
           if (translations && translations.length > 0) {
             setSubtitles((prev) => {
@@ -2252,6 +2268,10 @@ export default function App() {
               });
               return updatedList;
             });
+          }
+
+          if (c < chunks.length - 1 && !cancelTranslatingRef.current) {
+            await new Promise((r) => setTimeout(r, 1000));
           }
         }
 
@@ -2984,7 +3004,23 @@ export default function App() {
           }
 
           const packets = chunk.map((sub) => ({ id: sub.id, text: sub.translatedText }));
-          const results = await desktopProofreadBatch(packets, apiKey);
+          let results: any = null;
+          let chunkAttempts = 2;
+          while (chunkAttempts > 0) {
+            try {
+              results = await desktopProofreadBatch(packets, apiKey);
+              break;
+            } catch (chunkErr: any) {
+              const errMsg = chunkErr?.message || '';
+              if ((errMsg.includes('429') || errMsg.includes('квот') || errMsg.includes('503')) && chunkAttempts > 1) {
+                addToast("Пераключэнне мадэлі Gemini для праверкі... Чакаем 2 сек.", "info");
+                await new Promise((r) => setTimeout(r, 2000));
+                chunkAttempts--;
+                continue;
+              }
+              throw chunkErr;
+            }
+          }
           if (cancelProofreadingRef.current) break;
 
           if (results && Array.isArray(results)) {
@@ -2997,6 +3033,10 @@ export default function App() {
                 return sub;
               })
             );
+          }
+
+          if (c < chunks.length - 1 && !cancelProofreadingRef.current) {
+            await new Promise((r) => setTimeout(r, 1000));
           }
         }
 

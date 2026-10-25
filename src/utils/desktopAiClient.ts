@@ -78,7 +78,16 @@ export const ACTIVE_GEMINI_MODELS: readonly GeminiModelInfo[] = [
   },
 ] as const;
 
-export const DEFAULT_FALLBACK_MODELS: string[] = ACTIVE_GEMINI_MODELS.map((m) => m.id);
+export const DEFAULT_FALLBACK_MODELS: string[] = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+];
 
 /**
  * Retrieves the user-selected Gemini model from localStorage.
@@ -123,11 +132,13 @@ function getModelScore(id: string): number {
   if (id.includes('3.8')) return 195;
   if (id === 'gemini-3.7-flash') return 180;
   if (id.includes('3.7')) return 175;
+  if (id === 'gemini-3.6-flash') return 172;
   if (id === 'gemini-3.5-flash') return 170;
   if (id.includes('3.5')) return 165;
   if (id === 'gemini-3.1-flash-lite') return 160;
   if (id.includes('3.1')) return 155;
   if (id === 'gemini-flash-latest') return 150;
+  if (id.includes('flash-lite')) return 145;
   return 10;
 }
 
@@ -223,8 +234,17 @@ async function callGenerativeLanguageApi(
 
   const chosenModel = preferredModel || getDesktopGeminiModel();
   const dynamicModels = await getDesktopDynamicModels(cleanKey);
-  // Ensure chosenModel is tried first, followed by other active models ordered newest to oldest
-  const modelsToTry = Array.from(new Set([chosenModel, ...dynamicModels])).filter((m) => !isModelDeprecated(m));
+  const now = Date.now();
+  const isChosenExhausted = !preferredModel && quotaExhaustedModels.has(chosenModel) && (now - (quotaExhaustedModels.get(chosenModel) || 0) < QUOTA_EXHAUSTED_TTL_MS);
+
+  // If chosenModel is currently exhausted, prioritize other active models first
+  let rawModelsToTry: string[];
+  if (!isChosenExhausted) {
+    rawModelsToTry = [chosenModel, ...dynamicModels];
+  } else {
+    rawModelsToTry = [...dynamicModels, chosenModel];
+  }
+  const modelsToTry = Array.from(new Set(rawModelsToTry)).filter((m) => !isModelDeprecated(m));
 
   let lastError = '';
 
@@ -281,6 +301,8 @@ async function callGenerativeLanguageApi(
             const reason = isOverloaded ? '503 перагрузка' : '429 ліміт запытаў';
             console.warn(`[Desktop AI] Model ${model} is busy (${reason}), switching to next model...`);
             markDesktopModelTemporaryUnavailable(model, reason);
+            // Wait 1.2s before attempting next model to avoid rapid burst rate limits
+            await new Promise((r) => setTimeout(r, 1200));
             break;
           }
 

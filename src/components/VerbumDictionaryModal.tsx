@@ -50,6 +50,25 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
     }
   };
 
+  // Persistent GrammarDB toggle from localStorage (defaults to true)
+  const [includeGrammarDb, setIncludeGrammarDb] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('subaka_verbum_include_grammardb');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleGrammarDb = (val: boolean) => {
+    setIncludeGrammarDb(val);
+    try {
+      localStorage.setItem('subaka_verbum_include_grammardb', String(val));
+    } catch {
+      // ignore
+    }
+  };
+
   const verbumDbStatus = useVerbumDbFullStatus();
   const [fromOfflineFallback, setFromOfflineFallback] = useState(false);
   const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
@@ -106,8 +125,27 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
     setFromOfflineFallback(false);
     setOfflineNotice(null);
 
-    // If running in Desktop mode, try native offline SQLite dictionaries in resources/ first
+    // In Desktop mode: try online verbum.by API first (via native network driver, bypassing CORS)
     if (isTauriDesktop()) {
+      let onlineFetched = false;
+      try {
+        const targetUrl = `https://verbum.by/api/search?q=${encodeURIComponent(term)}`;
+        const onlineData = await fetchVerbumOnlineNative(targetUrl);
+        if (onlineData && Array.isArray(onlineData.Articles)) {
+          const rawArticles: VerbumArticle[] = onlineData.Articles;
+          setArticles(rawArticles);
+          setLastSearchedWord(term);
+          setFromOfflineFallback(false);
+          setOfflineNotice(null);
+          setIsLoading(false);
+          onlineFetched = true;
+          return;
+        }
+      } catch (err) {
+        console.warn('[Verbum Modal] Desktop online verbum.by request failed, falling back to offline:', err);
+      }
+
+      // If online request failed or was unreachable, fall back to native offline SQLite dictionaries in resources/
       try {
         const desktopArticles = await lookupDesktopVerbum(term);
         if (desktopArticles && desktopArticles.length > 0) {
@@ -121,37 +159,17 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
           setArticles(mapped);
           setLastSearchedWord(term);
           setFromOfflineFallback(true);
-          setOfflineNotice('Аўтаномны пошук у лакальных слоўніках (папка resources)');
+          setOfflineNotice(null);
           setIsLoading(false);
           return;
         }
       } catch (e) {
-        console.warn('[Verbum Modal] Desktop offline search fallback:', e);
-      }
-
-      // In desktop mode, if not found in offline DB, try online verbum.by API via native network driver (bypasses CORS)
-      try {
-        const targetUrl = `https://verbum.by/api/search?q=${encodeURIComponent(term)}`;
-        const onlineData = await fetchVerbumOnlineNative(targetUrl);
-        if (onlineData && Array.isArray(onlineData.Articles)) {
-          const rawArticles: VerbumArticle[] = onlineData.Articles;
-          const cleanArticles = rawArticles.filter(a => a.DictionaryID !== 'grammardb');
-          if (cleanArticles.length > 0) {
-            setArticles(cleanArticles);
-            setLastSearchedWord(term);
-            setFromOfflineFallback(false);
-            setOfflineNotice('Анлайн-пошук на verbum.by');
-            setIsLoading(false);
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('[Verbum Modal] Desktop native online search error:', err);
+        console.warn('[Verbum Modal] Desktop offline search fallback error:', e);
       }
 
       setArticles([]);
       setLastSearchedWord(term);
-      setError(`Слова «${term}» не знойдзена ў аўтаномных слоўніках (папка resources) і на verbum.by`);
+      setError(`Слова «${term}» не знойдзена ў слоўніках verbum.by`);
       setIsLoading(false);
       return;
     }
@@ -164,14 +182,12 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
       }
       const data = await res.json();
       const rawArticles: VerbumArticle[] = Array.isArray(data.Articles) ? data.Articles : [];
-      // Strictly exclude grammardb
-      const cleanArticles = rawArticles.filter(a => a.DictionaryID !== 'grammardb');
-      setArticles(cleanArticles);
+      setArticles(rawArticles);
       setLastSearchedWord(term);
       setFromOfflineFallback(Boolean(data.fromOfflineFallback));
       setOfflineNotice(data.offlineNotice || null);
 
-      if (data.error && cleanArticles.length === 0) {
+      if (data.error && rawArticles.length === 0) {
         setError(data.error);
       }
     } catch (err: any) {
@@ -188,10 +204,10 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
     performSearch(query);
   };
 
-  // Filter articles based on active section
+  // Filter articles based on active section and includeGrammarDb toggle
   const filteredArticles = useMemo(() => {
-    return filterVerbumArticles(articles, sectionFilter);
-  }, [articles, sectionFilter]);
+    return filterVerbumArticles(articles, sectionFilter, includeGrammarDb);
+  }, [articles, sectionFilter, includeGrammarDb]);
 
   if (!isOpen || typeof document === 'undefined') return null;
 
@@ -231,9 +247,9 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
                 </span>
 
                 {fromOfflineFallback ? (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20" title="verbum.by недасяжны. Пошук выкананы праз аўтаномную базу на серверы.">
+                  <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20" title="Пошук выкананы праз аўтаномную рэзервовую базу слоўнікаў.">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    аўтаномны рэзерв (verbum.by недасяжны)
+                    аўтаномны рэзерв
                   </span>
                 ) : verbumDbStatus.building ? (
                   <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 animate-pulse" title={verbumDbStatus.lastLog || 'Разгортванне рэзервовай базы слоўнікаў...'}>
@@ -363,6 +379,28 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
                   </button>
                 );
               })}
+
+              {/* Checkbox: Грамбаза */}
+              <label 
+                className={`ml-1.5 px-2 py-0.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap select-none ${
+                  includeGrammarDb
+                    ? isDark
+                      ? 'bg-purple-950/60 border-purple-500/60 text-purple-200'
+                      : 'bg-purple-50 border-purple-300 text-purple-700'
+                    : isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                      : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+                }`}
+                title="Паказваць формы і артыкулы з Граматычнай базы (GrammarDB)"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeGrammarDb}
+                  onChange={(e) => handleToggleGrammarDb(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-purple-600 cursor-pointer"
+                />
+                <span>Грамбаза</span>
+              </label>
             </div>
 
             {lastSearchedWord && !isLoading && (
@@ -398,20 +436,6 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
               >
                 Паспрабаваць зноў
               </button>
-            </div>
-          )}
-
-          {!isLoading && !error && fromOfflineFallback && (
-            <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs shrink-0 ${
-              isDark ? 'bg-amber-950/30 border-amber-800/40 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'
-            }`}>
-              <div className="flex items-center gap-1.5 min-w-0">
-                <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                <span className="truncate">{offlineNotice || 'Вынікі атрыманы з аўтаномнай базы слоўнікаў на серверы (fallback)'}</span>
-              </div>
-              <span className="font-mono text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 shrink-0">
-                Offline
-              </span>
             </div>
           )}
 
@@ -475,11 +499,6 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
                         }`}>
                           {dictShort}
                         </span>
-                        {(article.IsOffline || fromOfflineFallback) && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                            рэзерв
-                          </span>
-                        )}
                         <span className={`text-[11px] line-clamp-1 max-w-sm hidden sm:inline ${
                           isDark ? 'text-slate-400' : 'text-slate-500'
                         }`} title={dictTitle}>

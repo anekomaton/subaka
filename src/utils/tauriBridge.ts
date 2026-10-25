@@ -462,3 +462,38 @@ export async function fetchVerbumOnlineNative(url: string): Promise<any | null> 
   return null;
 }
 
+/**
+ * Desktop Window Controls for Tauri
+ */
+export async function minimizeDesktopWindow(): Promise<void> {
+  if (!isTauriDesktop()) return;
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await getCurrentWindow().minimize();
+  } catch (e) {
+    console.warn('[TauriBridge] Could not minimize window:', e);
+  }
+}
+
+export async function toggleMaximizeDesktopWindow(): Promise<void> {
+  if (!isTauriDesktop()) return;
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await getCurrentWindow().toggleMaximize();
+  } catch (e) {
+    console.warn('[TauriBridge] Could not toggle maximize window:', e);
+  }
+}
+
+export async function hideDesktopWindow(): Promise<void> {
+  if (!isTauriDesktop()) return;
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    // Save window state and hide to system tray
+    await getCurrentWindow().hide();
+  } catch (e) {
+    console.warn('[TauriBridge] Could not hide window:', e);
+  }
+}
+
+

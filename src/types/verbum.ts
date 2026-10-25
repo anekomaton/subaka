@@ -129,6 +129,12 @@ export const VERBUM_DICTIONARIES: Record<string, VerbumDictionaryMeta> = {
     shortTitle: 'БелСЭ',
     section: 'encyclopedias',
   },
+  grammardb: {
+    id: 'grammardb',
+    title: 'Граматычная база беларускай мовы (GrammarDB / verbum.by)',
+    shortTitle: 'Грамбаза',
+    section: 'other',
+  },
 };
 
 export type VerbumSectionFilter = 'all' | 'main' | 'authors' | 'encyclopedias';
@@ -157,14 +163,18 @@ export const VERBUM_SECTIONS = [
 ];
 
 /**
- * Filter articles by section, strictly excluding grammardb.
+ * Filter articles by section and grammar database option.
  */
-export function filterVerbumArticles(articles: VerbumArticle[], section: VerbumSectionFilter): VerbumArticle[] {
+export function filterVerbumArticles(
+  articles: VerbumArticle[], 
+  section: VerbumSectionFilter,
+  includeGrammarDb: boolean = false
+): VerbumArticle[] {
   if (!Array.isArray(articles)) return [];
   
   return articles.filter((art) => {
-    // Strictly exclude grammardb
-    if (art.DictionaryID === 'grammardb') return false;
+    // If GrammarDB is not enabled and this is a grammardb article, filter out
+    if (!includeGrammarDb && art.DictionaryID === 'grammardb') return false;
 
     if (section === 'all') return true;
 

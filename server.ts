@@ -2726,8 +2726,8 @@ app.get("/api/verbum/search", async (req, res) => {
       if (response.ok) {
         const data: any = await response.json();
         if (data && Array.isArray(data.Articles)) {
-          // Filter out grammardb from Verbum results because GrammarDB is handled separately
-          liveArticles = data.Articles.filter((art: any) => art.DictionaryID !== 'grammardb');
+          // Keep all verbum articles including grammardb for client-side filtering
+          liveArticles = data.Articles;
           liveSuccess = true;
         }
       } else {

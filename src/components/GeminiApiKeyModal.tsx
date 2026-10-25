@@ -139,7 +139,7 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
                     і атрымаць асабісты ключ (GEMINI_API_KEY)
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
-                    Бясплатна - Free Tier без уводу банкаўскай карты. Ключ забяспечвае асабісты ліміт запытаў.{' '}
+                    Падыходзіць як бясплатны ключ (Free Tier без карты), так і платны (Pay-as-you-go з павышанымі лімітамі).{' '}
                     {isTauriDesktop()
                       ? 'Калі ключ не ўведзены, AI функцыі не працуюць (з Беларусі спатрэбіцца VPN).'
                       : 'Калі ключ не ўведзены, выкарыстоўваецца агульны API-ключ праграмы.'}
