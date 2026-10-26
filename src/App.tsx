@@ -838,8 +838,9 @@ export default function App() {
         headers[key] = val.replace(/[^\x00-\x7F]/g, '');
       }
     }
-    if (geminiApiKey && typeof geminiApiKey === 'string') {
-      const cleanKey = geminiApiKey.replace(/[^\x00-\x7F]/g, '').trim().replace(/^["']|["']$/g, '');
+    const effectiveKey = geminiApiKey || (isTauriDesktop() ? getDesktopGeminiApiKey() : '');
+    if (effectiveKey && typeof effectiveKey === 'string') {
+      const cleanKey = effectiveKey.replace(/[^\x00-\x7F]/g, '').trim().replace(/^["']|["']$/g, '');
       if (cleanKey) {
         headers['x-gemini-api-key'] = cleanKey;
       }
@@ -2108,7 +2109,7 @@ export default function App() {
       const apiKey = geminiApiKey || getDesktopGeminiApiKey();
       if (!apiKey) {
         setIsGeminiKeyModalOpen(true);
-        addToast("Для працы перакладу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        addToast("Для працы перакладу праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
         return;
       }
       try {
@@ -2218,7 +2219,7 @@ export default function App() {
       const apiKey = geminiApiKey || getDesktopGeminiApiKey();
       if (!apiKey) {
         setIsGeminiKeyModalOpen(true);
-        addToast("Для працы перакладу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        addToast("Для працы перакладу праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
         return;
       }
 
@@ -2388,6 +2389,15 @@ export default function App() {
     isExternalTrack?: boolean,
     customAudioFile?: File
   ) => {
+    if (isTauriDesktop()) {
+      const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+      if (!apiKey) {
+        setIsGeminiKeyModalOpen(true);
+        addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+        return;
+      }
+    }
+
     let targetFile: File | Blob | null = customAudioFile || null;
     const currentTrackNum = targetTrackNum || activeTrackNumber || 1;
 
@@ -2913,7 +2923,7 @@ export default function App() {
       const apiKey = geminiApiKey || getDesktopGeminiApiKey();
       if (!apiKey) {
         setIsGeminiKeyModalOpen(true);
-        addToast("Для працы праверкі правапісу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        addToast("Для працы праверкі правапісу праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
         return;
       }
       addToast("Праверка карткі ШІ...", "info");
@@ -2980,7 +2990,7 @@ export default function App() {
       const apiKey = geminiApiKey || getDesktopGeminiApiKey();
       if (!apiKey) {
         setIsGeminiKeyModalOpen(true);
-        addToast("Для працы праверкі правапісу ШІ ў дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ", "warning");
+        addToast("Для працы праверкі правапісу праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
         return;
       }
 
@@ -3936,7 +3946,17 @@ export default function App() {
         isProofreadingTranslation={isProofreadingTranslation}
         onBatchConvertPhonetics={handleBatchConvertPhonetics}
         isConvertingPhoneticsAll={isConvertingPhoneticsAll}
-        onOpenTranscribeModal={() => setIsSubtitleTrackModalOpen(true)}
+        onOpenTranscribeModal={() => {
+          if (isTauriDesktop()) {
+            const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+            if (!apiKey) {
+              setIsGeminiKeyModalOpen(true);
+              addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+              return;
+            }
+          }
+          setIsSubtitleTrackModalOpen(true);
+        }}
         onTranscribe={handleTranscribe}
         onCancelTranscribe={handleCancelTranscribe}
         onApplyAutoSubtitles={handleApplyAutoSubtitles}
@@ -3959,6 +3979,15 @@ export default function App() {
         processedForGenTracks={processedForGenTracks}
         processedTracks={processedTracks}
         onStartTranscribe={(engine, model, trackNum, isExternal, customAudioFile) => {
+          if (isTauriDesktop()) {
+            const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+            if (!apiKey) {
+              setIsSubtitleTrackModalOpen(false);
+              setIsGeminiKeyModalOpen(true);
+              addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+              return;
+            }
+          }
           if (customAudioFile) {
             setExtAudioFile(customAudioFile);
           }
