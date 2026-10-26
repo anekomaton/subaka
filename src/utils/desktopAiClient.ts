@@ -371,6 +371,9 @@ async function callGenerativeLanguageApi(
   }
 
   // Provide user-friendly Belarusian error message
+  if (lastError.includes('User location is not supported') || lastError.includes('location is not supported')) {
+    throw new Error('Google Gemini недаступны з гэтага IP-адраса (User location is not supported). Праверце падключэнне да VPN.');
+  }
   if (lastError.includes('503') || lastError.includes('high demand') || lastError.includes('UNAVAILABLE')) {
     throw new Error('Мадэлі Gemini часова перагружаны (503 High Demand). Пачакайце некалькі секунд і паўтарыце спробу.');
   }

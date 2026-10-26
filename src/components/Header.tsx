@@ -339,7 +339,7 @@ export default function Header({
               </div>
               <div className="leading-tight">
                 <h1 className="text-xs sm:text-sm font-extrabold tracking-tight text-amber-500 dark:text-amber-400 flex items-center gap-1">
-                  {isTauriDesktop() ? 'SUBaka 1.0.0' : 'SUBaka'}
+                  {isTauriDesktop() ? 'SUBaka' : 'SUBaka'}
                   <span className={`font-mono text-[8px] border px-1 py-0.5 rounded flex items-center gap-0.5 leading-none ${
                     theme === 'dark'
                       ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'

@@ -255,8 +255,23 @@ fn silent_command(program: &str) -> std::process::Command {
 #[tauri::command]
 pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use std::io::Read;
 
-    // 1. Try curl with browser User-Agent and Referer headers
+    // 1. Primary: In-process pure Rust HTTP client (ureq).
+    // Socket created directly in subaka.exe process memory space for Split Tunneling VPN interception.
+    let req = ureq::get(&url)
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .set("Referer", "https://translate.google.com/")
+        .timeout(std::time::Duration::from_secs(30));
+
+    if let Ok(resp) = req.call() {
+        let mut bytes = Vec::new();
+        if resp.into_reader().read_to_end(&mut bytes).is_ok() && !bytes.is_empty() {
+            return Ok(STANDARD.encode(&bytes));
+        }
+    }
+
+    // 2. Secondary fallback: curl child process
     let curl_res = silent_command("curl")
         .args([
             "-s",
@@ -274,7 +289,7 @@ pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
         }
     }
 
-    // 2. PowerShell fallback (Windows built-in)
+    // 3. PowerShell fallback (Windows built-in)
     #[cfg(windows)]
     {
         let ps_cmd = format!(
@@ -303,7 +318,38 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
     use std::io::Write;
     use std::process::Stdio;
 
-    // 1. Try curl using piped STDIN for the JSON body (avoids Windows cmd line quote corruption)
+    // 1. Primary: In-process pure Rust HTTP client (ureq).
+    // The TCP socket is opened directly by subaka.exe itself, ensuring 100% compatibility
+    // with Windows VPN Split Tunneling (where only subaka.exe is routed through VPN).
+    let ureq_res = ureq::post(&url)
+        .set("Content-Type", "application/json; charset=utf-8")
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(45))
+        .send_bytes(json_body.as_bytes());
+
+    match ureq_res {
+        Ok(resp) => {
+            if let Ok(text) = resp.into_string() {
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+        Err(ureq::Error::Status(_code, resp)) => {
+            // Even if the HTTP status is 4xx/5xx (e.g. 429 rate limit or 400 error),
+            // return the response body so the frontend client can parse the exact Gemini error JSON!
+            if let Ok(text) = resp.into_string() {
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("[Native Network] ureq post failed, trying curl fallback: {}", e);
+        }
+    }
+
+    // 2. Secondary fallback: CLI curl (avoids Windows cmd line quote corruption via STDIN)
     let child = silent_command("curl")
         .args([
             "-s",
@@ -332,7 +378,7 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
         }
     }
 
-    // 2. PowerShell fallback (Windows built-in)
+    // 3. PowerShell fallback (Windows built-in)
     #[cfg(windows)]
     {
         let temp_json_path = std::env::temp_dir().join(format!("subaka_req_{}.json", std::process::id()));
@@ -363,8 +409,40 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
 
 #[tauri::command]
 pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
-    // 1. Try curl with browser User-Agent
     let is_verbum = url.contains("verbum.by");
+
+    // 1. Primary: In-process pure Rust HTTP client (ureq).
+    // The TCP socket is opened directly by subaka.exe for Split Tunneling VPN support.
+    let mut req = ureq::get(&url)
+        .set("Accept", "application/json")
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(20));
+
+    if is_verbum {
+        req = req.set("Referer", "https://verbum.by/");
+    }
+
+    match req.call() {
+        Ok(resp) => {
+            if let Ok(text) = resp.into_string() {
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+        Err(ureq::Error::Status(_code, resp)) => {
+            if let Ok(text) = resp.into_string() {
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("[Native Network] ureq get failed, trying curl fallback: {}", e);
+        }
+    }
+
+    // 2. Secondary fallback: CLI curl
     let mut args = vec![
         "-s",
         "-L",
@@ -389,7 +467,7 @@ pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
         }
     }
 
-    // 2. PowerShell fallback (Windows built-in)
+    // 3. PowerShell fallback (Windows built-in)
     #[cfg(windows)]
     {
         let referer_part = if is_verbum { "$wc.Headers.Add('Referer', 'https://verbum.by/');" } else { "" };

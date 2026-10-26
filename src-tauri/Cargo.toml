@@ -25,3 +25,5 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-fs = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
+ureq = { version = "2.10", features = ["tls"] }
+
