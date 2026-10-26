@@ -68,21 +68,29 @@ pub fn batch_check_words(
 }
 
 #[tauri::command]
-pub fn probe_media_streams(
+pub async fn probe_media_streams(
     app: AppHandle,
     file_path: String,
 ) -> Result<MediaProbeResult, String> {
-    MediaProbeService::probe_file(&app, &file_path)
+    tauri::async_runtime::spawn_blocking(move || {
+        MediaProbeService::probe_file(&app, &file_path)
+    })
+    .await
+    .map_err(|e| format!("Памылка патоку пры аналізе медыя: {}", e))?
 }
 
 #[tauri::command]
-pub fn extract_audio_track(
+pub async fn extract_audio_track(
     app: AppHandle,
     input_path: String,
     track_index: usize,
     output_path: String,
 ) -> Result<String, String> {
-    MediaProbeService::extract_audio(&app, &input_path, track_index, &output_path)
+    tauri::async_runtime::spawn_blocking(move || {
+        MediaProbeService::extract_audio(&app, &input_path, track_index, &output_path)
+    })
+    .await
+    .map_err(|e| format!("Памылка патоку пры здабыванні аўдыя: {}", e))?
 }
 
 #[tauri::command]
@@ -252,8 +260,7 @@ fn silent_command(program: &str) -> std::process::Command {
     cmd
 }
 
-#[tauri::command]
-pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
+fn fetch_audio_buffer_native_blocking(url: String) -> Result<String, String> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use std::io::Read;
 
@@ -314,7 +321,13 @@ pub fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn post_json_native(url: String, json_body: String) -> Result<String, String> {
+pub async fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_audio_buffer_native_blocking(url))
+        .await
+        .map_err(|e| format!("Памылка фонавага патоку аўдыя: {}", e))?
+}
+
+fn post_json_native_blocking(url: String, json_body: String) -> Result<String, String> {
     use std::io::Write;
     use std::process::Stdio;
 
@@ -408,7 +421,13 @@ pub fn post_json_native(url: String, json_body: String) -> Result<String, String
 }
 
 #[tauri::command]
-pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
+pub async fn post_json_native(url: String, json_body: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || post_json_native_blocking(url, json_body))
+        .await
+        .map_err(|e| format!("Памылка фонавага патоку сеткі: {}", e))?
+}
+
+fn fetch_verbum_online_native_blocking(url: String) -> Result<String, String> {
     let is_verbum = url.contains("verbum.by");
 
     // 1. Primary: In-process pure Rust HTTP client (ureq).
@@ -491,5 +510,12 @@ pub fn fetch_verbum_online_native(url: String) -> Result<String, String> {
     }
 
     Err("Не ўдалося выканаць натыўны сеткавы запыт".into())
+}
+
+#[tauri::command]
+pub async fn fetch_verbum_online_native(url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_verbum_online_native_blocking(url))
+        .await
+        .map_err(|e| format!("Памылка фонавага патоку Verbum: {}", e))?
 }
 

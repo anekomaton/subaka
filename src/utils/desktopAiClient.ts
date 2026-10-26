@@ -185,55 +185,60 @@ function filterAndPrioritizeModels(modelsList: string[]): string[] {
 
 async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
   const now = Date.now();
-  if (cachedDesktopModels && cachedDesktopModels.length > 0 && now - lastModelFetchTime < MODEL_CACHE_TTL_MS) {
-    return filterAndPrioritizeModels(cachedDesktopModels);
-  }
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-    let data: any = null;
-
-    if (isTauriDesktop()) {
-      const text = await fetchVerbumOnlineNative(url);
-      if (text) {
-        data = JSON.parse(text);
-      }
-    } else {
-      const res = await fetch(url);
-      if (res.ok) {
-        data = await res.json();
-      }
-    }
-
-    if (data && Array.isArray(data.models)) {
-      const rawList = data.models;
-      const modelsList: string[] = [];
-
-      for (const m of rawList) {
-        const name = (m.name || '').replace(/^models\//, '');
-        const methods = m.supportedGenerationMethods || [];
-        if (methods.includes('generateContent') || methods.length === 0) {
-          if (name.includes('gemini') && !isModelDeprecated(name)) {
-            modelsList.push(name);
-          }
-        }
-      }
-
-      const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...modelsList])).filter((m) => !isModelDeprecated(m));
-      if (pool.length > 0) {
-        const sorted = pool.sort((a, b) => getModelScore(b) - getModelScore(a));
-        cachedDesktopModels = sorted;
-        lastModelFetchTime = now;
-        return filterAndPrioritizeModels(cachedDesktopModels);
-      }
-    }
-  } catch (err) {
-    console.warn('[Desktop AI] Could not query models list, using default fallback models:', err);
-  }
-
   if (!cachedDesktopModels || cachedDesktopModels.length === 0) {
     cachedDesktopModels = [...DEFAULT_FALLBACK_MODELS];
   }
+
+  // If cache is fresh, return immediately
+  if (now - lastModelFetchTime < MODEL_CACHE_TTL_MS) {
+    return filterAndPrioritizeModels(cachedDesktopModels);
+  }
+
+  // Trigger non-blocking background fetch so user's translation or proofreading starts with 0ms pre-flight delay
+  lastModelFetchTime = now;
+  (async () => {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+      let data: any = null;
+
+      if (isTauriDesktop()) {
+        const res = await fetchVerbumOnlineNative(url);
+        if (typeof res === 'string') {
+          try { data = JSON.parse(res); } catch { data = null; }
+        } else if (res && typeof res === 'object') {
+          data = res;
+        }
+      } else {
+        const res = await fetch(url);
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+
+      if (data && Array.isArray(data.models)) {
+        const rawList = data.models;
+        const modelsList: string[] = [];
+
+        for (const m of rawList) {
+          const name = (m.name || '').replace(/^models\//, '');
+          const methods = m.supportedGenerationMethods || [];
+          if (methods.includes('generateContent') || methods.length === 0) {
+            if (name.includes('gemini') && !isModelDeprecated(name)) {
+              modelsList.push(name);
+            }
+          }
+        }
+
+        const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...modelsList])).filter((m) => !isModelDeprecated(m));
+        if (pool.length > 0) {
+          cachedDesktopModels = pool.sort((a, b) => getModelScore(b) - getModelScore(a));
+        }
+      }
+    } catch (err) {
+      console.warn('[Desktop AI] Background models update error:', err);
+    }
+  })();
+
   return filterAndPrioritizeModels(cachedDesktopModels);
 }
 
