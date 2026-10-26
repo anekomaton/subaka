@@ -317,7 +317,14 @@ function TimelinePlayerComponent({
             addToast?.(`Субцітры паспяхова выцягнуты і дададзены ў працоўную вобласць! (картак: ${entries.length})`, 'success');
           }
 
-          if (entries[0] && entries[0].startTime) {
+          // Only seek to startSec if there is no active media file and playback is not running
+          if (
+            mediaType === 'none' &&
+            !playbackState.isPlaying &&
+            (!playbackState.currentTime || playbackState.currentTime === 0) &&
+            entries[0] &&
+            entries[0].startTime
+          ) {
             const startSec = srtTimeToSeconds(entries[0].startTime);
             onPlaybackStateChange({ currentTime: startSec });
           }

@@ -349,8 +349,7 @@ export default function Header({
                       <Sun className="w-2 h-2 text-amber-400 fill-amber-400 shrink-0" />
                     ) : (
                       <Moon className="w-2 h-2 text-indigo-600 fill-indigo-600 shrink-0" />
-                    )}
-                    /*{isTauriDesktop() && <span>пк</span>}*/
+                    )}                  
                   </span>
                 </h1>
                 <p className={`text-[8px] leading-none ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600 font-semibold'}`}>

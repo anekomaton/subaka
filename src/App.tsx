@@ -3380,8 +3380,27 @@ export default function App() {
 
     setSubtitles(finalSubtitles);
     // Захоўваем autoSubtitles у памяці для магчымасці паўторнага ўжывання
-    setActiveSubtitleIndex(0);
-    if (finalSubtitles.length > 0) {
+    let initialIdx = finalSubtitles.length > 0 ? 0 : -1;
+    const curPlaybackTime = playbackState.currentTime || 0;
+    if (finalSubtitles.length > 0 && curPlaybackTime > 0) {
+      const match = finalSubtitles.findIndex((sub) => {
+        const s = srtTimeToSeconds(sub.startTime);
+        const e = srtTimeToSeconds(sub.endTime);
+        return curPlaybackTime >= s && curPlaybackTime <= e;
+      });
+      if (match !== -1) {
+        initialIdx = match;
+      } else {
+        for (let i = finalSubtitles.length - 1; i >= 0; i--) {
+          if (curPlaybackTime >= srtTimeToSeconds(finalSubtitles[i].startTime)) {
+            initialIdx = i;
+            break;
+          }
+        }
+      }
+    }
+    setActiveSubtitleIndex(initialIdx);
+    if (!playbackState.isPlaying && curPlaybackTime === 0 && finalSubtitles.length > 0) {
       const firstStartSec = srtTimeToSeconds(finalSubtitles[0].startTime);
       setPlaybackState((prev) => ({ ...prev, currentTime: firstStartSec }));
     }
@@ -3500,7 +3519,26 @@ export default function App() {
 
           setSubtitles(finalSubtitles);
           setAutoSubtitles(null);
-          setActiveSubtitleIndex(finalSubtitles.length > 0 ? 0 : -1);
+          let initialIdx = finalSubtitles.length > 0 ? 0 : -1;
+          const curPlaybackTime = playbackState.currentTime || 0;
+          if (finalSubtitles.length > 0 && curPlaybackTime > 0) {
+            const match = finalSubtitles.findIndex((sub) => {
+              const s = srtTimeToSeconds(sub.startTime);
+              const e = srtTimeToSeconds(sub.endTime);
+              return curPlaybackTime >= s && curPlaybackTime <= e;
+            });
+            if (match !== -1) {
+              initialIdx = match;
+            } else {
+              for (let i = finalSubtitles.length - 1; i >= 0; i--) {
+                if (curPlaybackTime >= srtTimeToSeconds(finalSubtitles[i].startTime)) {
+                  initialIdx = i;
+                  break;
+                }
+              }
+            }
+          }
+          setActiveSubtitleIndex(initialIdx);
           addToast("Загружана субцітраў: " + entries.length + (format === 'ass' ? ' (.ass з ролямі)' : ''), "success");
           
           if (autoTranslateSelected && finalSubtitles.length > 0) {
@@ -3831,7 +3869,28 @@ export default function App() {
 
               setSubtitles(finalSubtitles);
               setAutoSubtitles(null);
-              setActiveSubtitleIndex(finalSubtitles.length > 0 ? 0 : -1);
+
+              // Match current playback position so the active card stays in sync without rewinding
+              let initialIdx = finalSubtitles.length > 0 ? 0 : -1;
+              const curPlaybackTime = playbackState.currentTime || 0;
+              if (finalSubtitles.length > 0 && curPlaybackTime > 0) {
+                const match = finalSubtitles.findIndex((sub) => {
+                  const s = srtTimeToSeconds(sub.startTime);
+                  const e = srtTimeToSeconds(sub.endTime);
+                  return curPlaybackTime >= s && curPlaybackTime <= e;
+                });
+                if (match !== -1) {
+                  initialIdx = match;
+                } else {
+                  for (let i = finalSubtitles.length - 1; i >= 0; i--) {
+                    if (curPlaybackTime >= srtTimeToSeconds(finalSubtitles[i].startTime)) {
+                      initialIdx = i;
+                      break;
+                    }
+                  }
+                }
+              }
+              setActiveSubtitleIndex(initialIdx);
               addToast("Субцітры з файла дададзены ў працоўную вобласць: " + entries.length + " карт.", "success");
 
               if (autoTranslateSelected && finalSubtitles.length > 0) {
