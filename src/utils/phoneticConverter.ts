@@ -1,5 +1,6 @@
 import { convertTextBelG2P } from './belG2P';
 import { convertTextEnG2P } from './enG2P';
+import { isTauriDesktop, stressTextDesktop } from './tauriBridge';
 
 export function isCyrillic(text: string): boolean {
   return /[а-яёіўґ]/i.test(text);
@@ -343,6 +344,16 @@ export async function getPhoneticTranscription(text: string): Promise<string> {
   const trimmed = (text || '').trim();
   if (!trimmed) return '';
 
+  // 1. Desktop mode: use native local GrammarDB SQLite directly
+  if (isTauriDesktop()) {
+    if (isCyrillic(trimmed)) {
+      const stressed = await stressTextDesktop(trimmed);
+      return stripBrackets(convertTextBelG2P(stressed, { wrapBrackets: false }));
+    }
+    return convertPhoneticsLocal(trimmed);
+  }
+
+  // 2. Web mode: call Express /api/phonetics endpoint
   try {
     const res = await fetch('/api/phonetics', {
       method: 'POST',
@@ -375,6 +386,33 @@ export async function batchConvertPhonetics(
 ): Promise<{ id: string | number; phonetic: string; stressed?: string }[]> {
   if (!entries || entries.length === 0) return [];
 
+  // 1. Desktop mode: use native local GrammarDB SQLite directly for each card
+  if (isTauriDesktop()) {
+    const results = [];
+    for (const entry of entries) {
+      const raw = (entry.text || '').trim();
+      if (!raw) {
+        results.push({ id: entry.id, phonetic: '' });
+        continue;
+      }
+      if (isCyrillic(raw)) {
+        const stressed = await stressTextDesktop(raw);
+        results.push({
+          id: entry.id,
+          stressed,
+          phonetic: stripBrackets(convertTextBelG2P(stressed, { wrapBrackets: false })),
+        });
+      } else {
+        results.push({
+          id: entry.id,
+          phonetic: convertPhoneticsLocal(raw),
+        });
+      }
+    }
+    return results;
+  }
+
+  // 2. Web mode: call Express /api/phonetics endpoint
   try {
     const res = await fetch('/api/phonetics', {
       method: 'POST',

@@ -68,6 +68,32 @@ pub fn batch_check_words(
 }
 
 #[tauri::command]
+pub fn stress_text(
+    app: AppHandle,
+    text: String,
+    manager: State<'_, GrammarDbManager>,
+) -> String {
+    let status = manager.get_status();
+    if !status.ready {
+        let _ = manager.initialize(&app);
+    }
+    manager.stress_text(&text)
+}
+
+#[tauri::command]
+pub fn batch_lookup_stressed(
+    app: AppHandle,
+    words: Vec<String>,
+    manager: State<'_, GrammarDbManager>,
+) -> HashMap<String, String> {
+    let status = manager.get_status();
+    if !status.ready {
+        let _ = manager.initialize(&app);
+    }
+    manager.batch_lookup_stressed(words)
+}
+
+#[tauri::command]
 pub async fn probe_media_streams(
     app: AppHandle,
     file_path: String,
@@ -337,7 +363,7 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
     let ureq_res = ureq::post(&url)
         .set("Content-Type", "application/json; charset=utf-8")
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .timeout(std::time::Duration::from_secs(45))
+        .timeout(std::time::Duration::from_secs(180))
         .send_bytes(json_body.as_bytes());
 
     match ureq_res {
@@ -371,7 +397,7 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
             "-H", "Content-Type: application/json; charset=utf-8",
             "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--data-binary", "@-",
-            "--max-time", "45",
+            "--max-time", "180",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -417,7 +443,7 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
         }
     }
 
-    Err("Не ўдалося выканаць сеткавы POST запыт для сінтэзу маўлення".into())
+    Err("Не ўдалося выканаць натыўны сеткавы POST запыт".into())
 }
 
 #[tauri::command]

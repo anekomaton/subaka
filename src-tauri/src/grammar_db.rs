@@ -323,4 +323,83 @@ impl GrammarDbManager {
 
         results
     }
+
+    pub fn stress_text(&self, text: &str) -> String {
+        let conn_lock = self.conn.lock().unwrap();
+        if conn_lock.is_none() || text.trim().is_empty() {
+            return text.to_string();
+        }
+        let conn = conn_lock.as_ref().unwrap();
+
+        let mut stmt = match conn.prepare("SELECT stressed FROM words WHERE word = ? LIMIT 1") {
+            Ok(s) => s,
+            Err(_) => return text.to_string(),
+        };
+
+        let mut result = String::with_capacity(text.len());
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            let c = chars[i];
+            if c.is_alphabetic() || c == '\'' || c == '’' || c == '\u{0301}' || c == '+' {
+                let start = i;
+                while i < chars.len() && (chars[i].is_alphabetic() || chars[i] == '\'' || chars[i] == '’' || chars[i] == '\u{0301}' || chars[i] == '+') {
+                    i += 1;
+                }
+                let raw_word: String = chars[start..i].iter().collect();
+                if raw_word.contains('\u{0301}') || raw_word.contains('+') {
+                    result.push_str(&raw_word);
+                } else {
+                    let clean = Self::clean_word(&raw_word);
+                    let mut replaced: Option<String> = None;
+                    for v in Self::get_u_variants(&clean) {
+                        if let Ok(st) = stmt.query_row(params![v], |r| r.get::<_, String>(0)) {
+                            let is_first_upper = raw_word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+                            let final_st = if is_first_upper {
+                                let mut c_iter = st.chars();
+                                match c_iter.next() {
+                                    Some(first) => first.to_uppercase().collect::<String>() + c_iter.as_str(),
+                                    None => st,
+                                }
+                            } else {
+                                st
+                            };
+                            replaced = Some(final_st);
+                            break;
+                        }
+                    }
+                    result.push_str(&replaced.unwrap_or(raw_word));
+                }
+            } else {
+                result.push(c);
+                i += 1;
+            }
+        }
+
+        result
+    }
+
+    pub fn batch_lookup_stressed(&self, words: Vec<String>) -> HashMap<String, String> {
+        let mut results = HashMap::new();
+        let conn_lock = self.conn.lock().unwrap();
+        if let Some(conn) = conn_lock.as_ref() {
+            if let Ok(mut stmt) = conn.prepare("SELECT stressed FROM words WHERE word = ? LIMIT 1") {
+                for w in words {
+                    let clean = Self::clean_word(&w);
+                    if clean.is_empty() {
+                        continue;
+                    }
+                    for v in Self::get_u_variants(&clean) {
+                        if let Ok(st) = stmt.query_row(params![v], |r| r.get::<_, String>(0)) {
+                            results.insert(w.clone(), st);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        results
+    }
 }
+

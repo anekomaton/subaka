@@ -194,6 +194,44 @@ export async function batchCheckWords(words: string[]): Promise<Record<string, b
 }
 
 /**
+ * Stress Belarusian text using native GrammarDB SQLite in desktop mode
+ */
+export async function stressTextDesktop(text: string): Promise<string> {
+  if (!text || !text.trim()) return text;
+  if (isTauriDesktop()) {
+    try {
+      const res = await invoke<string>('stress_text', { text });
+      if (res && res.trim()) return res;
+    } catch (err) {
+      console.warn('[TauriBridge] Native stress_text failed, trying word-by-word fallback:', err);
+    }
+    try {
+      const words = text.match(/[\p{L}'’ʼʹʲ\u0300\u0301\+´]+/gu);
+      if (!words) return text;
+      const uniqueWords = Array.from(new Set(words.filter(w => !w.includes('\u0301') && !w.includes('\u0300'))));
+      const stressMap = new Map<string, string>();
+      for (const w of uniqueWords) {
+        const res = await lookupGrammarWord(w);
+        if (res && res.found && res.stressed) {
+          stressMap.set(w.toLowerCase(), res.stressed);
+        }
+      }
+      return text.replace(/[\p{L}'’ʼʹʲ\u0300\u0301\+´]+/gu, (w) => {
+        const lower = w.toLowerCase();
+        const stressed = stressMap.get(lower);
+        if (!stressed) return w;
+        const isFirstUpper = w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase();
+        if (isFirstUpper) {
+          return stressed.charAt(0).toUpperCase() + stressed.slice(1);
+        }
+        return stressed;
+      });
+    } catch (_) {}
+  }
+  return text;
+}
+
+/**
  * Opens native OS file picker
  */
 export async function openMediaOrSubtitleDialog(

@@ -95,9 +95,9 @@ export const VERBUM_DICTIONARIES: Record<string, VerbumDictionaryMeta> = {
   },
   susha: {
     id: 'susha',
-    title: 'Англійска-беларускі слоўнік (Т. Суша, 2013)',
+    title: 'Англійска-беларускі слоўнік (Т. Суша, 2013, актуальны правапіс)',
     shortTitle: 'Англ-Бел (Суша)',
-    section: 'other',
+    section: 'main',
   },
   pbs: {
     id: 'pbs',

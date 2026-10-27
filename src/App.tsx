@@ -74,9 +74,11 @@ import {
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
 import { DuplicateTabModal } from './components/DuplicateTabModal';
+import { extractUniversalAudioTrack } from './utils/mkvAudioExtractor';
 import {
   desktopTranslateBatch,
   desktopProofreadBatch,
+  desktopTranscribeAudio,
   getDesktopGeminiApiKey,
 } from './utils/desktopAiClient';
 
@@ -2492,7 +2494,67 @@ export default function App() {
         } catch (_) {}
       }
 
-      // 1. Chunked Upload Configuration
+      // In Desktop standalone mode (Tauri): execute direct transcription via desktopTranscribeAudio.
+      // This bypasses non-existent Express server endpoints and routes all requests through subaka.exe
+      // using postJsonNative to ensure 100% compliance with Windows Split Tunneling VPN.
+      if (isTauriDesktop()) {
+        const apiKey = geminiApiKey || getDesktopGeminiApiKey();
+        if (!apiKey) {
+          setIsGeminiKeyModalOpen(true);
+          addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+          return;
+        }
+
+        let audioInputForDesktop: Blob | File = targetFile;
+        const isVideo = !detectedMimeType.startsWith('audio') && (
+          detectedMimeType.startsWith('video') ||
+          /\.(mp4|mkv|webm|avi|mov|m4v|3gp|flv)$/i.test(targetFileName)
+        );
+
+        if (processedTracks[currentTrackNum]?.audioFile) {
+          audioInputForDesktop = processedTracks[currentTrackNum].audioFile;
+        } else if (isVideo) {
+          setTranscribeProgress("Выцягванне аўдыядарожкі з відэафайла...");
+          try {
+            const extracted = await extractUniversalAudioTrack(
+              targetFile,
+              currentTrackNum,
+              (pct, msg) => setTranscribeProgress(msg || `выцягванне аўдыя ${pct}%`),
+              controller.signal
+            );
+            if (extracted && extracted.blob) {
+              audioInputForDesktop = extracted.blob;
+            }
+          } catch (extErr: any) {
+            if (extErr.name === 'AbortError' || controller.signal.aborted) {
+              throw new DOMException("Aborted", "AbortError");
+            }
+            console.warn('[Desktop Transcribe] extractUniversalAudioTrack fallback:', extErr);
+          }
+        }
+
+        const rawSrtResult = await desktopTranscribeAudio(audioInputForDesktop, {
+          apiKey,
+          onProgress: (msg) => setTranscribeProgress(msg),
+          signal: controller.signal,
+          mediaDurationSec,
+        });
+
+        if (!rawSrtResult) {
+          throw new Error("Мадэль Gemini не вярнула субцітры");
+        }
+
+        const parsed = parseSrt(rawSrtResult, mediaDurationSec);
+        if (parsed.length === 0) {
+          throw new Error("Не ўдалося распазнаць фармат SRT у адказе мадэлі");
+        }
+
+        setAutoSubtitles(parsed);
+        addToast(`Аўтасубцітры паспяхова сфарміраваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`, "success");
+        return;
+      }
+
+      // 1. Chunked Upload Configuration (Browser / Web Server mode)
       const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for better stability and fast uploads
       const totalChunks = Math.ceil(targetFile.size / CHUNK_SIZE);
       const uploadId = crypto.randomUUID();
@@ -3620,7 +3682,7 @@ export default function App() {
           '--editor-width': `${splitRatio}%`,
           '--player-width': `${100 - splitRatio}%`,
         } as React.CSSProperties}
-        className="flex-1 lg:overflow-hidden overflow-y-auto min-h-0 max-w-[1750px] w-full mx-auto px-3 md:px-5 lg:px-6 py-2 md:py-3 flex flex-col lg:flex-row gap-3 lg:gap-0 items-stretch relative"
+        className="flex-1 lg:overflow-hidden overflow-y-auto min-h-0 w-full max-w-full px-2 sm:px-3 md:px-4 lg:px-6 py-1 md:py-2 flex flex-col lg:flex-row gap-3 lg:gap-0 items-stretch relative"
       >
         
         {/* Editor on the left (resizable width between 25% and 75%) */}

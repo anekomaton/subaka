@@ -169,6 +169,8 @@ pub fn run() {
             get_grammar_status,
             lookup_grammar_word,
             batch_check_words,
+            stress_text,
+            batch_lookup_stressed,
             probe_media_streams,
             extract_audio_track,
             save_file_direct,

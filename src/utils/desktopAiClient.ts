@@ -245,7 +245,8 @@ async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
 async function callGenerativeLanguageApi(
   apiKey: string,
   bodyObj: any,
-  preferredModel?: string
+  preferredModel?: string,
+  returnRawText?: boolean
 ): Promise<any> {
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
   if (!cleanKey) {
@@ -313,6 +314,10 @@ async function callGenerativeLanguageApi(
         }
 
         if (isSuccess && rawText) {
+          if (returnRawText) {
+            const clean = rawText.trim().replace(/^```(?:srt|txt)?\s*/i, '').replace(/```\s*$/i, '').trim();
+            return clean;
+          }
           const clean = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
           return JSON.parse(clean);
         }
@@ -515,3 +520,352 @@ ${JSON.stringify(entries, null, 2)}`;
   const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, preferredModel);
   return Array.isArray(parsed) ? parsed : [];
 }
+
+/**
+ * Helper: Encode Float32Array PCM samples to 16kHz 16-bit mono WAV Uint8Array
+ */
+function writeWavHeaderString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
+
+function encodeWav16BitMono(samples: Float32Array, sampleRate: number): Uint8Array {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  // RIFF identifier
+  writeWavHeaderString(view, 0, 'RIFF');
+  // file length
+  view.setUint32(4, 36 + samples.length * 2, true);
+  // RIFF type
+  writeWavHeaderString(view, 8, 'WAVE');
+  // format chunk identifier
+  writeWavHeaderString(view, 12, 'fmt ');
+  // format chunk length
+  view.setUint32(16, 16, true);
+  // sample format (1 = PCM)
+  view.setUint16(20, 1, true);
+  // channel count (1 = mono)
+  view.setUint16(22, 1, true);
+  // sample rate
+  view.setUint32(24, sampleRate, true);
+  // byte rate (sampleRate * 1 * 2)
+  view.setUint32(28, sampleRate * 2, true);
+  // block align (1 * 2)
+  view.setUint16(32, 2, true);
+  // bits per sample
+  view.setUint16(34, 16, true);
+  // data chunk identifier
+  writeWavHeaderString(view, 36, 'data');
+  // data chunk length
+  view.setUint32(40, samples.length * 2, true);
+
+  // Write PCM samples
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+
+  return new Uint8Array(buffer);
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000;
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1] || '';
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function decodeAudioToMono16k(blob: Blob): Promise<{ samples: Float32Array; sampleRate: number; duration: number } | null> {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtxClass) return null;
+    const ctx = new AudioCtxClass({ sampleRate: 16000 });
+    let audioBuffer: AudioBuffer;
+    try {
+      audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    } catch {
+      await ctx.close().catch(() => {});
+      return null;
+    }
+    const sampleRate = audioBuffer.sampleRate;
+    const duration = audioBuffer.duration;
+    const numChannels = audioBuffer.numberOfChannels;
+    const length = audioBuffer.length;
+
+    const monoSamples = new Float32Array(length);
+    for (let c = 0; c < numChannels; c++) {
+      const channelData = audioBuffer.getChannelData(c);
+      for (let i = 0; i < length; i++) {
+        monoSamples[i] += channelData[i] / numChannels;
+      }
+    }
+    await ctx.close().catch(() => {});
+    return { samples: monoSamples, sampleRate, duration };
+  } catch (err) {
+    console.warn('[Desktop AI] Audio decode error:', err);
+    return null;
+  }
+}
+
+function srtTimeToSec(t: string): number {
+  const parts = t.trim().split(':');
+  if (parts.length !== 3) return 0;
+  const [h, m, rest] = parts;
+  const [s, ms] = rest.split(',');
+  return (
+    parseInt(h, 10) * 3600 +
+    parseInt(m, 10) * 60 +
+    parseInt(s, 10) +
+    (parseInt(ms, 10) || 0) / 1000
+  );
+}
+
+function secToSrtTime(totalSec: number): string {
+  const totalMs = Math.round(Math.max(0, totalSec) * 1000);
+  const ms = totalMs % 1000;
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const s = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const m = totalMinutes % 60;
+  const h = Math.floor(totalMinutes / 60);
+
+  const pad = (n: number, z = 2) => String(n).padStart(z, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+}
+
+function shiftSrtTimestamps(srtText: string, offsetSec: number, startingIndex: number = 1): { srt: string; count: number } {
+  const blocks = srtText.split(/\n\s*\n/).map((b) => b.trim()).filter((b) => b.length > 0);
+  let currentIndex = startingIndex;
+  const resultBlocks: string[] = [];
+
+  for (const block of blocks) {
+    const lines = block.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+    const timeLineIdx = lines.findIndex((l) => l.includes('-->'));
+    if (timeLineIdx === -1) continue;
+
+    const timeLine = lines[timeLineIdx];
+    const [startStr, endStr] = timeLine.split('-->').map((s) => s.trim());
+    if (!startStr || !endStr) continue;
+
+    const startSec = Math.max(0, srtTimeToSec(startStr) + offsetSec);
+    const endSec = Math.max(startSec + 0.1, srtTimeToSec(endStr) + offsetSec);
+    const textLines = lines.slice(timeLineIdx + 1).join('\n');
+    if (!textLines.trim()) continue;
+
+    resultBlocks.push(`${currentIndex}\n${secToSrtTime(startSec)} --> ${secToSrtTime(endSec)}\n${textLines}`);
+    currentIndex++;
+  }
+
+  return { srt: resultBlocks.join('\n\n'), count: resultBlocks.length };
+}
+
+export interface DesktopTranscribeOptions {
+  apiKey?: string;
+  preferredModel?: string;
+  onProgress?: (msg: string) => void;
+  signal?: AbortSignal;
+  mediaDurationSec?: number;
+}
+
+/**
+ * Direct Gemini API call for generating subtitles (.srt) from audio in Desktop mode.
+ * Routes 100% of network traffic through subaka.exe via postJsonNative for VPN Split Tunneling.
+ */
+export async function desktopTranscribeAudio(
+  audioInput: Blob | File,
+  options?: DesktopTranscribeOptions
+): Promise<string> {
+  const apiKey = options?.apiKey || getDesktopGeminiApiKey();
+  if (!apiKey) {
+    throw new Error('MISSING_GEMINI_API_KEY');
+  }
+
+  if (options?.signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  options?.onProgress?.('Падрыхтоўка аўдыя для распазнавання...');
+
+  const systemInstruction = `You are an expert speech transcriber and audio timeline aligner.
+Your sole job is to transcribe all spoken dialogue from the provided audio segment into standard SubRip (.srt) subtitle format with precise frame-accurate timestamp alignment.
+
+CRITICAL MANDATES:
+1. ORIGINAL SPOKEN LANGUAGE MANDATE (CRITICAL - NO TRANSLATION):
+   - Output language MUST be strictly the ORIGINAL language spoken in the audio (e.g. Belarusian, Russian, English, Polish, etc.).
+   - ABSOLUTELY DO NOT TRANSLATE into Belarusian or any other language during transcription!
+   - If the audio contains Russian speech, write Russian. If Belarusian, write Belarusian. If English, write English.
+   - Preserve exact words and grammar spoken by the audio speakers.
+
+2. EXTREME DENSITY & FULL COVERAGE:
+   - Transcribe EVERY SINGLE SPOKEN PHRASE. Never skip, condense, or summarize lines.
+   - Create short, readable subtitle blocks (3 to 6 words per block, 2 to 4 seconds long).
+
+3. STRICT SRT FORMAT:
+   - Output ONLY raw valid SubRip (.srt) format starting with block 1 at 00:00:00,000.
+   - ALWAYS separate every subtitle block with a BLANK LINE (double newline).
+   - Format each block strictly as:
+1
+00:00:00,000 --> 00:00:02,500
+[Subtitle text]
+
+2
+00:00:02,500 --> 00:00:05,000
+[Next subtitle text]
+
+   - DO NOT place text or lyrics before the first timestamp block.
+   - Do NOT wrap in markdown code blocks (\`\`\`srt). Do NOT add extra conversational commentary.`;
+
+  const prompt = 'Транскрыбуй усе сказаныя фразы з гэтага аўдыя ў фармат субцітраў SubRip (.srt) НА МОВЕ АРЫГІНАЛУ (без перакладу).';
+
+  // Attempt decoding to 16kHz mono WAV for high-speed transcription and clean chunking
+  let decoded: { samples: Float32Array; sampleRate: number; duration: number } | null = null;
+  try {
+    options?.onProgress?.('Аналіз і дэкадаванне аўдыядарожкі...');
+    decoded = await decodeAudioToMono16k(audioInput);
+  } catch (decErr) {
+    console.warn('[Desktop AI] decodeAudioToMono16k failed:', decErr);
+  }
+
+  if (options?.signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  // Path 1: Audio decoded successfully into PCM samples
+  if (decoded && decoded.duration > 0) {
+    const { samples, sampleRate, duration } = decoded;
+    const CHUNK_DURATION_SEC = 240; // 4-minute chunks (~7.6MB WAV per chunk)
+    const totalChunks = Math.ceil(duration / CHUNK_DURATION_SEC);
+    const allSrtParts: string[] = [];
+    let currentSubtitleIndex = 1;
+
+    for (let c = 0; c < totalChunks; c++) {
+      if (options?.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      const startSec = c * CHUNK_DURATION_SEC;
+      const endSec = Math.min(duration, (c + 1) * CHUNK_DURATION_SEC);
+      const startSample = Math.floor(startSec * sampleRate);
+      const endSample = Math.min(samples.length, Math.floor(endSec * sampleRate));
+      const chunkSamples = samples.subarray(startSample, endSample);
+
+      const chunkPct = Math.round(((c + 1) / totalChunks) * 100);
+      options?.onProgress?.(
+        totalChunks > 1
+          ? `Генерацыя субцітраў з Gemini: частка ${c + 1}/${totalChunks} (${chunkPct}%)...`
+          : 'Генерацыя субцітраў і таймкодаў з Gemini...'
+      );
+
+      const wavBytes = encodeWav16BitMono(chunkSamples, sampleRate);
+      const base64Audio = uint8ArrayToBase64(wavBytes);
+
+      const bodyObj = {
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: 'audio/wav',
+                  data: base64Audio,
+                },
+              },
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        systemInstruction: {
+          parts: [{ text: systemInstruction }],
+        },
+        generationConfig: {
+          temperature: 0.0,
+          maxOutputTokens: 16384,
+        },
+      };
+
+      const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true);
+
+      if (rawChunkSrt && typeof rawChunkSrt === 'string') {
+        const { srt: shiftedSrt, count } = shiftSrtTimestamps(rawChunkSrt, startSec, currentSubtitleIndex);
+        if (shiftedSrt) {
+          allSrtParts.push(shiftedSrt);
+          currentSubtitleIndex += count;
+        }
+      }
+    }
+
+    const finalSrt = allSrtParts.join('\n\n').trim();
+    if (!finalSrt) {
+      throw new Error('Мадэль Gemini не выявіла разборлівага маўлення ў аўдыяфайле.');
+    }
+    return finalSrt;
+  }
+
+  // Path 2: Fallback for direct small audio files (<= 14MB) without AudioContext decode
+  if (audioInput.size <= 14 * 1024 * 1024) {
+    options?.onProgress?.('Кадзіраванне аўдыя і адпраўка ў Gemini...');
+    const base64Audio = await blobToBase64(audioInput);
+    let mimeType = audioInput.type || 'audio/mp3';
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      mimeType = 'audio/mp3';
+    }
+
+    const bodyObj = {
+      contents: [
+        {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Audio,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
+        },
+      ],
+      systemInstruction: {
+        parts: [{ text: systemInstruction }],
+      },
+      generationConfig: {
+        temperature: 0.0,
+        maxOutputTokens: 16384,
+      },
+    };
+
+    options?.onProgress?.('Генерацыя субцітраў і таймкодаў з Gemini...');
+    const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true);
+
+    if (rawSrt && typeof rawSrt === 'string' && rawSrt.trim()) {
+      return rawSrt.trim();
+    }
+    throw new Error('Мадэль Gemini не выявіла разборлівага маўлення ў аўдыяфайле.');
+  }
+
+  throw new Error('Не ўдалося дэкадаваць аўдыяфайл для генерацыі субцітраў. Калі ласка, папярэдне выцягніце аўдыядарожку праз меню плэера альбо канвертуйце ў .mp3 ці .wav.');
+}
+

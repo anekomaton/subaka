@@ -53,6 +53,12 @@ const DICTIONARY_SOURCES = [
     approxArticles: 1950,
   },
   {
+    id: "susha",
+    name: "Англійска-беларускі слоўнік (Т. Суша, 2013, актуальны правапіс)",
+    url: "https://raw.githubusercontent.com/verbumby/slouniki/master/susha/susha.html",
+    approxArticles: 26700,
+  },
+  {
     id: "tsblm2022",
     name: "Тлумачальны слоўнік беларускай літаратурнай мовы (І. Л. Капылоў, 2022)",
     url: "https://raw.githubusercontent.com/verbumby/slouniki/master/tsblm2022/tsblm2022.html",
@@ -126,15 +132,35 @@ export function getResolvedVerbumDbPath(): string | null {
   return null;
 }
 
-function extractHeadwordFromArticle(rawHtml: string): { headword: string; norm: string } | null {
-  const match = rawHtml.match(/<(?:strong|b)[^>]*class=["']hw["'][^>]*>(.*?)<\/(?:strong|b)>/i) ||
-                rawHtml.match(/<(?:strong|b)[^>]*id=["']([^"']+)["'][^>]*>(.*?)<\/(?:strong|b)>/i) ||
+function extractHeadwordsFromArticle(rawHtml: string): Array<{ headword: string; norm: string }> {
+  const results: Array<{ headword: string; norm: string }> = [];
+  const regex = /<(?:strong|b)[^>]*class=["']hw["'][^>]*>(.*?)<\/(?:strong|b)>/gi;
+  let m;
+  const seen = new Set<string>();
+  while ((m = regex.exec(rawHtml)) !== null) {
+    const rawText = (m[1] || "").replace(/<[^>]+>/g, "").replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰]/g, "").trim();
+    if (rawText) {
+      const norm = rawText.replace(/[\u0301\u0300\+]/g, "").toLowerCase().trim();
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        results.push({ headword: rawText, norm });
+      }
+    }
+  }
+  if (results.length > 0) return results;
+
+  const match = rawHtml.match(/<(?:strong|b)[^>]*id=["']([^"']+)["'][^>]*>(.*?)<\/(?:strong|b)>/i) ||
                 rawHtml.match(/id=["']([^"']+)["'][^>]*><(?:strong|b)>(.*?)<\/(?:strong|b)>/i);
-  if (!match) return null;
-  const rawText = (match[2] || match[1] || "").replace(/<[^>]+>/g, "").replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰]/g, "").trim();
-  if (!rawText) return null;
-  const norm = rawText.replace(/[\u0301\u0300\+]/g, "").toLowerCase().trim();
-  return { headword: rawText, norm };
+  if (match) {
+    const rawText = (match[2] || match[1] || "").replace(/<[^>]+>/g, "").replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰]/g, "").trim();
+    if (rawText) {
+      const norm = rawText.replace(/[\u0301\u0300\+]/g, "").toLowerCase().trim();
+      if (norm) {
+        results.push({ headword: rawText, norm });
+      }
+    }
+  }
+  return results;
 }
 
 function openDb(targetPath: string): any {
@@ -281,14 +307,17 @@ export async function ensureVerbumDbReady(): Promise<boolean> {
             const articleText = rawArticles[artIdx].trim();
             if (!articleText) continue;
 
-            const extracted = extractHeadwordFromArticle(articleText);
-            if (!extracted || !extracted.norm) continue;
+            const extractedList = extractHeadwordsFromArticle(articleText);
+            if (extractedList.length === 0) continue;
 
-            const articleId = `${dict.id}-${artIdx}`;
-            try {
-              insertStmt.run(articleId, dict.id, extracted.headword, extracted.norm, articleText);
-              inserted++;
-            } catch (_) {}
+            for (let k = 0; k < extractedList.length; k++) {
+              const item = extractedList[k];
+              const articleId = k === 0 ? `${dict.id}-${artIdx}` : `${dict.id}-${artIdx}-${k}`;
+              try {
+                insertStmt.run(articleId, dict.id, item.headword, item.norm, articleText);
+                inserted++;
+              } catch (_) {}
+            }
           }
           db.exec("COMMIT;");
           console.log(`[VerbumDB] Successfully indexed ${inserted} articles for ${dict.id}`);

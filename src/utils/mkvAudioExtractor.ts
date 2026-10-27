@@ -2577,3 +2577,6 @@ export async function extractAudioFromMkv(
 
   return null;
 }
+
+export const extractUniversalAudioTrack = extractAudioFromMkv;
+

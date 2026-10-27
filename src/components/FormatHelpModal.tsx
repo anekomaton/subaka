@@ -57,7 +57,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                   <HelpCircle className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-xs sm:text-sm">Даведка пра фарматы</h3>
+                  <h3 className="font-bold text-xs sm:text-sm">Даведка</h3>
                 </div>
               </div>
               <button
@@ -164,10 +164,10 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-400">
                       <HardDrive className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-400" />
-                      <span className="uppercase text-[11px] tracking-wide font-extrabold">ДЭСКТОПНЫЯ ШЛЯХІ І СХОВІШЧА (WINDOWS):</span>
+                      <span className="uppercase text-[11px] tracking-wide font-extrabold">Размяшчэнне праграмы:</span>
                     </div>
                     <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30 font-bold">
-                      Дэсктопны рэжым
+                      WINDOWS
                     </span>
                   </div>
                   <div className={`font-mono text-[10.5px] space-y-2 p-2.5 rounded-lg border break-all leading-relaxed selection:bg-amber-400 selection:text-slate-950 ${

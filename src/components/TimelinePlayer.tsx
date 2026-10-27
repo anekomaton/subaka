@@ -1843,7 +1843,7 @@ function TimelinePlayerComponent({
                     <ChevronUp className="h-2.5 w-2.5" />
                   </button>
                   <button
-                    onClick={() => setSubtitleFontSize((prev) => Math.max(10, prev - 1))}
+                    onClick={() => setSubtitleFontSize((prev) => Math.max(8, prev - 1))}
                     className={`p-px rounded transition-colors ${
                       theme === 'dark' ? 'text-slate-400 hover:text-amber-400 hover:bg-slate-700' : 'text-slate-600 hover:text-amber-600 hover:bg-slate-200'
                     }`}

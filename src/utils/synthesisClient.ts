@@ -5,6 +5,7 @@
  */
 
 import { isTauriDesktop, fetchAudioBufferNative, postJsonNative } from './tauriBridge';
+import { getDesktopGeminiApiKey } from './desktopAiClient';
 import { normalizeBelarusianNumbersInText } from './belarusianNumberToWords';
 import { belarusianToPhoneticTTS, addStressToSingleVowelWords } from './phoneticUkrToBel';
 
@@ -202,7 +203,7 @@ export async function synthesizeSubtitleAudioUniversal(
   // Gemini AI voices (Zephyr, Kore, Puck, Charon, Fenrir)
   const isGeminiVoice = ['Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'].includes(requestedVoice);
   if (isGeminiVoice) {
-    const apiKey = options?.apiKey || localStorage.getItem('gemini_api_key') || '';
+    const apiKey = (options?.apiKey || getDesktopGeminiApiKey() || localStorage.getItem('gemini_api_key') || '').trim();
     if (!apiKey) {
       throw new Error(
         `Для сінтэзу AI голасу «${requestedVoice}» у дэсктопнай версіі неабходна ўвесці бясплатны Gemini API ключ.`
@@ -212,30 +213,48 @@ export async function synthesizeSubtitleAudioUniversal(
     try {
       const promptText = `Speak naturally in Belarusian: ${cleanText}`;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent?key=${apiKey}`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: requestedVoice,
-                },
+      const reqBody = JSON.stringify({
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: requestedVoice,
               },
             },
           },
-        }),
+        },
       });
 
-      if (!resp.ok) {
-        const errJson = await resp.json().catch(() => ({}));
-        throw new Error(errJson?.error?.message || `Gemini TTS error (${resp.status})`);
+      let rawResponse = '';
+      // In Desktop mode: execute via subaka.exe native process memory space (postJsonNative).
+      // This ensures Split Tunneling VPN routes the traffic through subaka.exe without needing msedgewebview2.exe!
+      if (isTauriDesktop()) {
+        try {
+          rawResponse = await postJsonNative(url, reqBody);
+        } catch (nativeErr: any) {
+          console.warn('[Gemini Voice Desktop] Native post failed:', nativeErr);
+          throw nativeErr;
+        }
+      } else {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: reqBody,
+        });
+        if (!resp.ok) {
+          const errJson = await resp.json().catch(() => ({}));
+          throw new Error(errJson?.error?.message || `Gemini TTS error (${resp.status})`);
+        }
+        rawResponse = await resp.text();
       }
 
-      const result = await resp.json();
+      const result = JSON.parse(rawResponse);
+      if (result?.error) {
+        throw new Error(result.error.message || `Gemini API error: ${result.error.code}`);
+      }
+
       const base64Data = result?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Data) {
         return base64ToBlob(base64Data, 'audio/wav');
@@ -243,6 +262,9 @@ export async function synthesizeSubtitleAudioUniversal(
       throw new Error('Gemini TTS не вярнуў аўдыёзвесткі');
     } catch (err: any) {
       console.warn('[Gemini Voice Desktop error]:', err);
+      if (err?.message?.includes('User location is not supported')) {
+        throw new Error(`Памылка рэгіёну Google API: User location is not supported. Калі ласка, пераканайцеся, што VPN уключаны для subaka.exe альбо выкарыстоўвайце галасы «Алесь» / «Маруся».`);
+      }
       throw new Error(`Памылка сінтэзу AI голасу «${requestedVoice}»: ${err?.message || err}`);
     }
   }

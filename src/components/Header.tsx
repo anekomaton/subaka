@@ -366,7 +366,7 @@ export default function Header({
               <button
                 type="button"
                 onClick={onOpenFormatHelp}
-                title="Даведка пра фарматы (?)"
+                title="Даведка"
                 style={{ fontSize: '10px', lineHeight: '12px' }}
                 className={`p-0.5 rounded transition-colors flex items-center justify-center font-bold text-[10px] leading-[12px] shrink-0 ${
                   theme === 'dark'
