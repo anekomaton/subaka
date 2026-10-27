@@ -214,7 +214,7 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
                     </span>
                   </div>
                   <p className={`text-[11px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Словы, якія ігнаруюцца пры праверцы правапісу і лічацца правільнымі
+                    Словы, якія ігнаруюцца пры праверцы правапісу і лічацца правільнымі. Імпарт/Экспарт .csv, .txt.
                   </p>
                 </div>
               </div>

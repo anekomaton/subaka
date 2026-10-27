@@ -143,16 +143,16 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                 </p>
               </div>
 
-              {/* Section 4: Glossary */}
+              {/* Section 4: Desktop */}
               <div className={`p-2.5 rounded-xl border ${
                 isDark ? 'bg-slate-800/40 border-slate-700/60' : 'bg-slate-50 border-slate-300/90 shadow-2xs'
               }`}>
                 <div className="flex items-center gap-1.5 font-bold text-indigo-700 dark:text-indigo-400 mb-1">
                   <BookMarked className="w-4 h-4 shrink-0 text-indigo-700 dark:text-indigo-400" />
-                  <span>Гласарый (Імпарт / Экспарт):</span>
+                  <span>Спампаваць версію для Windows 10-11 (x64) або праверыць абнаўленні:</span>
                 </div>
-                <p className={`pl-1 font-mono text-[11px] ${isDark ? 'text-indigo-300/90' : 'text-indigo-950 font-semibold'}`}>
-                  .csv, .txt
+                <p className={`pl-1 font-mono text-[11px] ${isDark ? 'text-blue-300/90' : 'text-blue-700 font-semibold'}`}>
+                  <a href="https://github.com/anekomaton/subaka/releases" target="_blank" rel="noopener noreferrer">https://github.com/anekomaton/subaka/releases</a>
                 </p>
               </div>
 

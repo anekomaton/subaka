@@ -1448,7 +1448,7 @@ async function transcribeSingleFileWithGemini(
   const fileSize = fs.existsSync(uploadPath) ? fs.statSync(uploadPath).size : 0;
   console.log(`[Transcribe Gemini] Uploading file to Gemini Files API: ${fileName} (${fileSize} bytes, mime: ${uploadMime})`);
 
-  onProgress?.("Загрузка аўдыя ў Gemini Files API...", startPercent + 2);
+  onProgress?.("Загрузка аўдыя...", startPercent + 2);
 
   let uploadRes: any = null;
   for (let uploadAttempt = 1; uploadAttempt <= 5; uploadAttempt++) {
@@ -1465,7 +1465,7 @@ async function transcribeSingleFileWithGemini(
       console.warn(`[Transcribe Gemini] Upload attempt ${uploadAttempt}/5 failed for ${fileName}:`, uploadErr?.message || uploadErr);
       if (uploadAttempt === 5) throw uploadErr;
       const waitTime = uploadAttempt * 3;
-      onProgress?.(`Перагрузка сервера пры загрузцы (503), паўтор праз ${waitTime}с (${uploadAttempt}/5)...`, startPercent + 2);
+      onProgress?.(`503: паўтор праз ${waitTime}с (${uploadAttempt}/5)...`, startPercent + 2);
       await new Promise(r => setTimeout(r, waitTime * 1000));
     }
   }
@@ -1478,7 +1478,7 @@ async function transcribeSingleFileWithGemini(
     while (fileState === FileState.PROCESSING && attempts < 120) {
       attempts++;
       const currentWaitPct = Math.min(startPercent + 15, startPercent + 5 + Math.floor(attempts / 2));
-      onProgress?.(`Апрацоўка аўдыя Gemini API (${attempts * 2}с)...`, currentWaitPct);
+      onProgress?.(`Апрацоўка аўдыя (${attempts * 2}с)...`, currentWaitPct);
       console.log(`[Transcribe Gemini] ${fileName} is PROCESSING, waiting 2s...`);
       await new Promise(r => setTimeout(r, 2000));
       try {
@@ -1569,7 +1569,7 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
       while (tries > 0) {
         try {
           console.log(`[Transcribe Gemini] Attempting ${fileName} with model ${model}, remaining tries: ${tries}`);
-          onProgress?.(`Аналіз аўдыя і генерацыя субцітраў з ${model} (${currentPercent}%)...`, currentPercent);
+          onProgress?.(`Аналіз ${model} (${currentPercent}%)...`, currentPercent);
 
           const callPromise = client.models.generateContent({
             model: model,
@@ -1598,7 +1598,7 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
           const tickInterval = setInterval(() => {
             if (currentPercent < endPercent - 2) {
               currentPercent += 2;
-              onProgress?.(`Генерацыя субцітраў і таймкодаў з Gemini (${currentPercent}%)...`, currentPercent);
+              onProgress?.(`Запіс субцітраў (${currentPercent}%)...`, currentPercent);
             }
           }, 3000);
 
@@ -1679,7 +1679,7 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
             markModelTemporaryUnavailable(model, "503 high demand (overload)");
             const retryWait = Math.min(12, 3 + (5 - tries) * 3);
             console.log(`[Transcribe Gemini] Model ${model} busy/unavailable (503). Retrying in ${retryWait}s... (tries left: ${tries - 1})`);
-            onProgress?.(`Перагрузка сервера (503). Паўторны запыт праз ${retryWait}с...`, currentPercent);
+            onProgress?.(`503: паўтор праз ${retryWait}с...`, currentPercent);
             await new Promise((r) => setTimeout(r, retryWait * 1000));
             tries--;
             
@@ -1705,7 +1705,7 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
       return "";
     }
 
-    onProgress?.("Апрацоўка і фарматаванне субцітраў...", endPercent);
+    onProgress?.("Апрацоўка субцітраў...", endPercent);
 
     let srtText = transcribeResponse.text.trim();
     if (srtText.startsWith("```")) {
@@ -2097,7 +2097,7 @@ async function runTranscribeTask(
     const chunksDir = path.join(uploadDir, "audio_chunks");
     const targetChunkSec = totalAudioDurationSec <= 45 ? Math.ceil(totalAudioDurationSec) : 50;
     
-    updateProgress("Аналіз аўдыя і нарэзка па цішыні на кавалкі...", 18);
+    updateProgress("Аналіз аўдыя і нарэзка па цішыні...", 18);
     const segments = await segmentAudioBySilence(sourceAudioPath, chunksDir, totalAudioDurationSec, targetChunkSec, trackNumber);
     console.log(`[Transcribe Job ${jobId}] Created ${segments.length} segment(s) for transcription.`);
 
@@ -2115,8 +2115,8 @@ async function runTranscribeTask(
       const minEnd = Math.ceil(seg.endSec / 60);
 
       const segmentMsg = segments.length > 1
-        ? `Апрацоўка кавалка ${i + 1} з ${segments.length} (${minStart}хв–${minEnd}хв)...`
-        : "Аналіз аўдыя і генерацыя субцітраў...";
+        ? `Апрацоўка сегмента ${i + 1} з ${segments.length} (${minStart}хв–${minEnd}хв)...`
+        : "Аналіз аўдыя для субцітраў...";
 
       updateProgress(segmentMsg, startPct);
 
@@ -2124,7 +2124,7 @@ async function runTranscribeTask(
       segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
       if (!segSrt || !segSrt.trim()) {
         console.warn(`[Transcribe Job ${jobId}] Segment ${i + 1} returned empty result. Retrying segment in 3s...`);
-        updateProgress(`Паўторная апрацоўка кавалка ${i + 1}...`, startPct);
+        updateProgress(`Паўторная апрацоўка сегмента ${i + 1}...`, startPct);
         await new Promise((r) => setTimeout(r, 3000));
         segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
       }

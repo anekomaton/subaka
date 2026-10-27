@@ -2435,13 +2435,13 @@ export default function App() {
       if (!targetFile) return;
 
       if (customAudioFile) {
-        addToast(`Пачалася генерацыя субцітраў з загружанага аўдыяфайла (${customAudioFile.name})...`, "info");
+        addToast(`Генерацыя субцітраў з загружанага аўдыяфайла (${customAudioFile.name})...`, "info");
       } else if (isExternalTrack && extAudioFile) {
-        addToast(`Пачалася генерацыя субцітраў з аўдыядарожкі (${extAudioFile.name})...`, "info");
+        addToast(`Генерацыя субцітраў з аўдыядарожкі (${extAudioFile.name})...`, "info");
       } else if (currentTrackNum && currentTrackNum > 1) {
-        addToast(`Пачалася генерацыя субцітраў з дарожкі #${currentTrackNum}...`, "info");
+        addToast(`Генерацыя субцітраў з дарожкі #${currentTrackNum}...`, "info");
       } else {
-        addToast(`Пачалася генерацыя субцітраў з дапамогай Gemini...`, "info");
+        addToast(`Генерацыя субцітраў з дапамогай Gemini...`, "info");
       }
 
       if (targetFile.size > 28 * 1024 * 1024 * 1024) {
@@ -2810,7 +2810,7 @@ export default function App() {
 
       // Store auto-generated subtitles in buffer only - inserted strictly via the "ужыць" button
       setAutoSubtitles(parsed);
-      addToast(`Аўтасубцітры паспяхова сфарміраваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`, "success");
+      addToast(`Аўтасубцітры згенераваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`, "success");
     } catch (err: any) {
       if (err.name === 'AbortError') {
         addToast("Генерацыя субцітраў прыпынена карыстальнікам.", "info");
@@ -2862,7 +2862,7 @@ export default function App() {
       handleVoiceChange(voiceToUse);
     }
     const isQuotaFreeVoice = voiceToUse === 'Ales' || voiceToUse === 'BelG2P';
-    addToast(`Пачаўся паслядоўны сінтэз для ${pending.length} субцітраў...`, "info");
+    addToast(`Пачаўся сінтэз для ${pending.length} субцітраў...`, "info");
 
     for (let i = 0; i < pending.length; i++) {
       if (cancelSynthesizingRef.current) {

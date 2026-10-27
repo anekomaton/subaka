@@ -155,7 +155,7 @@ export default function ControlsPanel({
         theme === 'dark'
           ? 'bg-slate-900/95 border-slate-800 text-slate-100 shadow-[0_-12px_28px_-6px_rgba(0,0,0,0.8)]'
           : 'bg-white border-slate-200 text-slate-900 shadow-[0_-12px_28px_-6px_rgba(0,0,0,0.15)]'
-      } backdrop-blur-md border rounded-xl p-1.5 sm:p-2 md:p-2.5 relative overflow-hidden flex flex-col gap-1 sm:gap-2 w-full mx-auto transition-colors duration-200`}>
+      } backdrop-blur-md border rounded-xl p-1.5 sm:p-2 md:p-2.5 relative overflow-hidden flex flex-col gap-1.5 sm:gap-2 w-full mx-auto transition-colors duration-200`}>
         
         {/* Decorative background glow projecting UPWARD from footer (both left and right sides) */}
         <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
@@ -164,10 +164,10 @@ export default function ControlsPanel({
         </div>
 
         {/* ROW 1: Controls (3 sections: Left controls, Center status, Right buttons & voice) */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 lg:gap-3 relative z-10 w-full">
+        <div className="flex flex-wrap items-center justify-between gap-2 relative z-10 w-full">
           
           {/* 1. Left Side: Time shift & editing actions */}
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-1 sm:gap-1.5 py-0.5 min-w-0 justify-start max-w-full shrink-0">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 py-0.5 min-w-0 justify-start max-w-full shrink-0">
             <input
               id="timeshift-input-bottom"
               type="number"
@@ -434,12 +434,12 @@ export default function ControlsPanel({
 
           {/* 2. Center: Generation Progress Status */}
           {(isTranscribing || hasAutoSubtitles) && (
-            <div className="flex items-center justify-center min-w-0">
-              <div className={`py-1 px-2.5 rounded-md flex items-center gap-1.5 h-7 border shrink-0 ${
+            <div className="flex items-center justify-center min-w-0 order-last lg:order-none w-full lg:w-auto my-0.5 lg:my-0">
+              <div className={`py-1 px-2.5 rounded-md flex items-center justify-center gap-1.5 h-7 border shrink-0 w-full lg:w-auto ${
                 theme === 'dark' ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-50 border-slate-200'
               }`} title={isTranscribing ? "Генерацыя субцітраў" : "Аўтасубцітры паспяхова сфарміраваны"}>
                 {isTranscribing ? (
-                  <>
+                  <div className="flex items-center gap-1.5 flex-wrap justify-center">
                     <span className={`text-[9.5px] font-bold tracking-wider ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
                       генерацыя:
                     </span>
@@ -453,9 +453,9 @@ export default function ControlsPanel({
                         <span className="animate-pulse">{transcribeProgress || 'у працэсе...'}</span>
                       )}
                     </span>
-                  </>
+                  </div>
                 ) : (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap justify-center">
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 whitespace-nowrap">
                       <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
                       аўтасубцітры гатовыя
@@ -477,7 +477,7 @@ export default function ControlsPanel({
           )}
 
           {/* 3. Right Side: Under Player (Subtitle Generation Buttons & Voice Selector) */}
-          <div className="flex flex-wrap lg:flex-nowrap items-center justify-start lg:justify-end gap-1.5 md:gap-2 shrink-0 max-w-full">
+          <div className="flex flex-wrap items-center justify-start lg:justify-end gap-1.5 md:gap-2 shrink-0 max-w-full">
             {/* Transcribe / Create Subtitles (.srt) button */}
             {(() => {
               const isTranscribeDisabled = isTranscribing || !mediaFileName || isAudioProcessing || (mediaLoadingProgress !== null && mediaLoadingProgress < 100);

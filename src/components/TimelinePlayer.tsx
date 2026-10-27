@@ -1659,48 +1659,63 @@ function TimelinePlayerComponent({
         {/* Dynamic Subtitle overlay - Original at the top, Belarusian Translation at the bottom */}
         {currentSubtitle && (
           <>
-            {/* Original subtitles (pinned to top) */}
-            {currentSubtitle.text && (
-              <div className="absolute top-4 inset-x-4 pointer-events-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] z-20 flex justify-center items-start">
-                {/* Actor badge docked to the left edge - positioned absolutely so text remains centered */}
-                {showActorsOnPlayer && currentSubtitle.originalActor?.trim() ? (
-                  <div className="absolute left-0 top-0 max-w-[28%] sm:max-w-[32%] z-30">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/75 text-slate-200 border border-slate-700/80 text-[11px] sm:text-xs font-semibold shadow-md truncate">
-                      <User className="h-3 w-3 text-slate-400 shrink-0" />
+            {/* Бэйджы акцёраў — цалкам адасобленыя і прыціснутыя ў сапраўдныя куты плэера */}
+            {showActorsOnPlayer && (
+              <>
+                {/* Верхні бэйдж (арыгінал) у самым верхнім левым куце плэера */}
+                {currentSubtitle.originalActor?.trim() && (
+                  <div className="absolute top-0 left-0 sm:top-0 sm:left-0 max-w-[28%] sm:max-w-[32%] z-30 pointer-events-auto">
+                    <div 
+                      style={{ fontSize: `${Math.max(6, subtitleFontSize - 4)}px` }}
+                      className="inline-flex items-center gap-0.5 px-0.5 py-0.25 rounded-md bg-black/30 text-slate-200 border border-slate-700/0 font-semibold shadow-md truncate animate-fade-in"
+                    >
+                      <User 
+                        style={{ width: `${Math.max(6, subtitleFontSize - 4)}px`, height: `${Math.max(8, subtitleFontSize - 4)}px` }} 
+                        className="text-slate-400 shrink-0" 
+                      />
                       <span className="truncate">{currentSubtitle.originalActor.trim()}</span>
                     </div>
                   </div>
-                ) : null}
+                )}
 
-                {/* Subtitle text ALWAYS centered */}
-                <div className="w-full text-center px-10 sm:px-20">
+                {/* Ніжні бэйдж (пераклад) у самым ніжнім левым куце плэера */}
+                {currentSubtitle.actor?.trim() && (
+                  <div className="absolute bottom-0 left-0 sm:bottom-0 sm:left-0 max-w-[28%] sm:max-w-[32%] z-30 pointer-events-auto">
+                    <div 
+                      style={{ fontSize: `${Math.max(6, subtitleFontSize - 4)}px` }}
+                      className="inline-flex items-center gap-0.5 px-0.5 py-0.25 rounded-md bg-black/30 text-amber-300 border border-amber-500/0 font-semibold shadow-md truncate animate-fade-in"
+                    >
+                      <User 
+                        style={{ width: `${Math.max(6, subtitleFontSize - 4)}px`, height: `${Math.max(8, subtitleFontSize - 4)}px` }} 
+                        className="text-amber-400 shrink-0" 
+                      />
+                      <span className="truncate">{currentSubtitle.actor.trim()}</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* 2. Арыгінальныя субцітры (па цэнтры зверху) */}
+            {currentSubtitle.text && (
+              <div className="absolute top-2 sm:top-4 inset-x-12 sm:inset-x-16 pointer-events-none drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] z-20 flex justify-center items-start">
+                <div className="w-full text-center">
                   <p 
                     style={{ fontSize: `${subtitleFontSize}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
-                    className="font-bold bg-black/60 text-slate-100 inline-block px-3.5 py-1.5 rounded-lg border border-slate-800/30 text-balance max-w-[90%] tracking-wide leading-snug"
+                    className="font-bold bg-black/30 text-slate-100 inline-block px-1.5 py-0.25 rounded-lg border border-slate-800/30 text-balance animate-fade-in max-w-full tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.text) }}
                   />
                 </div>
               </div>
             )}
 
-            {/* Translated Belarusian subtitles (pinned to bottom) */}
+            {/* 3. Перакладзеныя субцітры (па цэнтры знізу) */}
             {currentSubtitle.translatedText && (
-              <div className="absolute bottom-6 inset-x-4 pointer-events-none drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)] z-20 flex justify-center items-end">
-                {/* Actor badge docked to the left edge - positioned absolutely so text remains centered */}
-                {showActorsOnPlayer && currentSubtitle.actor?.trim() ? (
-                  <div className="absolute left-0 bottom-0 max-w-[28%] sm:max-w-[32%] z-30">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/80 text-amber-300 border border-amber-500/40 text-[11px] sm:text-xs font-semibold shadow-md truncate animate-fade-in">
-                      <User className="h-3 w-3 text-amber-400 shrink-0" />
-                      <span className="truncate">{currentSubtitle.actor.trim()}</span>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Subtitle text ALWAYS centered */}
-                <div className="w-full text-center px-10 sm:px-20">
+              <div className="absolute bottom-2 sm:bottom-4 inset-x-12 sm:inset-x-16 pointer-events-none drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] z-20 flex justify-center items-end">
+                <div className="w-full text-center">
                   <p 
-                    style={{ fontSize: `${subtitleFontSize + 2}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
-                    className="font-bold bg-black/60 text-amber-300 inline-block px-3.5 py-1.5 rounded-lg border border-amber-500/10 text-balance animate-fade-in max-w-[95%] tracking-wide leading-snug"
+                    style={{ fontSize: `${subtitleFontSize}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
+                    className="font-bold bg-black/30 text-amber-300 inline-block px-1.5 py-0.25 rounded-lg border border-amber-500/10 text-balance animate-fade-in max-w-full tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.translatedText) }}
                   />
                 </div>
