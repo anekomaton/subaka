@@ -35,7 +35,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
     <AnimatePresence>
       {isOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
           onClick={onClose}
         >
           <motion.div
@@ -152,7 +152,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                   <span>Спампаваць версію для Windows 10-11 (x64) або праверыць абнаўленні:</span>
                 </div>
                 <p>
-                  	<a
+                  	{' '}<a
                       href="https://github.com/anekomaton/subaka/releases"
                       target="_blank"
                       rel="noopener noreferrer"

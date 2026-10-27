@@ -1701,7 +1701,7 @@ function TimelinePlayerComponent({
               <div className="absolute top-2 sm:top-4 inset-x-12 sm:inset-x-16 pointer-events-none drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] z-20 flex justify-center items-start">
                 <div className="w-full text-center">
                   <p 
-                    style={{ fontSize: `${subtitleFontSize}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
+                    style={{ fontSize: `${Math.max(8, subtitleFontSize + 2)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
                     className="font-bold bg-black/30 text-slate-100 inline-block px-1.5 py-0.25 rounded-lg border border-slate-800/30 text-balance animate-fade-in max-w-full tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.text) }}
                   />
@@ -1714,7 +1714,7 @@ function TimelinePlayerComponent({
               <div className="absolute bottom-2 sm:bottom-4 inset-x-12 sm:inset-x-16 pointer-events-none drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] z-20 flex justify-center items-end">
                 <div className="w-full text-center">
                   <p 
-                    style={{ fontSize: `${subtitleFontSize}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
+                    style={{ fontSize: `${Math.max(8, subtitleFontSize + 2)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
                     className="font-bold bg-black/30 text-amber-300 inline-block px-1.5 py-0.25 rounded-lg border border-amber-500/10 text-balance animate-fade-in max-w-full tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.translatedText) }}
                   />
