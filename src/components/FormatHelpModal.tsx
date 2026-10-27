@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { HelpCircle, X, Film, Music, FileText, BookMarked, CheckCircle2, AlertTriangle, HardDrive } from 'lucide-react';
+import { HelpCircle, X, ExternalLink, Film, Music, FileText, BookMarked, CheckCircle2, AlertTriangle, HardDrive } from 'lucide-react';
 import { isTauriDesktop, DesktopStorageInfo } from '../utils/tauriBridge';
 
 interface FormatHelpModalProps {
@@ -151,8 +151,16 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                   <BookMarked className="w-4 h-4 shrink-0 text-indigo-700 dark:text-indigo-400" />
                   <span>Спампаваць версію для Windows 10-11 (x64) або праверыць абнаўленні:</span>
                 </div>
-                <p className={`pl-1 font-mono text-[11px] ${isDark ? 'text-blue-300/90' : 'text-blue-700 font-semibold'}`}>
-                  <a href="https://github.com/anekomaton/subaka/releases" target="_blank" rel="noopener noreferrer">https://github.com/anekomaton/subaka/releases</a>
+                <p>
+                  	<a
+                      href="https://github.com/anekomaton/subaka/releases"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-purple-600 dark:text-purple-300 underline hover:text-purple-500 transition-colors"
+                    >
+                      https://github.com/anekomaton/subaka/releases
+                      <ExternalLink className="w-3.5 h-3.5 inline" />
+                    </a>{' '}
                 </p>
               </div>
 
