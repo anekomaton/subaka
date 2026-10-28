@@ -76,7 +76,7 @@ async function synthesizeAlesDesktop(cleanText: string): Promise<Blob> {
   const data = JSON.parse(rawJson);
   let audioUrl = typeof data === 'string' ? data : (data?.audio || data?.url);
   if (!audioUrl || typeof audioUrl !== 'string') {
-    throw new Error('Не атрыманы адрас аўдыёфайла ад TTS Алесь');
+    throw new Error('Не атрыманы адрас файла ад TTS Алесь');
   }
 
   if (audioUrl.startsWith('/')) {
@@ -94,7 +94,7 @@ async function synthesizeAlesDesktop(cleanText: string): Promise<Blob> {
     return base64ToBlob(base64Audio, 'audio/mpeg');
   } catch {
     const audioRes = await fetch(audioUrl);
-    if (!audioRes.ok) throw new Error(`Памылка спампоўвання аўдыё TTS Алесь: ${audioRes.status}`);
+    if (!audioRes.ok) throw new Error(`Памылка спампоўвання файла TTS Алесь: ${audioRes.status}`);
     return await audioRes.blob();
   }
 }
@@ -139,7 +139,7 @@ async function synthesizeBelG2PDesktop(rawText: string): Promise<Blob> {
     }
 
     if (!chunkBuffer) {
-      throw new Error('Не ўдалося сфарміраваць аўдыё сінтэзу');
+      throw new Error('Не ўдалося выканаць запыт');
     }
     arrayBuffers.push(chunkBuffer);
   }
@@ -259,7 +259,7 @@ export async function synthesizeSubtitleAudioUniversal(
       if (base64Data) {
         return base64ToBlob(base64Data, 'audio/wav');
       }
-      throw new Error('Gemini TTS не вярнуў аўдыёзвесткі');
+      throw new Error('Gemini TTS не адказаў');
     } catch (err: any) {
       console.warn('[Gemini Voice Desktop error]:', err);
       if (err?.message?.includes('User location is not supported')) {

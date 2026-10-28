@@ -1127,7 +1127,7 @@ async function synthesizeAlesVoice(rawText: string): Promise<Buffer> {
   const data = await response.json();
   let audioUrl = typeof data === "string" ? data : (data?.audio || data?.url);
   if (!audioUrl || typeof audioUrl !== "string") {
-    throw new Error("Не атрыманы адрас аўдыёфайла ад TTS Алесь");
+    throw new Error("Не атрыманы адрас файла ад TTS Алесь");
   }
 
   if (audioUrl.startsWith("http://")) {
@@ -1136,7 +1136,7 @@ async function synthesizeAlesVoice(rawText: string): Promise<Buffer> {
 
   const audioRes = await fetch(audioUrl);
   if (!audioRes.ok) {
-    throw new Error(`Памылка спампоўвання аўдыё TTS Алесь (${audioRes.status})`);
+    throw new Error(`Памылка спампоўвання файла TTS Алесь (${audioRes.status})`);
   }
 
   const arrayBuf = await audioRes.arrayBuffer();
@@ -1207,7 +1207,7 @@ async function synthesizeBelG2PVoice(rawText: string): Promise<Buffer> {
       }
     }
     if (!success) {
-      throw new Error("Не ўдалося сфарміраваць аўдыё сінтэзу");
+      throw new Error("Не ўдалося выканаць запыт");
     }
   }
 

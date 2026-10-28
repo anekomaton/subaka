@@ -1729,11 +1729,11 @@ function TimelinePlayerComponent({
                   <div className="absolute top-0 left-0 sm:top-0 sm:left-0 max-w-[28%] sm:max-w-[32%] z-30 pointer-events-auto">
                     <div 
                       style={{ fontSize: `${Math.max(8, subtitleFontSize - 2)}px` }}
-                      className="inline-flex items-center gap-0.5 px-0.5 py-[1px] rounded-md bg-black/0 text-blue-300 truncate animate-fade-in"
+                      className="inline-flex items-center gap-0.5 px-0.5 py-[1px] rounded-md [filter:drop-shadow(0_1px_0_rgba(0,0,0,0.6))_drop-shadow(0_-1px_0_rgba(0,0,0,0.6))_drop-shadow(1px_0_0_rgba(0,0,0,0.6))_drop-shadow(-1px_0_0_rgba(0,0,0,0.6))]  text-blue-200 truncate animate-fade-in"
                     >
                       <User 
                         style={{ width: `${Math.max(8, subtitleFontSize - 2)}px`, height: `${Math.max(8, subtitleFontSize - 2)}px` }} 
-                        className="text-blue-300 shrink-0" 
+                        className="text-blue-200 shrink-0" 
                       />
                       <span className="truncate">{currentSubtitle.originalActor.trim()}</span>
                     </div>
@@ -1745,11 +1745,11 @@ function TimelinePlayerComponent({
                   <div className="absolute bottom-0 left-0 sm:bottom-0 sm:left-0 max-w-[28%] sm:max-w-[32%] z-30 pointer-events-auto">
                     <div 
                       style={{ fontSize: `${Math.max(8, subtitleFontSize - 2)}px` }}
-                      className="inline-flex items-center gap-0.5 px-0.5 py-[1px] rounded-md bg-black/0 text-amber-300 truncate animate-fade-in"
+                      className="inline-flex items-center gap-0.5 px-0.5 py-[1px] rounded-md [filter:drop-shadow(0_1px_0_rgba(0,0,0,0.6))_drop-shadow(0_-1px_0_rgba(0,0,0,0.6))_drop-shadow(1px_0_0_rgba(0,0,0,0.6))_drop-shadow(-1px_0_0_rgba(0,0,0,0.6))]  text-amber-200 truncate animate-fade-in"
                     >
                       <User 
                         style={{ width: `${Math.max(8, subtitleFontSize - 2)}px`, height: `${Math.max(8, subtitleFontSize - 2)}px` }} 
-                        className="text-amber-300 shrink-0" 
+                        className="text-amber-200 shrink-0" 
                       />
                       <span className="truncate">{currentSubtitle.actor.trim()}</span>
                     </div>
@@ -1764,7 +1764,7 @@ function TimelinePlayerComponent({
                 <div className="w-full text-center">
                   <p 
                     style={{ fontSize: `${Math.max(8, subtitleFontSize + 3)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
-                    className="font-bold text-blue-200 inline-block px-1.5 py-0.25 rounded-lg [filter:drop-shadow(0_1px_0_rgba(0,0,0,0.6))_drop-shadow(0_-1px_0_rgba(0,0,0,0.6))_drop-shadow(1px_0_0_rgba(0,0,0,0.6))_drop-shadow(-1px_0_0_rgba(0,0,0,0.6))] animate-fade-in max-w-full break-words text-center tracking-wide leading-snug pointer-events-auto"
+                    className="font-bold text-blue-200 inline-block px-1.5 py-0.25 rounded-lg [filter:drop-shadow(0_2px_0_rgba(0,0,0,0.6))_drop-shadow(0_-2px_0_rgba(0,0,0,0.6))_drop-shadow(2px_0_0_rgba(0,0,0,0.6))_drop-shadow(-2px_0_0_rgba(0,0,0,0.6))] animate-fade-in max-w-full break-words text-center tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.text) }}
                   />
                 </div>
@@ -1777,7 +1777,7 @@ function TimelinePlayerComponent({
                 <div className="w-full text-center">
                   <p 
                     style={{ fontSize: `${Math.max(8, subtitleFontSize + 3)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
-                    className="font-bold text-amber-200 inline-block px-1.5 py-0.25 rounded-lg [filter:drop-shadow(0_1px_0_rgba(0,0,0,0.6))_drop-shadow(0_-1px_0_rgba(0,0,0,0.6))_drop-shadow(1px_0_0_rgba(0,0,0,0.6))_drop-shadow(-1px_0_0_rgba(0,0,0,0.6))] animate-fade-in max-w-full break-words text-center tracking-wide leading-snug pointer-events-auto"
+                    className="font-bold text-amber-200 inline-block px-1.5 py-0.25 rounded-lg [filter:drop-shadow(0_2px_0_rgba(0,0,0,0.6))_drop-shadow(0_-2px_0_rgba(0,0,0,0.6))_drop-shadow(2px_0_0_rgba(0,0,0,0.6))_drop-shadow(-2px_0_0_rgba(0,0,0,0.6))] animate-fade-in max-w-full break-words text-center tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.translatedText) }}
                   />
                 </div>
