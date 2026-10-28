@@ -16,7 +16,8 @@ import {
   Handshake,
   ExternalLink,
   BookOpen,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react';
 
 import { SubtitleEntry, PlaybackState } from './types';
@@ -69,7 +70,8 @@ import {
   isTauriDesktop,
   getDesktopStorageInfo,
   clearDesktopTempCache,
-  DesktopStorageInfo
+  DesktopStorageInfo,
+  openExternalUrl
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
@@ -238,8 +240,28 @@ export default function App() {
           unlisten = un;
         });
       }).catch(() => {});
+
+      // Intercept any clicked external http/https link to open in the system default browser
+      const handleGlobalClick = (e: MouseEvent) => {
+        let target = e.target as HTMLElement | null;
+        while (target && target !== document.body) {
+          if (target.tagName === 'A' && target.getAttribute('href')) {
+            const href = target.getAttribute('href');
+            if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+              e.preventDefault();
+              e.stopPropagation();
+              openExternalUrl(href);
+              return;
+            }
+          }
+          target = target.parentElement;
+        }
+      };
+      document.addEventListener('click', handleGlobalClick, true);
+
       return () => {
         if (unlisten) unlisten();
+        document.removeEventListener('click', handleGlobalClick, true);
       };
     }
   }, []);
@@ -923,11 +945,12 @@ export default function App() {
       try {
         const restored = await loadWorkspaceFromStorage();
         if (restored) {
+          let targetIdx = 0;
+          let hasTargetSubtitle = false;
           if (restored.subtitles && restored.subtitles.length > 0) {
             resetHistory(restored.subtitles);
             
             // Restore active selected subtitle card index and ID
-            let targetIdx = 0;
             try {
               const savedId = localStorage.getItem('subaka_active_subtitle_id');
               const savedIdxStr = localStorage.getItem('subaka_active_subtitle_index');
@@ -945,11 +968,25 @@ export default function App() {
             } catch {}
 
             setActiveSubtitleIndex(targetIdx);
-            if (restored.subtitles[targetIdx]) {
-              const startSec = srtTimeToSeconds(restored.subtitles[targetIdx].startTime);
-              handlePlaybackStateChange({ currentTime: startSec });
-            }
+            hasTargetSubtitle = Boolean(restored.subtitles[targetIdx]);
           }
+
+          // Restore playback current time (prioritize saved playbackCurrentTime from DB or localStorage)
+          let restoredTime = 0;
+          const lsTimeStr = localStorage.getItem('subaka_playback_current_time');
+          const lsTime = lsTimeStr ? parseFloat(lsTimeStr) : NaN;
+          if (typeof restored.playbackCurrentTime === 'number' && Number.isFinite(restored.playbackCurrentTime) && restored.playbackCurrentTime >= 0) {
+            restoredTime = restored.playbackCurrentTime;
+          } else if (!isNaN(lsTime) && lsTime >= 0) {
+            restoredTime = lsTime;
+          } else if (hasTargetSubtitle && restored.subtitles?.[targetIdx]) {
+            restoredTime = srtTimeToSeconds(restored.subtitles[targetIdx].startTime);
+          }
+
+          if (restoredTime >= 0) {
+            handlePlaybackStateChange({ currentTime: restoredTime });
+          }
+
           if (restored.autoSubtitles) setAutoSubtitles(restored.autoSubtitles);
           if (restored.mediaFileName) setMediaFileName(restored.mediaFileName);
           if (restored.mediaFile) setMediaFile(restored.mediaFile);
@@ -1005,7 +1042,8 @@ export default function App() {
         activeExternalTrackId,
         originalAssHeader,
         projectName,
-        splitRatio
+        splitRatio,
+        playbackState.currentTime
       );
       const nowStr = new Date().toLocaleTimeString('be-BY', { hour: '2-digit', minute: '2-digit' });
       setLastSavedTime(nowStr);
@@ -1034,6 +1072,7 @@ export default function App() {
     originalAssHeader,
     projectName,
     splitRatio,
+    playbackState.currentTime,
   ]);
 
   // Periodic interval auto-save + trigger save on tab unload / refresh
@@ -1759,8 +1798,18 @@ export default function App() {
   };
 
   // State Updates from timeline player
+  const lastSavedPlaybackTimeRef = useRef<number>(0);
   const handlePlaybackStateChange = (updated: Partial<PlaybackState>) => {
     setPlaybackState((prev) => ({ ...prev, ...updated }));
+    if (updated.currentTime !== undefined && Number.isFinite(updated.currentTime) && updated.currentTime >= 0) {
+      const now = Date.now();
+      if (now - lastSavedPlaybackTimeRef.current > 1500 || updated.isPlaying === false) {
+        lastSavedPlaybackTimeRef.current = now;
+        try {
+          localStorage.setItem('subaka_playback_current_time', String(updated.currentTime));
+        } catch {}
+      }
+    }
   };
 
   // Helper to sort subtitles chronologically by startTime without shifting timestamps
@@ -3311,6 +3360,9 @@ export default function App() {
       currentTime: 0,
       isPlaying: false,
     }));
+    try {
+      localStorage.removeItem('subaka_playback_current_time');
+    } catch {}
 
     await clearWorkspaceFromStorage();
     if (isTauriDesktop()) {
@@ -3346,12 +3398,30 @@ export default function App() {
       currentTime: 0,
       isPlaying: false,
     }));
+    try {
+      localStorage.removeItem('subaka_playback_current_time');
+    } catch {}
 
     await clearMediaFromStorage();
     addToast("Медыяфайл ачышчаны", "info");
   };
 
   const handleMediaFileLoaded = (file: File) => {
+    // If loading a new media file, reset processed tracks, external audio, and active tracks from any previous media file
+    setExtAudioFile(null);
+    setProcessedTracks({});
+    setProcessedForGenTracks({});
+    setActiveTrackNumber(1);
+    setActiveExternalTrackId(null);
+    setPlaybackState((prev) => ({
+      ...prev,
+      currentTime: 0,
+      isPlaying: false,
+    }));
+    try {
+      localStorage.removeItem('subaka_playback_current_time');
+    } catch {}
+
     setMediaFile(file);
     setMediaFileName(file.name);
     addToast(`Медыяфайл "${file.name}" загружаны`, "success");
@@ -3423,7 +3493,8 @@ export default function App() {
         activeExternalTrackId,
         originalAssHeader,
         projectName,
-        splitRatio
+        splitRatio,
+        playbackState.currentTime
       );
     } catch (e) {
       console.warn("[Storage] Error saving workspace after clearing voiceover:", e);
@@ -4804,6 +4875,24 @@ export default function App() {
         onTakeOver={handleTakeOverTab}
         theme={theme}
       />
+
+      {/* Workspace Restoration Screen / Overlay */}
+      {!isRestored && (
+        <div className="fixed inset-0 z-[999999] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-md text-white select-none pointer-events-auto">
+          <div className="flex flex-col items-center max-w-sm text-center px-6 py-8 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl">
+            <div className="w-16 h-16 mb-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shadow-inner">
+              <Activity className="w-8 h-8 text-amber-400 animate-pulse" />
+            </div>
+            <div className="flex items-center gap-2.5 text-amber-400 font-bold text-base mb-2">
+              <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+              <span>Аднаўленне працоўнай вобласці...</span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed font-medium">
+              Загрузка субцітраў, медыяфайлаў і налад праекта з лакальнага сховішча
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

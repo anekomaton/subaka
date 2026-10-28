@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { HelpCircle, X, ExternalLink, Film, Music, FileText, BookMarked, CheckCircle2, AlertTriangle, HardDrive } from 'lucide-react';
-import { isTauriDesktop, DesktopStorageInfo } from '../utils/tauriBridge';
+import { isTauriDesktop, DesktopStorageInfo, openExternalUrl } from '../utils/tauriBridge';
 
 interface FormatHelpModalProps {
   isOpen: boolean;
@@ -156,9 +156,13 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                       href="https://github.com/anekomaton/subaka/releases"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-bold text-purple-600 dark:text-purple-300 underline hover:text-purple-500 transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openExternalUrl('https://github.com/anekomaton/subaka/releases');
+                      }}
+                      className="inline-flex items-center gap-1 font-bold text-purple-600 dark:text-purple-300 underline hover:text-purple-500 transition-colors cursor-pointer"
                     >
-                      https://github.com/anekomaton/subaka/releases
+                      <span>https://github.com/anekomaton/subaka/releases</span>
                       <ExternalLink className="w-3.5 h-3.5 inline" />
                     </a>{' '}
                 </p>

@@ -10,7 +10,7 @@ import { srtTimeToSeconds, secondsToSrtTime, sanitizeSrtHtml, parseSrt } from '.
 import { extractAudioFromMkv, probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
 import { extractAudioWithFFmpeg, terminateFFmpegWorker } from '../utils/ffmpegExtractor';
 import { extractSrtSubtitles, probeSubtitles, SubtitleTrackInfo, isSupportedSubtitleCodec, downloadRawSubtitleTrack } from '../utils/srtSubtitleExtractor';
-import { saveFileUniversal } from '../utils/tauriBridge';
+import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop } from '../utils/tauriBridge';
 
 interface TimelinePlayerProps {
   subtitles: SubtitleEntry[];
@@ -369,7 +369,7 @@ function TimelinePlayerComponent({
 
   const handleExtractAndImportSrt = async () => {
     if (!mediaFile) {
-      addToast?.('Калі ласка, спачатку загрузіце медыяфайл.', 'info');
+      addToast?.('Спачатку загрузіце медыяфайл.', 'info');
       return;
     }
 
@@ -685,6 +685,33 @@ function TimelinePlayerComponent({
     }
   }, [mediaFileName]);
 
+  // Ref to track media file switching for complete cleanup of previous audio tracks
+  const prevMediaFileNameRef = useRef<string>(mediaFile?.name || mediaFileName || '');
+
+  // Detect switching to a DIFFERENT media file: wipe all previous audio processing tracks
+  useEffect(() => {
+    const curName = mediaFile?.name || mediaFileName || '';
+    if (curName && prevMediaFileNameRef.current && prevMediaFileNameRef.current !== curName) {
+      if (extAudioUrl) {
+        URL.revokeObjectURL(extAudioUrl);
+      }
+      setExtAudioUrl('');
+      setExtAudioFileName('');
+      setUploadedAudioTracks([]);
+      setProcessedTracks({});
+      setActiveExternalTrackId(null);
+      setActiveTrackNumberAndRef(1);
+      onExtAudioFileChange?.(null);
+      if (audioAbortControllerRef.current) {
+        audioAbortControllerRef.current.abort();
+        audioAbortControllerRef.current = null;
+      }
+      terminateFFmpegWorker();
+      setAudioProcessingStatus({ isProcessing: false, message: '', progress: null });
+    }
+    prevMediaFileNameRef.current = curName;
+  }, [mediaFile, mediaFileName]);
+
   // Auto-synchronize mediaUrl with mediaFile prop (e.g. restored from storage on page refresh)
   useEffect(() => {
     if (mediaFile) {
@@ -796,12 +823,19 @@ function TimelinePlayerComponent({
         probeMkvAudioCodec(mediaFile).then((probe) => {
           if (probe.tracks && probe.tracks.length > 0) {
             setAvailableAudioTracks(probe.tracks);
-            const activeTr = probe.tracks.find(t => t.trackNumber === (probe.audioTrackNumber || 1)) || probe.tracks[0];
+            const chosenTrackNum = activeTrackNumberRef.current || activeTrackNumber || probe.audioTrackNumber || 1;
+            const activeTr = probe.tracks.find(t => t.trackNumber === chosenTrackNum) || probe.tracks[0];
             if (activeTr) {
               setActiveTrackNumberAndRef(activeTr.trackNumber);
               const needsTc = activeTr.isUnsupportedCodec || probe.needsTranscode || false;
               setRequiresTranscode(needsTc);
-              if (needsTc && !extAudioFile) {
+              if (processedTracks[activeTr.trackNumber]) {
+                const cached = processedTracks[activeTr.trackNumber];
+                setExtAudioFileName(`${mediaFile.name} [Аўдыя: ${cached.label}]`);
+                onExtAudioFileChange?.(cached.audioFile);
+                if (extAudioUrl) URL.revokeObjectURL(extAudioUrl);
+                setExtAudioUrl(URL.createObjectURL(cached.audioFile));
+              } else if (needsTc && !extAudioFile) {
                 executeAudioExtraction(activeTr.trackNumber, mediaFile);
               }
             } else {
@@ -942,7 +976,11 @@ function TimelinePlayerComponent({
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
+      if (!isNowFullscreen && isTauriDesktop()) {
+        restorePostFullscreenBoundsDesktop();
+      }
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => {
@@ -1050,11 +1088,17 @@ function TimelinePlayerComponent({
     if (!activePlayer) return;
 
     if (isPlaying) {
+      if (Math.abs(activePlayer.currentTime - currentTime) > 0.08) {
+        activePlayer.currentTime = currentTime;
+      }
+      if (extAudioRef.current && mediaType === 'video') {
+        extAudioRef.current.currentTime = activePlayer.currentTime;
+      }
       activePlayer.play().catch(() => {
         if (!audioProcessingStatus.isProcessing) {
           onPlaybackStateChange({ isPlaying: false });
         } else {
-          addToast?.('Аўдыя апрацоўваецца, калі ласка, пачакайце...', 'info');
+          addToast?.('Аўдыя апрацоўваецца, пачакайце...', 'info');
         }
       });
       if (extAudioRef.current && mediaType === 'video') {
@@ -1587,6 +1631,14 @@ function TimelinePlayerComponent({
                 if (videoRef.current) {
                   videoRef.current.volume = isMediaMuted ? 0 : mediaVolume;
                   videoRef.current.muted = !!extAudioUrl || isMediaMuted;
+                  if (currentTime > 0) {
+                    videoRef.current.currentTime = currentTime;
+                  }
+                }
+              }}
+              onCanPlay={() => {
+                if (videoRef.current && currentTime > 0 && Math.abs(videoRef.current.currentTime - currentTime) > 0.15 && videoRef.current.paused) {
+                  videoRef.current.currentTime = currentTime;
                 }
               }}
               onClick={() => onPlaybackStateChange({ isPlaying: !isPlaying })}
@@ -1604,6 +1656,8 @@ function TimelinePlayerComponent({
                     if (videoRef.current) {
                       extAudioRef.current.currentTime = videoRef.current.currentTime;
                       extAudioRef.current.playbackRate = videoRef.current.playbackRate;
+                    } else if (currentTime > 0) {
+                      extAudioRef.current.currentTime = currentTime;
                     }
                     if (isPlaying) {
                       extAudioRef.current.play().catch(() => {});
@@ -1627,6 +1681,14 @@ function TimelinePlayerComponent({
                 if (audioRef.current) {
                   audioRef.current.volume = isMediaMuted ? 0 : mediaVolume;
                   audioRef.current.muted = isMediaMuted;
+                  if (currentTime > 0) {
+                    audioRef.current.currentTime = currentTime;
+                  }
+                }
+              }}
+              onCanPlay={() => {
+                if (audioRef.current && currentTime > 0 && Math.abs(audioRef.current.currentTime - currentTime) > 0.15 && audioRef.current.paused) {
+                  audioRef.current.currentTime = currentTime;
                 }
               }}
             />
@@ -1644,7 +1706,7 @@ function TimelinePlayerComponent({
         {mediaType === 'none' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900/60" />
-            <div className="relative z-10 flex items-center justify-center w-[35%] h-[35%] opacity-[0.45] hover:opacity-75 transition-opacity duration-300">
+            <div className="relative z-10 flex items-center justify-center w-[35%] h-[35%] opacity-[0.45] hover:opacity-75 transition-opacity duration-200">
               <img 
                 src="/player-watermark.svg"
                 alt="СУБАКА"
@@ -1659,35 +1721,35 @@ function TimelinePlayerComponent({
         {/* Dynamic Subtitle overlay - Original at the top, Belarusian Translation at the bottom */}
         {currentSubtitle && (
           <>
-            {/* Бэйджы акцёраў — цалкам адасобленыя і прыціснутыя ў сапраўдныя куты плэера */}
+            {/* User Subtitle */}
             {showActorsOnPlayer && (
               <>
-                {/* Верхні бэйдж (арыгінал) у самым верхнім левым куце плэера */}
+                {/* User Subtitle Original Up border border-slate-700/0 font-semibold shadow-md */}
                 {currentSubtitle.originalActor?.trim() && (
                   <div className="absolute top-0 left-0 sm:top-0 sm:left-0 max-w-[28%] sm:max-w-[32%] z-30 pointer-events-auto">
                     <div 
-                      style={{ fontSize: `${Math.max(6, subtitleFontSize - 4)}px` }}
-                      className="inline-flex items-center gap-0.5 px-0.5 py-0.25 rounded-md bg-black/30 text-slate-200 border border-slate-700/0 font-semibold shadow-md truncate animate-fade-in"
+                      style={{ fontSize: `${Math.max(8, subtitleFontSize - 2)}px` }}
+                      className="inline-flex items-center gap-0.5 px-0.5 py-[1px] rounded-md bg-black/0 text-blue-300 truncate animate-fade-in"
                     >
                       <User 
-                        style={{ width: `${Math.max(6, subtitleFontSize - 4)}px`, height: `${Math.max(8, subtitleFontSize - 4)}px` }} 
-                        className="text-slate-400 shrink-0" 
+                        style={{ width: `${Math.max(8, subtitleFontSize - 2)}px`, height: `${Math.max(8, subtitleFontSize - 2)}px` }} 
+                        className="text-blue-300 shrink-0" 
                       />
                       <span className="truncate">{currentSubtitle.originalActor.trim()}</span>
                     </div>
                   </div>
                 )}
 
-                {/* Ніжні бэйдж (пераклад) у самым ніжнім левым куце плэера */}
+                {/* User Subtitle Translated Down border border-amber-500/0 font-semibold shadow-md */}
                 {currentSubtitle.actor?.trim() && (
                   <div className="absolute bottom-0 left-0 sm:bottom-0 sm:left-0 max-w-[28%] sm:max-w-[32%] z-30 pointer-events-auto">
                     <div 
-                      style={{ fontSize: `${Math.max(6, subtitleFontSize - 4)}px` }}
-                      className="inline-flex items-center gap-0.5 px-0.5 py-0.25 rounded-md bg-black/30 text-amber-300 border border-amber-500/0 font-semibold shadow-md truncate animate-fade-in"
+                      style={{ fontSize: `${Math.max(8, subtitleFontSize - 2)}px` }}
+                      className="inline-flex items-center gap-0.5 px-0.5 py-[1px] rounded-md bg-black/0 text-amber-300 truncate animate-fade-in"
                     >
                       <User 
-                        style={{ width: `${Math.max(6, subtitleFontSize - 4)}px`, height: `${Math.max(8, subtitleFontSize - 4)}px` }} 
-                        className="text-amber-400 shrink-0" 
+                        style={{ width: `${Math.max(8, subtitleFontSize - 2)}px`, height: `${Math.max(8, subtitleFontSize - 2)}px` }} 
+                        className="text-amber-300 shrink-0" 
                       />
                       <span className="truncate">{currentSubtitle.actor.trim()}</span>
                     </div>
@@ -1696,26 +1758,26 @@ function TimelinePlayerComponent({
               </>
             )}
 
-            {/* 2. Арыгінальныя субцітры (па цэнтры зверху) */}
+            {/* Subtitle Original Up bg-black/0 drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] border border-blue-500/10*/}
             {currentSubtitle.text && (
-              <div className="absolute top-2 sm:top-4 inset-x-12 sm:inset-x-16 pointer-events-none drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] z-20 flex justify-center items-start">
+              <div className="absolute top-2 sm:top-4 inset-x-2 sm:inset-x-4 @[600px]:inset-x-8 pointer-events-none z-20 flex justify-center items-start">
                 <div className="w-full text-center">
                   <p 
-                    style={{ fontSize: `${Math.max(8, subtitleFontSize + 2)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
-                    className="font-bold bg-black/30 text-slate-100 inline-block px-1.5 py-0.25 rounded-lg border border-slate-800/30 text-balance animate-fade-in max-w-full tracking-wide leading-snug pointer-events-auto"
+                    style={{ fontSize: `${Math.max(8, subtitleFontSize + 3)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
+                    className="font-bold text-blue-200 inline-block px-1.5 py-0.25 rounded-lg [filter:drop-shadow(0_1px_0_rgba(0,0,0,0.6))_drop-shadow(0_-1px_0_rgba(0,0,0,0.6))_drop-shadow(1px_0_0_rgba(0,0,0,0.6))_drop-shadow(-1px_0_0_rgba(0,0,0,0.6))] animate-fade-in max-w-full break-words text-center tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.text) }}
                   />
                 </div>
               </div>
             )}
 
-            {/* 3. Перакладзеныя субцітры (па цэнтры знізу) */}
+            {/* Subtitle Translated Down bg-black/0 drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] border border-amber-500/10*/}
             {currentSubtitle.translatedText && (
-              <div className="absolute bottom-2 sm:bottom-4 inset-x-12 sm:inset-x-16 pointer-events-none drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)] z-20 flex justify-center items-end">
+              <div className="absolute bottom-2 sm:bottom-4 inset-x-2 sm:inset-x-4 @[600px]:inset-x-8 pointer-events-none z-20 flex justify-center items-end">
                 <div className="w-full text-center">
                   <p 
-                    style={{ fontSize: `${Math.max(8, subtitleFontSize + 2)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
-                    className="font-bold bg-black/30 text-amber-300 inline-block px-1.5 py-0.25 rounded-lg border border-amber-500/10 text-balance animate-fade-in max-w-full tracking-wide leading-snug pointer-events-auto"
+                    style={{ fontSize: `${Math.max(8, subtitleFontSize + 3)}px`, fontFamily: 'Arial, Helvetica, sans-serif' }}
+                    className="font-bold text-amber-200 inline-block px-1.5 py-0.25 rounded-lg [filter:drop-shadow(0_1px_0_rgba(0,0,0,0.6))_drop-shadow(0_-1px_0_rgba(0,0,0,0.6))_drop-shadow(1px_0_0_rgba(0,0,0,0.6))_drop-shadow(-1px_0_0_rgba(0,0,0,0.6))] animate-fade-in max-w-full break-words text-center tracking-wide leading-snug pointer-events-auto"
                     dangerouslySetInnerHTML={{ __html: sanitizeSrtHtml(currentSubtitle.translatedText) }}
                   />
                 </div>
@@ -2108,7 +2170,7 @@ function TimelinePlayerComponent({
             </div>
 
             <p className="text-xs text-slate-300">
-              Знойдзена субцітраў <strong className="text-amber-400">{availableSubTracks.length}</strong> . Калі ласка, выберыце субцітры для выцягвання:
+              Знойдзена субцітраў <strong className="text-amber-400">{availableSubTracks.length}</strong> . Выберыце субцітры для выцягвання:
             </p>
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">

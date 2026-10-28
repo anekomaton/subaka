@@ -545,3 +545,35 @@ pub async fn fetch_verbum_online_native(url: String) -> Result<String, String> {
         .map_err(|e| format!("Памылка фонавага патоку Verbum: {}", e))?
 }
 
+#[tauri::command]
+pub fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    app.shell().open(&url, None).map_err(|e| format!("Не ўдалося адкрыць спасылку: {}", e))
+}
+
+#[tauri::command]
+pub fn restore_post_fullscreen_bounds(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        if let Some(path) = crate::get_window_state_path(&app) {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(state) = serde_json::from_str::<crate::WindowState>(&content) {
+                    if !state.maximized {
+                        if let (Some(x), Some(y)) = (state.x, state.y) {
+                            if x > 0 || y > 0 {
+                                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                            }
+                        }
+                        if state.width >= 600 && state.height >= 400 {
+                            let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
+                        }
+                    } else {
+                        let _ = window.maximize();
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+

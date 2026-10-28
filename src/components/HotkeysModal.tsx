@@ -62,7 +62,7 @@ export const HotkeysModal: React.FC<HotkeysModalProps> = ({
     },
     {
       keys: ['Ctrl', 'S'],
-      description: 'Захаваць праект у лакальнае сховішча (браўзера)',
+      description: 'Захаваць праект у лакальным сховішчы',
       icon: <Save className="w-3.5 h-3.5 text-blue-400" />,
     },
     {

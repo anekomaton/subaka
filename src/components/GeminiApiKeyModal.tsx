@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Key, X, ExternalLink, Eye, EyeOff, Check, Trash2, ShieldCheck, Sparkles } from 'lucide-react';
-import { isTauriDesktop } from '../utils/tauriBridge';
+import { isTauriDesktop, openExternalUrl } from '../utils/tauriBridge';
 
 interface GeminiApiKeyModalProps {
   isOpen: boolean;
@@ -131,7 +131,11 @@ export const GeminiApiKeyModal: React.FC<GeminiApiKeyModalProps> = ({
                       href="https://aistudio.google.com/api-keys"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-bold text-purple-600 dark:text-purple-300 underline hover:text-purple-500 transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openExternalUrl('https://aistudio.google.com/api-keys');
+                      }}
+                      className="inline-flex items-center gap-1 font-bold text-purple-600 dark:text-purple-300 underline hover:text-purple-500 transition-colors cursor-pointer"
                     >
                       Google AI Studio (aistudio.google.com)
                       <ExternalLink className="w-3.5 h-3.5 inline" />

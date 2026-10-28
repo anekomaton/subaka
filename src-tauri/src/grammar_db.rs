@@ -265,7 +265,7 @@ impl GrammarDbManager {
                     query: query.to_string(),
                     clean: clean.clone(),
                     found: true,
-                    stressed: matched.stressed.clone(),
+                    stressed: Self::format_stressed_word(&matched.stressed),
                     lemma: matched.lemma.clone(),
                     forms: related_forms,
                     db_ready: true,
@@ -282,6 +282,30 @@ impl GrammarDbManager {
             forms: Vec::new(),
             db_ready: true,
         }
+    }
+
+    pub fn format_stressed_word(raw: &str) -> String {
+        let mut out = String::with_capacity(raw.len() + 4);
+        let chars: Vec<char> = raw.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '+' {
+                if i + 1 < chars.len() {
+                    out.push(chars[i + 1]);
+                    out.push('\u{0301}');
+                    i += 2;
+                    continue;
+                }
+            } else if chars[i] == 'и' {
+                out.push('й');
+            } else if chars[i] == 'И' {
+                out.push('Й');
+            } else {
+                out.push(chars[i]);
+            }
+            i += 1;
+        }
+        out
     }
 
     pub fn batch_check(&self, words: Vec<String>) -> HashMap<String, bool> {
@@ -355,15 +379,16 @@ impl GrammarDbManager {
                     let mut replaced: Option<String> = None;
                     for v in Self::get_u_variants(&clean) {
                         if let Ok(st) = stmt.query_row(params![v], |r| r.get::<_, String>(0)) {
+                            let formatted = Self::format_stressed_word(&st);
                             let is_first_upper = raw_word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
                             let final_st = if is_first_upper {
-                                let mut c_iter = st.chars();
+                                let mut c_iter = formatted.chars();
                                 match c_iter.next() {
                                     Some(first) => first.to_uppercase().collect::<String>() + c_iter.as_str(),
-                                    None => st,
+                                    None => formatted,
                                 }
                             } else {
-                                st
+                                formatted
                             };
                             replaced = Some(final_st);
                             break;
@@ -392,7 +417,7 @@ impl GrammarDbManager {
                     }
                     for v in Self::get_u_variants(&clean) {
                         if let Ok(st) = stmt.query_row(params![v], |r| r.get::<_, String>(0)) {
-                            results.insert(w.clone(), st);
+                            results.insert(w.clone(), Self::format_stressed_word(&st));
                             break;
                         }
                     }

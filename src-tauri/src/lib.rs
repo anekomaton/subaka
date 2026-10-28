@@ -11,29 +11,58 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Emitter, Manager};
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
-struct WindowState {
-    width: u32,
-    height: u32,
-    x: Option<i32>,
-    y: Option<i32>,
-    maximized: bool,
+pub(crate) struct WindowState {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) x: Option<i32>,
+    pub(crate) y: Option<i32>,
+    pub(crate) maximized: bool,
 }
 
-fn get_window_state_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+pub(crate) fn get_window_state_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_local_data_dir().ok().map(|d| d.join("window_state.json"))
 }
 
-fn save_window_state(window: &tauri::Window) {
+pub(crate) fn save_window_state(window: &tauri::Window) {
+    if window.is_fullscreen().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return;
+    }
     let app = window.app_handle();
     if let Some(path) = get_window_state_path(app) {
         let is_max = window.is_maximized().unwrap_or(false);
         let size = window.inner_size().unwrap_or(tauri::PhysicalSize::new(1280, 720));
         let pos = window.outer_position().ok();
+
+        let mut final_x = pos.map(|p| p.x);
+        let mut final_y = pos.map(|p| p.y);
+
+        if is_max {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(prev_state) = serde_json::from_str::<WindowState>(&content) {
+                    if prev_state.x.is_some() && prev_state.y.is_some() {
+                        final_x = prev_state.x;
+                        final_y = prev_state.y;
+                    }
+                }
+            }
+        } else if let (Some(x), Some(y)) = (final_x, final_y) {
+            if x <= 0 && y <= 0 {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(prev_state) = serde_json::from_str::<WindowState>(&content) {
+                        if prev_state.x.unwrap_or(0) > 0 || prev_state.y.unwrap_or(0) > 0 {
+                            final_x = prev_state.x;
+                            final_y = prev_state.y;
+                        }
+                    }
+                }
+            }
+        }
+
         let state = WindowState {
             width: size.width,
             height: size.height,
-            x: pos.map(|p| p.x),
-            y: pos.map(|p| p.y),
+            x: final_x,
+            y: final_y,
             maximized: is_max,
         };
         if let Some(parent) = path.parent() {
@@ -183,6 +212,8 @@ pub fn run() {
             fetch_audio_buffer_native,
             post_json_native,
             fetch_verbum_online_native,
+            open_external_url,
+            restore_post_fullscreen_bounds,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SUBaka desktop application");

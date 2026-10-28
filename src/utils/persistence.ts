@@ -58,6 +58,7 @@ export interface SavedWorkspace {
   activeExternalTrackId?: string | null;
   projectName?: string;
   splitRatio?: number;
+  playbackCurrentTime?: number;
 }
 
 // In-memory cache of audioBlobs per subtitle ID to prevent constant re-fetching of blob URLs
@@ -113,7 +114,8 @@ export async function saveWorkspaceToStorage(
   activeExternalTrackId?: string | null,
   originalAssHeader?: string,
   projectName?: string,
-  splitRatio?: number
+  splitRatio?: number,
+  playbackCurrentTime?: number
 ): Promise<void> {
   try {
     const db = await openDB();
@@ -238,6 +240,10 @@ export async function saveWorkspaceToStorage(
       store.put(splitRatio, 'splitRatio');
     }
 
+    if (typeof playbackCurrentTime === 'number' && !isNaN(playbackCurrentTime) && playbackCurrentTime >= 0) {
+      store.put(playbackCurrentTime, 'playbackCurrentTime');
+    }
+
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -276,6 +282,7 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
       savedOriginalAssHeader,
       savedProjectName,
       savedSplitRatio,
+      savedPlaybackCurrentTime,
     ] = await Promise.all([
       getReq('subtitles'),
       getReq('autoSubtitles'),
@@ -289,6 +296,7 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
       getReq('originalAssHeader'),
       getReq('projectName'),
       getReq('splitRatio'),
+      getReq('playbackCurrentTime'),
     ]);
 
     if ((!rawSubtitles || !Array.isArray(rawSubtitles) || rawSubtitles.length === 0) && !savedMediaFileName && !mediaFileData && !savedProjectName) {
@@ -383,6 +391,7 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
       activeExternalTrackId: savedActiveExternalTrackId || null,
       projectName: savedProjectName || undefined,
       splitRatio: typeof savedSplitRatio === 'number' && !isNaN(savedSplitRatio) ? savedSplitRatio : undefined,
+      playbackCurrentTime: typeof savedPlaybackCurrentTime === 'number' && !isNaN(savedPlaybackCurrentTime) ? savedPlaybackCurrentTime : undefined,
     };
   } catch (err) {
     console.warn('[Persistence] Load workspace failed:', err);
@@ -442,6 +451,7 @@ export async function clearMediaFromStorage(): Promise<void> {
     store.delete('processedTracks');
     store.delete('activeTrackNumber');
     store.delete('activeExternalTrackId');
+    store.delete('playbackCurrentTime');
     await new Promise<void>((resolve) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();

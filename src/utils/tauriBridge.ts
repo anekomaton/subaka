@@ -194,41 +194,66 @@ export async function batchCheckWords(words: string[]): Promise<Record<string, b
 }
 
 /**
- * Stress Belarusian text using native GrammarDB SQLite in desktop mode
+ * Batch lookup stressed words from GrammarDB SQLite in desktop mode
+ */
+export async function batchLookupStressedDesktop(words: string[]): Promise<Record<string, string>> {
+  if (isTauriDesktop() && words.length > 0) {
+    try {
+      return await invoke<Record<string, string>>('batch_lookup_stressed', { words });
+    } catch (err) {
+      console.warn('[TauriBridge] Native batch_lookup_stressed failed:', err);
+    }
+  }
+  return {};
+}
+
+/**
+ * Stress Belarusian text using native GrammarDB SQLite and identical orthoepic rules in desktop mode
  */
 export async function stressTextDesktop(text: string): Promise<string> {
   if (!text || !text.trim()) return text;
   if (isTauriDesktop()) {
-    try {
-      const res = await invoke<string>('stress_text', { text });
-      if (res && res.trim()) return res;
-    } catch (err) {
-      console.warn('[TauriBridge] Native stress_text failed, trying word-by-word fallback:', err);
-    }
-    try {
-      const words = text.match(/[\p{L}'’ʼʹʲ\u0300\u0301\+´]+/gu);
-      if (!words) return text;
-      const uniqueWords = Array.from(new Set(words.filter(w => !w.includes('\u0301') && !w.includes('\u0300'))));
-      const stressMap = new Map<string, string>();
-      for (const w of uniqueWords) {
-        const res = await lookupGrammarWord(w);
-        if (res && res.found && res.stressed) {
-          stressMap.set(w.toLowerCase(), res.stressed);
-        }
-      }
-      return text.replace(/[\p{L}'’ʼʹʲ\u0300\u0301\+´]+/gu, (w) => {
-        const lower = w.toLowerCase();
-        const stressed = stressMap.get(lower);
-        if (!stressed) return w;
-        const isFirstUpper = w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase();
-        if (isFirstUpper) {
-          return stressed.charAt(0).toUpperCase() + stressed.slice(1);
-        }
-        return stressed;
-      });
-    } catch (_) {}
+    const { stressTextWithOrthoepy } = await import('./stressHelper');
+    return await stressTextWithOrthoepy(text, batchLookupStressedDesktop);
   }
   return text;
+}
+
+/**
+ * Reliably opens an external URL in the default system web browser
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (!url) return;
+  if (isTauriDesktop()) {
+    try {
+      const { open } = await import('@tauri-apps/plugin-shell');
+      await open(url);
+      return;
+    } catch (_) {
+      try {
+        await invoke('open_external_url', { url });
+        return;
+      } catch (err) {
+        console.warn('[TauriBridge] open_external_url failed:', err);
+      }
+    }
+  }
+  if (typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+/**
+ * Restores desktop window position and size after exiting fullscreen
+ */
+export async function restorePostFullscreenBoundsDesktop(): Promise<void> {
+  if (isTauriDesktop()) {
+    try {
+      await invoke('restore_post_fullscreen_bounds');
+    } catch (err) {
+      console.warn('[TauriBridge] restore_post_fullscreen_bounds failed:', err);
+    }
+  }
 }
 
 /**
