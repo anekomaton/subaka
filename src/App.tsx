@@ -4927,7 +4927,7 @@ export default function App() {
             </div>
             <div className="flex items-center gap-2.5 text-amber-400 font-bold text-base mb-2">
               <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
-              <span>Аднаўленне працоўнай вобласці...</span>
+              <span>Разгортванне працоўнай вобласці...</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed font-medium">
               Загрузка субцітраў, медыяфайлаў і налад праекта з лакальнага сховішча
