@@ -123,7 +123,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
               }`}>
                 <div className="flex items-center gap-1.5 font-bold text-sky-700 dark:text-cyan-400 mb-1">
                   <FileText className="w-4 h-4 shrink-0 text-sky-700 dark:text-cyan-400" />
-                  <span>Субцітры (Імпарт / Экспарт):</span>
+                  <span>Субцітры (Імпарт/Экспарт):</span>
                 </div>
                 <ul className="space-y-1 pl-1 text-[11px] text-slate-800 dark:text-slate-300">
                   <li className="flex items-start gap-1">
@@ -176,7 +176,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-400">
                       <HardDrive className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-400" />
-                      <span className="uppercase text-[11px] tracking-wide font-extrabold">Размяшчэнне праграмы:</span>
+                      <span className="uppercase text-[11px] tracking-wide font-extrabold">Размяшчэнне:</span>
                     </div>
                     <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30 font-bold">
                       WINDOWS
@@ -191,7 +191,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                       <span className="text-sky-950 dark:text-sky-300 font-bold">Папка resources (слоўнікі і граматычная база):</span>{' '}
                       <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.resources_dir || '<Папка_Праграмы>\\resources\\'}</span>
                       <span className="text-slate-700 dark:text-slate-300 text-[10.5px] block font-sans mt-0.5 font-medium">
-                        Файлы grammardb.sqlite3 і verbum_offline.sqlite3. Загружаюцца пры ўсталёўцы праграмы.
+                        Загружаюцца пры ўсталёўцы праграмы.
                       </span>
                     </div>
                     <div>

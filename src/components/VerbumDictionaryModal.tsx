@@ -116,6 +116,27 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [isOpen, onClose]);
 
+function formatVerbumContent(rawHtml: string): string {
+  if (!rawHtml) return '';
+  let html = rawHtml;
+
+  // 1. Rewrite relative image URLs (/images/..., images/..., /img/..., img/... -> https://verbum.by/...)
+  html = html.replace(/(<img\b[^>]*?\bsrc=["'])\/?(images\/|img\/)/gi, '$1https://verbum.by/$2');
+  html = html.replace(/(<a\b[^>]*?\bhref=["'])\/?(images\/|img\/)/gi, '$1https://verbum.by/$2');
+
+  // 2. In hsbm or other dictionaries, if an <a> tag links to an image file, render the image itself inside
+  html = html.replace(/<a\b([^>]*?\bhref=["'](https:\/\/verbum\.by\/(?:images|img)\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*?)>([^<]+)<\/a>/gi, (match, attrs, src, text) => {
+    return `<a ${attrs} target="_blank" rel="noopener noreferrer" title="Адкрыць малюнак у поўным памеры" class="block my-2"><img src="${src}" alt="${text}" class="max-w-full h-auto rounded-lg border border-slate-700/50 shadow-md my-1 block" loading="lazy" /></a>`;
+  });
+
+  // 3. Ensure standalone <img> elements load with lazy loading and rounded styling
+  html = html.replace(/<img\b(?![^>]*class=)([^>]*?\bsrc=["'](https:\/\/verbum\.by\/[^"']+)["'][^>]*?)\/?>/gi, (match, attrs) => {
+    return `<img ${attrs} class="max-w-full h-auto rounded-lg border border-slate-700/50 shadow-md my-2 block" loading="lazy" />`;
+  });
+
+  return html;
+}
+
   const performSearch = async (searchWord: string) => {
     const term = searchWord.trim();
     if (!term) return;
@@ -127,25 +148,24 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
 
     // In Desktop mode: try online verbum.by API first (via native network driver, bypassing CORS)
     if (isTauriDesktop()) {
-      let onlineFetched = false;
       try {
         const targetUrl = `https://verbum.by/api/search?q=${encodeURIComponent(term)}`;
         const onlineData = await fetchVerbumOnlineNative(targetUrl);
-        if (onlineData && Array.isArray(onlineData.Articles)) {
+        if (onlineData && Array.isArray(onlineData.Articles) && onlineData.Articles.length > 0) {
           const rawArticles: VerbumArticle[] = onlineData.Articles;
           setArticles(rawArticles);
           setLastSearchedWord(term);
           setFromOfflineFallback(false);
           setOfflineNotice(null);
           setIsLoading(false);
-          onlineFetched = true;
           return;
         }
       } catch (err) {
         console.warn('[Verbum Modal] Desktop online verbum.by request failed, falling back to offline:', err);
       }
 
-      // If online request failed or was unreachable, fall back to native offline SQLite dictionaries in resources/
+      // If online request failed, was unreachable, or returned 0 articles (e.g. no internet), fall back to native offline SQLite dictionaries
+      setFromOfflineFallback(true);
       try {
         const desktopArticles = await lookupDesktopVerbum(term);
         if (desktopArticles && desktopArticles.length > 0) {
@@ -158,8 +178,7 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
           }));
           setArticles(mapped);
           setLastSearchedWord(term);
-          setFromOfflineFallback(true);
-          setOfflineNotice(null);
+          setOfflineNotice('Аўтаномны рэзерв слоўнікаў (няма інтэрнэту або verbum.by недаступны)');
           setIsLoading(false);
           return;
         }
@@ -169,7 +188,7 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
 
       setArticles([]);
       setLastSearchedWord(term);
-      setError(`Слова «${term}» не знойдзена ў слоўніках verbum.by`);
+      setError(`Аўтаномны рэзерв: слова «${term}» не знойдзена ў лакальных слоўніках (няма сувязі з verbum.by)`);
       setIsLoading(false);
       return;
     }
@@ -538,7 +557,7 @@ export const VerbumDictionaryModal: React.FC<VerbumDictionaryModalProps> = ({
                       className={`verbum-article-html text-xs sm:text-[13px] leading-relaxed pt-1 break-words ${
                         isDark ? 'text-slate-200' : 'text-slate-800'
                       }`}
-                      dangerouslySetInnerHTML={{ __html: article.Content }}
+                      dangerouslySetInnerHTML={{ __html: formatVerbumContent(article.Content) }}
                     />
                   </div>
                 );

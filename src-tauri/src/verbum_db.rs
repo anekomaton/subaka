@@ -25,6 +25,8 @@ pub struct VerbumDbStatus {
 pub struct VerbumDbManager {
     db_path: Mutex<Option<PathBuf>>,
     conn: Mutex<Option<Connection>>,
+    cached_size_mb: Mutex<Option<f64>>,
+    cached_total_articles: Mutex<Option<i64>>,
 }
 
 impl VerbumDbManager {
@@ -32,12 +34,27 @@ impl VerbumDbManager {
         Self {
             db_path: Mutex::new(None),
             conn: Mutex::new(None),
+            cached_size_mb: Mutex::new(None),
+            cached_total_articles: Mutex::new(None),
         }
     }
 
     pub fn initialize(&self, app: &AppHandle) -> VerbumDbStatus {
         let mut db_path_lock = self.db_path.lock().unwrap();
         let mut conn_lock = self.conn.lock().unwrap();
+
+        // If already connected and ready, return existing status without re-opening
+        if let (Some(path), Some(_)) = (db_path_lock.as_ref(), conn_lock.as_ref()) {
+            let size_mb = *self.cached_size_mb.lock().unwrap();
+            let total_articles = *self.cached_total_articles.lock().unwrap();
+            return VerbumDbStatus {
+                ready: true,
+                path: Some(path.to_string_lossy().to_string()),
+                size_mb,
+                total_articles,
+                message: "Verbum offline dictionaries ready".into(),
+            };
+        }
 
         let mut candidate_paths: Vec<PathBuf> = Vec::new();
 
@@ -89,6 +106,8 @@ impl VerbumDbManager {
                         .ok();
 
                     let path_str = p.to_string_lossy().to_string();
+                    *self.cached_size_mb.lock().unwrap() = Some(size_mb);
+                    *self.cached_total_articles.lock().unwrap() = total_articles;
                     *db_path_lock = Some(p);
                     *conn_lock = Some(conn);
 
@@ -116,17 +135,14 @@ impl VerbumDbManager {
         let db_path_lock = self.db_path.lock().unwrap();
         let conn_lock = self.conn.lock().unwrap();
 
-        if let (Some(path), Some(conn)) = (db_path_lock.as_ref(), conn_lock.as_ref()) {
-            let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            let size_mb = (size_bytes as f64) / (1024.0 * 1024.0);
-            let total_articles: Option<i64> = conn
-                .query_row("SELECT count(*) FROM articles", [], |row| row.get(0))
-                .ok();
+        if let (Some(path), Some(_conn)) = (db_path_lock.as_ref(), conn_lock.as_ref()) {
+            let size_mb = *self.cached_size_mb.lock().unwrap();
+            let total_articles = *self.cached_total_articles.lock().unwrap();
 
             VerbumDbStatus {
                 ready: true,
                 path: Some(path.to_string_lossy().to_string()),
-                size_mb: Some(size_mb),
+                size_mb,
                 total_articles,
                 message: "Verbum offline dictionaries ready".into(),
             }
@@ -147,37 +163,72 @@ impl VerbumDbManager {
             return Vec::new();
         };
 
-        let clean = term.replace('\u{0301}', "").replace('+', "").to_lowercase().trim().to_string();
+        let clean = term.replace(['\u{0301}', '\u{0300}', '+'], "").to_lowercase().trim().to_string();
         if clean.is_empty() {
             return Vec::new();
         }
 
-        // Try exact match first
-        let mut results = Vec::new();
-        let mut stmt = match conn.prepare(
-            "SELECT id, dict_id, headword, norm_hw, html FROM articles WHERE norm_hw = ? LIMIT 25"
-        ) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
+        // Build list of spelling variants (accent stripped, ё/е, ў/у)
+        let mut variants = vec![clean.clone()];
+        if clean.contains('ё') {
+            variants.push(clean.replace('ё', "е"));
+        } else if clean.contains('е') {
+            variants.push(clean.replace('е', "ё"));
+        }
+        if clean.starts_with('ў') {
+            variants.push(format!("у{}", &clean['ў'.len_utf8()..]));
+        } else if clean.starts_with('у') {
+            variants.push(format!("ў{}", &clean['у'.len_utf8()..]));
+        }
 
-        let rows = stmt.query_map(params![clean], |row| {
-            Ok(VerbumArticle {
-                id: row.get(0)?,
-                dict_id: row.get(1)?,
-                headword: row.get(2)?,
-                norm_hw: row.get(3)?,
-                html: row.get(4)?,
-            })
-        });
-
-        if let Ok(mapped) = rows {
-            for item in mapped.flatten() {
-                results.push(item);
+        // Also add potential base stems for common noun/adjective inflections
+        let mut base_candidates = Vec::new();
+        for v in &variants {
+            for suffix in ["ай", "аю", "ая", "ыя", "ія", "ага", "яго", "аму", "яму", "ам", "ем", "ём", "ям", "амі", "ямі", "ах", "ях", "цы", "цы", "ку", "ка", "кі", "ку", "кам"] {
+                if v.len() > suffix.len() + 2 && v.ends_with(suffix) {
+                    let stem = &v[..v.len() - suffix.len()];
+                    base_candidates.push(format!("{}а", stem));
+                    base_candidates.push(format!("{}ь", stem));
+                    base_candidates.push(stem.to_string());
+                }
+            }
+        }
+        for bc in base_candidates {
+            if !variants.contains(&bc) {
+                variants.push(bc);
             }
         }
 
-        // If no exact match, try prefix match
+        let mut results = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        // 1. Try exact match on variants
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, dict_id, headword, norm_hw, html FROM articles WHERE norm_hw = ? LIMIT 25"
+        ) {
+            for var in &variants {
+                if let Ok(mapped) = stmt.query_map(params![var], |row| {
+                    Ok(VerbumArticle {
+                        id: row.get(0)?,
+                        dict_id: row.get(1)?,
+                        headword: row.get(2)?,
+                        norm_hw: row.get(3)?,
+                        html: row.get(4)?,
+                    })
+                }) {
+                    for item in mapped.flatten() {
+                        if seen_ids.insert(format!("{}:{}", item.dict_id, item.id)) {
+                            results.push(item);
+                        }
+                    }
+                }
+                if !results.is_empty() {
+                    break;
+                }
+            }
+        }
+
+        // 2. If no exact match, try prefix match on clean term
         if results.is_empty() {
             let prefix = format!("{}%", clean);
             if let Ok(mut stmt_prefix) = conn.prepare(
@@ -193,7 +244,9 @@ impl VerbumDbManager {
                     })
                 }) {
                     for item in mapped.flatten() {
-                        results.push(item);
+                        if seen_ids.insert(format!("{}:{}", item.dict_id, item.id)) {
+                            results.push(item);
+                        }
                     }
                 }
             }

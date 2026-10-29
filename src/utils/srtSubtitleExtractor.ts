@@ -6,6 +6,7 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { readFileAsUint8Array, getFFmpeg } from './ffmpegExtractor';
+import { saveFileUniversal } from './tauriBridge';
 
 export interface ExtractedSrtResult {
   srtContent: string;
@@ -860,10 +861,9 @@ export function triggerBrowserDownload(blob: Blob, fileName: string): void {
 /**
  * Browser file download helper for .srt content
  */
-export function downloadSrtContent(srtContent: string, fileName: string): void {
+export async function downloadSrtContent(srtContent: string, fileName: string): Promise<string | null> {
   const cleanName = fileName.endsWith('.srt') ? fileName : `${fileName}.srt`;
-  const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
-  triggerBrowserDownload(blob, cleanName);
+  return await saveFileUniversal(cleanName, srtContent, 'text/plain;charset=utf-8');
 }
 
 function formatAssTime(seconds: number): string {
@@ -1094,7 +1094,7 @@ export async function extractMkvRawSubtitleTrackPureJs(
         const idxText = new TextDecoder('utf-8').decode(trackInfo.codecPrivate);
         if (idxText.includes('# VobSub index file') || idxText.includes('size:')) {
           const idxBlob = new Blob([trackInfo.codecPrivate], { type: 'text/plain;charset=utf-8' });
-          triggerBrowserDownload(idxBlob, `${baseName}${trackSuffix}.idx`);
+          await saveFileUniversal(`${baseName}${trackSuffix}.idx`, idxBlob, 'text/plain;charset=utf-8');
         }
       } catch {}
     }
@@ -1169,7 +1169,7 @@ export async function downloadRawSubtitleTrack(
   targetTrackIndex: number,
   trackInfo?: SubtitleTrackInfo,
   onProgress?: (pct: number, msg: string) => void
-): Promise<boolean> {
+): Promise<boolean | 'cancelled'> {
   const chosenTrackNumber = trackInfo?.trackNumber ?? (targetTrackIndex + 1);
   const fileExt = fileObj.name.split('.').pop()?.toLowerCase() || '';
 
@@ -1185,7 +1185,11 @@ export async function downloadRawSubtitleTrack(
       );
 
       if (pureJsResult && pureJsResult.blob.size > 0) {
-        triggerBrowserDownload(pureJsResult.blob, pureJsResult.fileName);
+        const saved = await saveFileUniversal(pureJsResult.fileName, pureJsResult.blob, 'application/octet-stream');
+        if (saved === null) {
+          if (onProgress) onProgress(0, 'Захаванне адменена');
+          return 'cancelled';
+        }
         if (onProgress) onProgress(100, 'спампавана!');
         return true;
       }
@@ -1271,7 +1275,11 @@ export async function downloadRawSubtitleTrack(
       const finalExt = finalOutputName.endsWith('.mks') ? 'mks' : ext;
       const targetFileName = `${baseName}${trackSuffix}.${finalExt}`;
       const blob = new Blob([uint8], { type: 'application/octet-stream' });
-      triggerBrowserDownload(blob, targetFileName);
+      const saved = await saveFileUniversal(targetFileName, blob, 'application/octet-stream');
+      if (saved === null) {
+        if (onProgress) onProgress(0, 'Захаванне адменена');
+        return 'cancelled';
+      }
       if (onProgress) onProgress(100, 'спампавана!');
       return true;
     }

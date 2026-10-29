@@ -180,8 +180,7 @@ jobs:
           body: |
             ## Рэліз SUBaka для Windows x64 (інсталятар)
 
-            - **`SUBaka_1.0.0_x64-setup.exe`** — аўтаномны інсталятар для Windows (x64).
-            - Уключае ўбудаваны FFmpeg sidecar і гатовыя афлайн-базы (`verbum_offline.sqlite3` і `grammardb.sqlite3` на 2+ млн словаформаў) у каталогу `resources/`.
+            - **`SUBaka_1.0.0_x64-setup.exe`** — інсталятар для Windows (x64).
           draft: false
           prerelease: false
           make_latest: true

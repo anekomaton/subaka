@@ -317,7 +317,10 @@ export async function saveFileUniversal(
       else if (ext === 'csv') filters.push({ name: 'CSV File (*.csv)', extensions: ['csv'] });
       else if (ext === 'txt') filters.push({ name: 'Text File (*.txt)', extensions: ['txt'] });
       else if (ext === 'zip') filters.push({ name: 'ZIP Archive (*.zip)', extensions: ['zip'] });
-      else if (ext === 'wav') filters.push({ name: 'Waveform Audio (*.wav)', extensions: ['wav'] });
+      else if (ext === 'sup') filters.push({ name: 'PGS Subtitles (*.sup)', extensions: ['sup'] });
+      else if (ext === 'sub') filters.push({ name: 'VobSub / Subtitles (*.sub)', extensions: ['sub'] });
+      else if (ext === 'idx') filters.push({ name: 'VobSub Index (*.idx)', extensions: ['idx'] });
+      else if (ext === 'mks') filters.push({ name: 'Matroska Subtitles (*.mks)', extensions: ['mks'] });
       else if (ext) filters.push({ name: `Files (*.${ext})`, extensions: [ext] });
       filters.push({ name: 'All Files (*.*)', extensions: ['*'] });
 

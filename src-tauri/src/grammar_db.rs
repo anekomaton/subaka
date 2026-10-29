@@ -38,6 +38,8 @@ pub struct GrammarDbStatus {
 pub struct GrammarDbManager {
     db_path: Mutex<Option<PathBuf>>,
     conn: Mutex<Option<Connection>>,
+    cached_size_mb: Mutex<Option<f64>>,
+    cached_total_forms: Mutex<Option<i64>>,
 }
 
 impl GrammarDbManager {
@@ -45,12 +47,28 @@ impl GrammarDbManager {
         Self {
             db_path: Mutex::new(None),
             conn: Mutex::new(None),
+            cached_size_mb: Mutex::new(None),
+            cached_total_forms: Mutex::new(None),
         }
     }
 
     pub fn initialize(&self, app: &AppHandle) -> GrammarDbStatus {
         let mut db_path_lock = self.db_path.lock().unwrap();
         let mut conn_lock = self.conn.lock().unwrap();
+
+        // If already connected and ready, return existing status without re-opening
+        if let (Some(path), Some(_)) = (db_path_lock.as_ref(), conn_lock.as_ref()) {
+            let size_mb = *self.cached_size_mb.lock().unwrap();
+            let total_forms = *self.cached_total_forms.lock().unwrap();
+            return GrammarDbStatus {
+                ready: true,
+                path: Some(path.to_string_lossy().to_string()),
+                size_mb,
+                total_forms,
+                driver: "rusqlite-native".into(),
+                message: "GrammarDB ready (native Rust SQLite)".into(),
+            };
+        }
 
         // Potential paths to locate grammardb.sqlite3
         let mut candidate_paths: Vec<PathBuf> = Vec::new();
@@ -120,12 +138,14 @@ impl GrammarDbManager {
                     let size_bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                     let size_mb = (size_bytes as f64) / (1024.0 * 1024.0);
 
-                    // Count forms if fast
+                    // Count forms once on startup
                     let total_forms: Option<i64> = conn
                         .query_row("SELECT count(*) FROM words", [], |row| row.get(0))
                         .ok();
 
                     let path_str = p.to_string_lossy().to_string();
+                    *self.cached_size_mb.lock().unwrap() = Some(size_mb);
+                    *self.cached_total_forms.lock().unwrap() = total_forms;
                     *db_path_lock = Some(p);
                     *conn_lock = Some(conn);
 
@@ -155,17 +175,14 @@ impl GrammarDbManager {
         let db_path_lock = self.db_path.lock().unwrap();
         let conn_lock = self.conn.lock().unwrap();
 
-        if let (Some(path), Some(conn)) = (db_path_lock.as_ref(), conn_lock.as_ref()) {
-            let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            let size_mb = (size_bytes as f64) / (1024.0 * 1024.0);
-            let total_forms: Option<i64> = conn
-                .query_row("SELECT count(*) FROM words", [], |row| row.get(0))
-                .ok();
+        if let (Some(path), Some(_conn)) = (db_path_lock.as_ref(), conn_lock.as_ref()) {
+            let size_mb = *self.cached_size_mb.lock().unwrap();
+            let total_forms = *self.cached_total_forms.lock().unwrap();
 
             GrammarDbStatus {
                 ready: true,
                 path: Some(path.to_string_lossy().to_string()),
-                size_mb: Some(size_mb),
+                size_mb,
                 total_forms,
                 driver: "rusqlite-native".into(),
                 message: "GrammarDB ready (native Rust SQLite)".into(),

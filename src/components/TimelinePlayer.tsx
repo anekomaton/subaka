@@ -350,18 +350,20 @@ function TimelinePlayerComponent({
     if (!mediaFile) return;
     try {
       setDownloadingSubIdx(trackIdx);
-      addToast?.(`Пачалася падрыхтоўка дарожкі субцітраў для спампоўвання...`, 'info');
-      const success = await downloadRawSubtitleTrack(mediaFile, trackIdx, track, (pct, msg) => {
+      addToast?.(`Пачалася падрыхтоўка дарожкі субцітраў для захавання...`, 'info');
+      const result = await downloadRawSubtitleTrack(mediaFile, trackIdx, track, (pct, msg) => {
         if (pct === 100) {
-          addToast?.('Дарожка субцітраў паспяхова спампавана!', 'success');
+          addToast?.('Дарожка субцітраў паспяхова захавана!', 'success');
         }
       });
-      if (!success) {
-        addToast?.('Не ўдалося спампаваць дарожку субцітраў з файла.', 'error');
+      if (result === 'cancelled') {
+        addToast?.('Захаванне субцітраў адменена', 'info');
+      } else if (!result) {
+        addToast?.('Не ўдалося захаваць дарожку субцітраў з файла.', 'error');
       }
     } catch (err) {
       console.error('Download raw sub track failed:', err);
-      addToast?.('Памылка пры спампоўванні дарожкі субцітраў', 'error');
+      addToast?.('Памылка пры захаванні дарожкі субцітраў', 'error');
     } finally {
       setDownloadingSubIdx(null);
     }

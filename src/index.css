@@ -120,10 +120,34 @@ body {
   color: #f43f5e;
   font-weight: bold;
 }
-.verbum-article-html highlight {
-  background-color: rgba(234, 179, 8, 0.25);
-  border-radius: 2px;
-  padding: 0 1px;
+.verbum-article-html highlight,
+.verbum-article-html mark {
+  background-color: rgba(251, 191, 36, 0.35);
+  color: #fef08a;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.55);
+  border-radius: 4px;
+  padding: 1px 3px;
+  font-weight: 700;
+  display: inline;
+}
+:root:not(.dark) .verbum-article-html highlight,
+:root:not(.dark) .verbum-article-html mark {
+  background-color: #fde047;
+  color: #451a03;
+  box-shadow: 0 0 0 1px #f59e0b;
+  border-radius: 4px;
+  padding: 1px 3px;
+  font-weight: 700;
+  display: inline;
+}
+.verbum-article-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 0.5rem 0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  display: block;
 }
 .verbum-article-html v-abbr {
   color: #10b981;

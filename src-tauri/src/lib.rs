@@ -130,6 +130,17 @@ pub fn run() {
                 }
             }
 
+            // Warm up / pre-initialize GrammarDB and VerbumDB on startup in background
+            let handle_for_init = handle.clone();
+            std::thread::spawn(move || {
+                if let Some(gm) = handle_for_init.try_state::<GrammarDbManager>() {
+                    let _ = gm.initialize(&handle_for_init);
+                }
+                if let Some(vm) = handle_for_init.try_state::<VerbumDbManager>() {
+                    let _ = vm.initialize(&handle_for_init);
+                }
+            });
+
             // Setup Tray Icon
             let open_i = MenuItemBuilder::with_id("open", "Адкрыць SUBaka").build(app)?;
             let quit_i = MenuItemBuilder::with_id("quit", "Выйсці з SUBaka").build(app)?;

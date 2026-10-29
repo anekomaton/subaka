@@ -41,17 +41,26 @@ export async function checkGrammarDbStatus(): Promise<GrammarDbStatus> {
   if (isTauriDesktop()) {
     try {
       const desktopStatus = await getDesktopGrammarDbStatus();
-      const status: GrammarDbStatus = {
-        ready: desktopStatus.ready,
-        path: desktopStatus.path || null,
-        sizeMb: typeof desktopStatus.size_mb === 'number' ? desktopStatus.size_mb : undefined,
-        driver: desktopStatus.driver,
-        lastLog: desktopStatus.message,
-        isDesktop: true,
-      };
-      notify(status);
-      return status;
+      if (desktopStatus) {
+        const status: GrammarDbStatus = {
+          ready: desktopStatus.ready,
+          path: desktopStatus.path || null,
+          sizeMb: typeof desktopStatus.size_mb === 'number' ? desktopStatus.size_mb : undefined,
+          driver: desktopStatus.driver,
+          lastLog: desktopStatus.message,
+          isDesktop: true,
+        };
+        notify(status);
+        return status;
+      }
     } catch (_) {}
+    // If desktop status was already ready, preserve it rather than dropping to false
+    if (globalStatus.ready) {
+      return globalStatus;
+    }
+    const fallbackStatus: GrammarDbStatus = { ready: false, path: null, isDesktop: true };
+    notify(fallbackStatus);
+    return fallbackStatus;
   }
 
   try {
