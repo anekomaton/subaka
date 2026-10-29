@@ -2274,6 +2274,9 @@ export default function App() {
         return;
       }
 
+      const controller = new AbortController();
+      translateAbortControllerRef.current = controller;
+
       setIsTranslatingAll(true);
       cancelTranslatingRef.current = false;
       addToast("Запуск пакетнага перакладу субцітраў праз Gemini AI...", "info");
@@ -2286,7 +2289,7 @@ export default function App() {
         }
 
         for (let c = 0; c < chunks.length; c++) {
-          if (cancelTranslatingRef.current) break;
+          if (cancelTranslatingRef.current || controller.signal.aborted) break;
           const chunk = chunks[c];
           if (chunks.length > 1) {
             addToast(`Пераклад фрагмента ${c + 1} з ${chunks.length}...`, "info");
@@ -2295,10 +2298,20 @@ export default function App() {
           let translations: any = null;
           let chunkAttempts = 2;
           while (chunkAttempts > 0) {
+            if (cancelTranslatingRef.current || controller.signal.aborted) break;
             try {
-              translations = await desktopTranslateBatch(packets, 'Belarusian', apiKey);
+              translations = await desktopTranslateBatch(
+                packets,
+                'Belarusian',
+                apiKey,
+                undefined,
+                { signal: controller.signal, cancelRef: cancelTranslatingRef }
+              );
               break;
             } catch (chunkErr: any) {
+              if (chunkErr?.name === 'AbortError' || cancelTranslatingRef.current || controller.signal.aborted) {
+                break;
+              }
               const errMsg = chunkErr?.message || '';
               if ((errMsg.includes('429') || errMsg.includes('квот') || errMsg.includes('503')) && chunkAttempts > 1) {
                 addToast("Пераключэнне мадэлі Gemini... Чакаем 2 сек.", "info");
@@ -2309,6 +2322,8 @@ export default function App() {
               throw chunkErr;
             }
           }
+
+          if (cancelTranslatingRef.current || controller.signal.aborted) break;
 
           if (translations && translations.length > 0) {
             setSubtitles((prev) => {
@@ -2322,20 +2337,27 @@ export default function App() {
             });
           }
 
-          if (c < chunks.length - 1 && !cancelTranslatingRef.current) {
+          if (c < chunks.length - 1 && !cancelTranslatingRef.current && !controller.signal.aborted) {
             await new Promise((r) => setTimeout(r, 1000));
           }
         }
 
-        if (cancelTranslatingRef.current) {
+        if (cancelTranslatingRef.current || controller.signal.aborted) {
           addToast("Пакетны пераклад быў прыпынены карыстальнікам.", "info");
         } else {
           addToast("Усе субцітры перакладзены на беларускую мову!", "success");
         }
       } catch (err: any) {
-        addToast(err.message || "Пакетны пераклад не атрымаўся", "error");
+        if (err?.name === 'AbortError' || cancelTranslatingRef.current || controller.signal.aborted) {
+          addToast("Пакетны пераклад быў прыпынены карыстальнікам.", "info");
+        } else {
+          addToast(err.message || "Пакетны пераклад не атрымаўся", "error");
+        }
       } finally {
         setIsTranslatingAll(false);
+        if (translateAbortControllerRef.current === controller) {
+          translateAbortControllerRef.current = null;
+        }
       }
       return;
     }
@@ -3105,6 +3127,9 @@ export default function App() {
         return;
       }
 
+      const controller = new AbortController();
+      proofreadAbortControllerRef.current = controller;
+
       setIsProofreadingTranslation(true);
       cancelProofreadingRef.current = false;
       addToast("Пачалася праверка беларускага перакладу ШІ...", "info");
@@ -3117,7 +3142,7 @@ export default function App() {
         }
 
         for (let c = 0; c < chunks.length; c++) {
-          if (cancelProofreadingRef.current) break;
+          if (cancelProofreadingRef.current || controller.signal.aborted) break;
 
           const chunk = chunks[c];
           if (chunks.length > 1) {
@@ -3128,10 +3153,17 @@ export default function App() {
           let results: any = null;
           let chunkAttempts = 2;
           while (chunkAttempts > 0) {
+            if (cancelProofreadingRef.current || controller.signal.aborted) break;
             try {
-              results = await desktopProofreadBatch(packets, apiKey);
+              results = await desktopProofreadBatch(packets, apiKey, undefined, {
+                signal: controller.signal,
+                cancelRef: cancelProofreadingRef,
+              });
               break;
             } catch (chunkErr: any) {
+              if (chunkErr?.name === 'AbortError' || cancelProofreadingRef.current || controller.signal.aborted) {
+                break;
+              }
               const errMsg = chunkErr?.message || '';
               if ((errMsg.includes('429') || errMsg.includes('квот') || errMsg.includes('503')) && chunkAttempts > 1) {
                 addToast("Пераключэнне мадэлі Gemini для праверкі... Чакаем 2 сек.", "info");
@@ -3142,7 +3174,7 @@ export default function App() {
               throw chunkErr;
             }
           }
-          if (cancelProofreadingRef.current) break;
+          if (cancelProofreadingRef.current || controller.signal.aborted) break;
 
           if (results && Array.isArray(results)) {
             setSubtitles((prev) =>
@@ -3156,20 +3188,27 @@ export default function App() {
             );
           }
 
-          if (c < chunks.length - 1 && !cancelProofreadingRef.current) {
+          if (c < chunks.length - 1 && !cancelProofreadingRef.current && !controller.signal.aborted) {
             await new Promise((r) => setTimeout(r, 1000));
           }
         }
 
-        if (cancelProofreadingRef.current) {
+        if (cancelProofreadingRef.current || controller.signal.aborted) {
           addToast("Праверка перакладу спынена", "info");
         } else {
           addToast("Праверка ўсяго перакладу паспяхова завершана!", "success");
         }
       } catch (err: any) {
-        addToast(err.message || "Памылка праверкі перакладу", "error");
+        if (err?.name === 'AbortError' || cancelProofreadingRef.current || controller.signal.aborted) {
+          addToast("Праверка перакладу спынена", "info");
+        } else {
+          addToast(err.message || "Памылка праверкі перакладу", "error");
+        }
       } finally {
         setIsProofreadingTranslation(false);
+        if (proofreadAbortControllerRef.current === controller) {
+          proofreadAbortControllerRef.current = null;
+        }
       }
       return;
     }

@@ -235,8 +235,13 @@ async function callGenerativeLanguageApi(
   apiKey: string,
   bodyObj: any,
   preferredModel?: string,
-  returnRawText?: boolean
+  returnRawText?: boolean,
+  options?: { signal?: AbortSignal; cancelRef?: { current: boolean } }
 ): Promise<any> {
+  if (options?.signal?.aborted || options?.cancelRef?.current) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
   if (!cleanKey) {
     throw new Error('MISSING_GEMINI_API_KEY');
@@ -268,6 +273,10 @@ async function callGenerativeLanguageApi(
   let lastError = '';
 
   for (const model of modelsToTry) {
+    if (options?.signal?.aborted || options?.cancelRef?.current) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
     // Skip models marked exhausted if we have non-exhausted options
     if (isModelExhausted(model) && modelsToTry.some((m) => !isModelExhausted(m))) {
       continue;
@@ -275,6 +284,10 @@ async function callGenerativeLanguageApi(
 
     let attempts = isModelExhausted(model) ? 1 : 2;
     while (attempts > 0) {
+      if (options?.signal?.aborted || options?.cancelRef?.current) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       try {
         let isSuccess = false;
@@ -287,6 +300,9 @@ async function callGenerativeLanguageApi(
         if (isTauriDesktop()) {
           try {
             const nativeResp = await postJsonNative(url, JSON.stringify(bodyObj));
+            if (options?.signal?.aborted || options?.cancelRef?.current) {
+              throw new DOMException('Aborted', 'AbortError');
+            }
             if (nativeResp) {
               responseJson = JSON.parse(nativeResp);
               if (responseJson?.error) {
@@ -299,21 +315,32 @@ async function callGenerativeLanguageApi(
               }
             }
           } catch (nativeErr: any) {
+            if (nativeErr?.name === 'AbortError' || nativeErr instanceof DOMException) {
+              throw nativeErr;
+            }
             console.warn(`[Desktop AI] Native subaka.exe call failed, trying webview fallback:`, nativeErr);
           }
         }
 
         // Browser or webview fallback
         if (!responseJson) {
+          if (options?.signal?.aborted || options?.cancelRef?.current) {
+            throw new DOMException('Aborted', 'AbortError');
+          }
           const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(bodyObj),
+            signal: options?.signal,
           });
           statusCode = response.status;
           isSuccess = response.ok;
           responseJson = await response.json().catch(() => ({}));
           rawText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+        }
+
+        if (options?.signal?.aborted || options?.cancelRef?.current) {
+          throw new DOMException('Aborted', 'AbortError');
         }
 
         if (isSuccess && rawText) {
@@ -375,6 +402,9 @@ async function callGenerativeLanguageApi(
         }
         break;
       } catch (netErr: any) {
+        if (netErr?.name === 'AbortError' || netErr instanceof DOMException) {
+          throw netErr;
+        }
         lastError = netErr?.message || String(netErr);
         console.warn(`[Desktop AI] Network error calling ${model}:`, lastError);
         break;
@@ -403,7 +433,8 @@ export async function desktopTranslateBatch(
   entries: { id: string | number; text: string }[],
   targetLanguageOrApiKey?: string,
   explicitApiKey?: string,
-  preferredModel?: string
+  preferredModel?: string,
+  options?: { signal?: AbortSignal; cancelRef?: { current: boolean } }
 ): Promise<DesktopTranslationResult[]> {
   // Support flexible argument positions (whether targetLanguage or apiKey is passed first)
   let targetLanguage = 'Belarusian';
@@ -460,7 +491,7 @@ ${JSON.stringify(entries)}`;
     },
   };
 
-  const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, modelName);
+  const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, modelName, false, options);
   return Array.isArray(parsed) ? parsed : [];
 }
 
@@ -470,7 +501,8 @@ ${JSON.stringify(entries)}`;
 export async function desktopProofreadBatch(
   entries: { id: string | number; text: string }[],
   explicitApiKey?: string,
-  preferredModel?: string
+  preferredModel?: string,
+  options?: { signal?: AbortSignal; cancelRef?: { current: boolean } }
 ): Promise<DesktopProofreadResult[]> {
   const apiKey = explicitApiKey || getDesktopGeminiApiKey();
   if (!apiKey) {
@@ -519,7 +551,7 @@ ${JSON.stringify(entries)}`;
     },
   };
 
-  const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, preferredModel);
+  const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, preferredModel, false, options);
   return Array.isArray(parsed) ? parsed : [];
 }
 
@@ -807,7 +839,7 @@ CRITICAL MANDATES:
         },
       };
 
-      const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true);
+      const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true, { signal: options?.signal });
 
       if (rawChunkSrt && typeof rawChunkSrt === 'string') {
         const { srt: shiftedSrt, count } = shiftSrtTimestamps(rawChunkSrt, startSec, currentSubtitleIndex);
@@ -860,7 +892,7 @@ CRITICAL MANDATES:
     };
 
     options?.onProgress?.('Генерацыя субцітраў і таймкодаў з Gemini...');
-    const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true);
+    const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true, { signal: options?.signal });
 
     if (rawSrt && typeof rawSrt === 'string' && rawSrt.trim()) {
       return rawSrt.trim();
