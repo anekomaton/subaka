@@ -266,12 +266,31 @@ pub fn lookup_verbum_word(
     app: AppHandle,
     word: String,
     manager: State<'_, crate::verbum_db::VerbumDbManager>,
+    grammar_manager: State<'_, crate::grammar_db::GrammarDbManager>,
 ) -> Vec<crate::verbum_db::VerbumArticle> {
     let status = manager.get_status();
     if !status.ready {
         let _ = manager.initialize(&app);
     }
-    manager.search(&word)
+    let mut articles = manager.search(&word);
+
+    // If no direct results, try looking up lemma in GrammarDB for full offline Belarusian search
+    if articles.is_empty() {
+        let g_status = grammar_manager.get_status();
+        if !g_status.ready {
+            let _ = grammar_manager.initialize(&app);
+        }
+        let g_res = grammar_manager.lookup(&word);
+        if let Some(lemma) = g_res.lemma {
+            let clean_lemma = lemma.replace(['\u{0301}', '\u{0300}', '+'], "").to_lowercase().trim().to_string();
+            let clean_word = word.replace(['\u{0301}', '\u{0300}', '+'], "").to_lowercase().trim().to_string();
+            if !clean_lemma.is_empty() && clean_lemma != clean_word {
+                articles = manager.search(&clean_lemma);
+            }
+        }
+    }
+
+    articles
 }
 
 #[inline]

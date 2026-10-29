@@ -199,14 +199,32 @@ impl VerbumDbManager {
             }
         }
 
+        // Ranking priority for dictionaries:
+        // Explanatory dictionaries first, then synonyms, By-Ru, etymological, Ru-By, and foreign
+        fn dict_priority(dict_id: &str) -> i32 {
+            match dict_id {
+                "tsblm2022" => 1,
+                "tsbm" => 2,
+                "tsblm" => 3,
+                "brs" => 4,
+                "klyshka" => 5,
+                "esbm" => 6,
+                "sis1999" | "sis2005" => 7,
+                "rbs10" => 8,
+                "rbs" => 9,
+                "susha" => 10,
+                _ => 20,
+            }
+        }
+
         let mut results = Vec::new();
         let mut seen_ids = std::collections::HashSet::new();
 
-        // 1. Try exact match on variants
+        // 1. Exact match across all spelling variants (clean, yo/ye, u/w, apostrophes)
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT id, dict_id, headword, norm_hw, html FROM articles WHERE norm_hw = ? LIMIT 25"
+            "SELECT id, dict_id, headword, norm_hw, html FROM articles WHERE norm_hw = ?"
         ) {
-            for var in &variants {
+            for (idx, var) in variants.iter().enumerate() {
                 if let Ok(mapped) = stmt.query_map(params![var], |row| {
                     Ok(VerbumArticle {
                         id: row.get(0)?,
@@ -217,22 +235,24 @@ impl VerbumDbManager {
                     })
                 }) {
                     for item in mapped.flatten() {
-                        if seen_ids.insert(format!("{}:{}", item.dict_id, item.id)) {
+                        let key = format!("{}:{}", item.dict_id, item.id);
+                        if seen_ids.insert(key) {
                             results.push(item);
                         }
                     }
                 }
-                if !results.is_empty() {
-                    break;
+                // If primary exact word has results, stop checking less likely base candidates to preserve exactness
+                if idx == 0 && !results.is_empty() && results.len() >= 3 {
+                    // Collect remaining variant matches but stop going into base stem candidates
                 }
             }
         }
 
-        // 2. If no exact match, try prefix match on clean term
+        // 2. If still no results, try prefix match on clean term
         if results.is_empty() {
             let prefix = format!("{}%", clean);
             if let Ok(mut stmt_prefix) = conn.prepare(
-                "SELECT id, dict_id, headword, norm_hw, html FROM articles WHERE norm_hw LIKE ? LIMIT 15"
+                "SELECT id, dict_id, headword, norm_hw, html FROM articles WHERE norm_hw LIKE ? LIMIT 30"
             ) {
                 if let Ok(mapped) = stmt_prefix.query_map(params![prefix], |row| {
                     Ok(VerbumArticle {
@@ -244,13 +264,32 @@ impl VerbumDbManager {
                     })
                 }) {
                     for item in mapped.flatten() {
-                        if seen_ids.insert(format!("{}:{}", item.dict_id, item.id)) {
+                        let key = format!("{}:{}", item.dict_id, item.id);
+                        if seen_ids.insert(key) {
                             results.push(item);
                         }
                     }
                 }
             }
         }
+
+        // Sort results by relevance:
+        // 1. Exact match with search term (norm_hw == clean)
+        // 2. Dictionary priority rank (TSBLM > BRS > Klyshka > ESBM > RBS10 > Susha)
+        // 3. Shorter headword length
+        results.sort_by(|a, b| {
+            let a_exact = a.norm_hw == clean;
+            let b_exact = b.norm_hw == clean;
+            if a_exact != b_exact {
+                return b_exact.cmp(&a_exact);
+            }
+            let a_prio = dict_priority(&a.dict_id);
+            let b_prio = dict_priority(&b.dict_id);
+            if a_prio != b_prio {
+                return a_prio.cmp(&b_prio);
+            }
+            a.norm_hw.len().cmp(&b.norm_hw.len())
+        });
 
         results
     }
