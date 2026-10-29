@@ -82,6 +82,7 @@ import {
   desktopProofreadBatch,
   desktopTranscribeAudio,
   getDesktopGeminiApiKey,
+  cancellableSleep,
 } from './utils/desktopAiClient';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
@@ -2309,13 +2310,13 @@ export default function App() {
               );
               break;
             } catch (chunkErr: any) {
-              if (chunkErr?.name === 'AbortError' || cancelTranslatingRef.current || controller.signal.aborted) {
+              if (chunkErr?.name === 'AbortError' || chunkErr?.message === 'Aborted' || cancelTranslatingRef.current || controller.signal.aborted) {
                 break;
               }
               const errMsg = chunkErr?.message || '';
               if ((errMsg.includes('429') || errMsg.includes('квот') || errMsg.includes('503')) && chunkAttempts > 1) {
                 addToast("Пераключэнне мадэлі Gemini... Чакаем 2 сек.", "info");
-                await new Promise((r) => setTimeout(r, 2000));
+                await cancellableSleep(2000, controller.signal, cancelTranslatingRef);
                 chunkAttempts--;
                 continue;
               }
@@ -2338,18 +2339,16 @@ export default function App() {
           }
 
           if (c < chunks.length - 1 && !cancelTranslatingRef.current && !controller.signal.aborted) {
-            await new Promise((r) => setTimeout(r, 1000));
+            await cancellableSleep(1000, controller.signal, cancelTranslatingRef);
           }
         }
 
-        if (cancelTranslatingRef.current || controller.signal.aborted) {
-          addToast("Пакетны пераклад быў прыпынены карыстальнікам.", "info");
-        } else {
+        if (!cancelTranslatingRef.current && !controller.signal.aborted) {
           addToast("Усе субцітры перакладзены на беларускую мову!", "success");
         }
       } catch (err: any) {
-        if (err?.name === 'AbortError' || cancelTranslatingRef.current || controller.signal.aborted) {
-          addToast("Пакетны пераклад быў прыпынены карыстальнікам.", "info");
+        if (err?.name === 'AbortError' || err?.message === 'Aborted' || cancelTranslatingRef.current || controller.signal.aborted) {
+          // Handled via handleCancelTranslate
         } else {
           addToast(err.message || "Пакетны пераклад не атрымаўся", "error");
         }
@@ -2378,7 +2377,7 @@ export default function App() {
       }
 
       for (let c = 0; c < chunks.length; c++) {
-        if (cancelTranslatingRef.current) {
+        if (cancelTranslatingRef.current || controller.signal.aborted) {
           break;
         }
 
@@ -2396,10 +2395,15 @@ export default function App() {
         });
 
         if (!response.ok) {
+          if (cancelTranslatingRef.current || controller.signal.aborted) break;
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.error || "Не ўдалося завяршыць пакетны пераклад");
         }
         const data = await response.json();
+
+        if (cancelTranslatingRef.current || controller.signal.aborted) {
+          break;
+        }
 
         if (data.translations) {
           setSubtitles((prev) => {
@@ -2428,14 +2432,12 @@ export default function App() {
         }
       }
 
-      if (cancelTranslatingRef.current) {
-        addToast("Пакетны пераклад быў прыпынены карыстальнікам.", "info");
-      } else {
+      if (!cancelTranslatingRef.current && !controller.signal.aborted) {
         addToast("Усе субцітры перакладзены на беларускую мову!", "success");
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        addToast("Пераклад субцітраў прыпынены карыстальнікам.", "info");
+      if (err.name === 'AbortError' || cancelTranslatingRef.current || controller.signal.aborted) {
+        // Handled via handleCancelTranslate
       } else {
         addToast(err.message || "Пакетны пераклад не атрымаўся", "error");
       }
@@ -2452,6 +2454,8 @@ export default function App() {
     if (translateAbortControllerRef.current) {
       translateAbortControllerRef.current.abort();
     }
+    setIsTranslatingAll(false);
+    addToast("Пакетны пераклад прыпынены карыстальнікам.", "info");
   };
 
   // TRANSCRIBE MEDIA FILE
@@ -3167,7 +3171,7 @@ export default function App() {
               const errMsg = chunkErr?.message || '';
               if ((errMsg.includes('429') || errMsg.includes('квот') || errMsg.includes('503')) && chunkAttempts > 1) {
                 addToast("Пераключэнне мадэлі Gemini для праверкі... Чакаем 2 сек.", "info");
-                await new Promise((r) => setTimeout(r, 2000));
+                await cancellableSleep(2000, controller.signal, cancelProofreadingRef);
                 chunkAttempts--;
                 continue;
               }
@@ -3189,18 +3193,16 @@ export default function App() {
           }
 
           if (c < chunks.length - 1 && !cancelProofreadingRef.current && !controller.signal.aborted) {
-            await new Promise((r) => setTimeout(r, 1000));
+            await cancellableSleep(1000, controller.signal, cancelProofreadingRef);
           }
         }
 
-        if (cancelProofreadingRef.current || controller.signal.aborted) {
-          addToast("Праверка перакладу спынена", "info");
-        } else {
+        if (!cancelProofreadingRef.current && !controller.signal.aborted) {
           addToast("Праверка ўсяго перакладу паспяхова завершана!", "success");
         }
       } catch (err: any) {
-        if (err?.name === 'AbortError' || cancelProofreadingRef.current || controller.signal.aborted) {
-          addToast("Праверка перакладу спынена", "info");
+        if (err?.name === 'AbortError' || err?.message === 'Aborted' || cancelProofreadingRef.current || controller.signal.aborted) {
+          // Handled via handleCancelProofread
         } else {
           addToast(err.message || "Памылка праверкі перакладу", "error");
         }
@@ -3269,16 +3271,16 @@ export default function App() {
         }
       }
 
-      if (cancelProofreadingRef.current) {
-        addToast("Праверка перакладу спынена", "info");
-      } else if (totalIssuesFound > 0) {
-        addToast(`Праверка завершана! Знойдзена заўваг/памылак: ${totalIssuesFound}.`, "info");
-      } else {
-        addToast("Праверка завершана! Усе карткі без памылак.", "success");
+      if (!cancelProofreadingRef.current) {
+        if (totalIssuesFound > 0) {
+          addToast(`Праверка завершана! Знойдзена заўваг/памылак: ${totalIssuesFound}.`, "info");
+        } else {
+          addToast("Праверка завершана! Усе карткі без памылак.", "success");
+        }
       }
     } catch (err: any) {
       if (err.name === 'AbortError' || cancelProofreadingRef.current) {
-        addToast("Праверка перакладу спынена", "info");
+        // Handled via handleCancelProofread
       } else {
         addToast(err.message || "Памылка праверкі перакладу", "error");
       }
@@ -3294,6 +3296,7 @@ export default function App() {
       proofreadAbortControllerRef.current.abort();
     }
     setIsProofreadingTranslation(false);
+    addToast("Праверка перакладу спынена карыстальнікам.", "info");
   };
 
   // BATCH CONVERT ORIGINAL TO PHONETICS (BelG2P School transcription for Belarusian / Google Translate style IPA for English)

@@ -231,6 +231,47 @@ async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
   return filterAndPrioritizeModels(cachedDesktopModels);
 }
 
+export function cancellableSleep(
+  ms: number,
+  signal?: AbortSignal,
+  cancelRef?: { current: boolean }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted || cancelRef?.current) {
+      return reject(new DOMException('Aborted', 'AbortError'));
+    }
+
+    let timer: any = null;
+    let interval: any = null;
+
+    const cleanup = () => {
+      if (timer !== null) clearTimeout(timer);
+      if (interval !== null) clearInterval(interval);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    interval = setInterval(() => {
+      if (signal?.aborted || cancelRef?.current) {
+        onAbort();
+      }
+    }, 30);
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
+
 async function callGenerativeLanguageApi(
   apiKey: string,
   bodyObj: any,
@@ -238,7 +279,9 @@ async function callGenerativeLanguageApi(
   returnRawText?: boolean,
   options?: { signal?: AbortSignal; cancelRef?: { current: boolean } }
 ): Promise<any> {
-  if (options?.signal?.aborted || options?.cancelRef?.current) {
+  const isCanceled = () => Boolean(options?.signal?.aborted || options?.cancelRef?.current);
+
+  if (isCanceled()) {
     throw new DOMException('Aborted', 'AbortError');
   }
 
@@ -249,6 +292,10 @@ async function callGenerativeLanguageApi(
 
   const chosenModel = preferredModel || getDesktopGeminiModel();
   const dynamicModels = await getDesktopDynamicModels(cleanKey);
+  if (isCanceled()) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   const now = Date.now();
 
   // Filter models that are currently marked exhausted or overloaded
@@ -273,7 +320,7 @@ async function callGenerativeLanguageApi(
   let lastError = '';
 
   for (const model of modelsToTry) {
-    if (options?.signal?.aborted || options?.cancelRef?.current) {
+    if (isCanceled()) {
       throw new DOMException('Aborted', 'AbortError');
     }
 
@@ -284,7 +331,7 @@ async function callGenerativeLanguageApi(
 
     let attempts = isModelExhausted(model) ? 1 : 2;
     while (attempts > 0) {
-      if (options?.signal?.aborted || options?.cancelRef?.current) {
+      if (isCanceled()) {
         throw new DOMException('Aborted', 'AbortError');
       }
 
@@ -296,11 +343,10 @@ async function callGenerativeLanguageApi(
         let rawText: string | undefined = undefined;
 
         // In Desktop mode: execute directly through native subaka.exe process (postJsonNative).
-        // This ensures VPN Split Tunneling routes ALL AI traffic with just subaka.exe (no msedgewebview2.exe needed)!
         if (isTauriDesktop()) {
           try {
             const nativeResp = await postJsonNative(url, JSON.stringify(bodyObj));
-            if (options?.signal?.aborted || options?.cancelRef?.current) {
+            if (isCanceled()) {
               throw new DOMException('Aborted', 'AbortError');
             }
             if (nativeResp) {
@@ -315,8 +361,8 @@ async function callGenerativeLanguageApi(
               }
             }
           } catch (nativeErr: any) {
-            if (nativeErr?.name === 'AbortError' || nativeErr instanceof DOMException) {
-              throw nativeErr;
+            if (isCanceled() || nativeErr?.name === 'AbortError' || nativeErr?.message === 'Aborted' || nativeErr instanceof DOMException) {
+              throw new DOMException('Aborted', 'AbortError');
             }
             console.warn(`[Desktop AI] Native subaka.exe call failed, trying webview fallback:`, nativeErr);
           }
@@ -324,7 +370,7 @@ async function callGenerativeLanguageApi(
 
         // Browser or webview fallback
         if (!responseJson) {
-          if (options?.signal?.aborted || options?.cancelRef?.current) {
+          if (isCanceled()) {
             throw new DOMException('Aborted', 'AbortError');
           }
           const response = await fetch(url, {
@@ -339,7 +385,7 @@ async function callGenerativeLanguageApi(
           rawText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text;
         }
 
-        if (options?.signal?.aborted || options?.cancelRef?.current) {
+        if (isCanceled()) {
           throw new DOMException('Aborted', 'AbortError');
         }
 
@@ -396,20 +442,24 @@ async function callGenerativeLanguageApi(
 
         console.warn(`[Desktop AI] Model ${model} returned error, retrying:`, errMsg);
         attempts--;
-        if (attempts > 0) {
-          await new Promise((r) => setTimeout(r, 500));
+        if (attempts > 0 && !isCanceled()) {
+          await cancellableSleep(500, options?.signal, options?.cancelRef);
           continue;
         }
         break;
       } catch (netErr: any) {
-        if (netErr?.name === 'AbortError' || netErr instanceof DOMException) {
-          throw netErr;
+        if (isCanceled() || netErr?.name === 'AbortError' || netErr?.message === 'Aborted' || netErr instanceof DOMException) {
+          throw new DOMException('Aborted', 'AbortError');
         }
         lastError = netErr?.message || String(netErr);
         console.warn(`[Desktop AI] Network error calling ${model}:`, lastError);
         break;
       }
     }
+  }
+
+  if (isCanceled()) {
+    throw new DOMException('Aborted', 'AbortError');
   }
 
   // Provide user-friendly Belarusian error message
