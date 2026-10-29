@@ -362,46 +362,77 @@
 │   ├── dict/                  # Актуальныя слоўнікі Hunspell беларускай мовы (be_BY.dic, be_BY.aff, version.json v0.5.2)
 │   ├── favicon.svg            # Фірмовы лагатып праграмы
 │   └── ffmpeg/                # Бінарнікі і ядро FFmpeg WASM для кліенцкай апрацоўкі
-├── server/                    # Серверныя дапаможныя модулі
-│   ├── transcribeHelper.ts    # Выцягванне аўдыя, нарэзка па цішыні, аб'яднанне і ссоўванне SRT
+├── scripts/                   # Дапаможныя скрыпты зборкі і сінхранізацыі
+│   ├── build-verbum-db.cjs    # Генерацыя індэксаванай базы Verbum SQLite (Node.js)
+│   ├── build-verbum-db.py     # Парсер і генератар базы Verbum на Python
+│   └── copy-assets.js         # Капіяванне статычных рэсурсаў пры зборцы
+├── server/                    # Серверныя модулі (для вэб-версіі)
+│   ├── buildGrammarDbFromRelease.py # Аўтаматычнае разгортванне базы граматыкі з рэлізаў
+│   ├── eval_dze_softness.ts   # Валідацыя і тэставанне арфаэпічных правіл мяккасці «дз»
 │   ├── grammarDbHelper.ts     # Інтэграцыя з базай беларускай граматыкі (GrammarDB)
-│   ├── grammarDbService.py    # Python-сэрвіс граматычнай базы
-│   ├── verbumDbHelper.ts      # Аўтаномны SQLite-рэзерв 19 слоўнікаў Verbum.by
-│   └── buildGrammarDbFromRelease.py # Скрыпт разгортвання граматычнай базы
+│   ├── grammarDbService.py    # Высакахуткасны Python-сэрвіс граматычнай базы
+│   ├── transcribeHelper.ts    # Выцягванне аўдыя, нарэзка па цішыні, аб'яднанне і ссоўванне SRT
+│   └── verbumDbHelper.ts      # Аўтаномны SQLite-рэзерв 19 слоўнікаў Verbum.by
 ├── src/                       # Кліенцкая частка (React 19 + TypeScript + Tailwind 4)
 │   ├── belg2p/                # Правілы і алгарытмы фанетычнай транскрыпцыі (BelG2P)
+│   │   ├── processes/         # Паслядоўныя этапы фанетычнай нармалізацыі
+│   │   ├── dataFiles.ts       # Загрузка табліц адпаведнасцей гукаў і фанем
+│   │   ├── fanetyka3.ts       # Асноўны рухавік беларускай фанетыкі
+│   │   ├── fanetykaText.ts    # Апрацоўка і фанетычны аналіз тэксту
+│   │   ├── index.ts           # Галоўны экспарт модуля BelG2P
+│   │   ├── processCrossRunner.ts # Крос-працэсінг фанетычных правіл
+│   │   ├── processRunner.ts   # Паслядоўны выканаўца правіл канвертацыі
+│   │   ├── toString.ts        # Серыялізацыя фанетычных ланцужкоў
+│   │   ├── tsvConfig.ts       # Парсінг TSV-канфігурацый правіл
+│   │   ├── types.ts           # Тыпы і структуры фанетычных адзінак
+│   │   └── wordInitialConverter.ts # Апрацоўка пачатку слоў і прыстаўных гукаў
 │   ├── belg2p_data/           # Слоўнікавыя дадзеныя фанетыкі і націскаў
 │   ├── components/            # UI-кампаненты
 │   │   ├── ControlsPanel.tsx  # Панэль кіравання (транскрыпцыя, пераклад, сінтэз, зрух)
-│   │   ├── Header.tsx         # Шапка праграмы, статус сэрвісу, загрузка/экспарт, тэма, выбар голасу
-│   │   ├── HotkeysModal.tsx   # Мадальнае акно гарачых клавіш
+│   │   ├── DuplicateTabModal.tsx # Папярэджанне пра дубляванне ўкладкі ў браўзеры
+│   │   ├── FormatHelpModal.tsx # Мадальнае акно даведкі па фарматаванні субцітраў
+│   │   ├── GeminiApiKeyModal.tsx # Мадальнае акно наладкі асабістага Gemini API ключа
+│   │   ├── GlossaryModal.tsx  # Мадальнае акно кіравання карыстальніцкім гласарыем (ігнараваныя словы)
+│   │   ├── Header.tsx         # Шапка праграмы, статус сэрвісаў, загрузка/экспарт, тэма, выбар голасу
+│   │   ├── HotkeysModal.tsx   # Мадальнае акно гарачых клавіш і даведкі
 │   │   ├── SearchModal.tsx    # Мадальнае акно глабальнага пошуку і замены (з Undo/Redo)
-│   │   ├── SubtitleItem.tsx   # Кампанент асобнага субцітра (рэдагаванне, ролі, таймінгі, TTS)
-│   │   ├── SubtitleTrackSelectModal.tsx # Мадальнае акно выбару дарожак для генерацыі
-│   │   ├── VerbumDictionaryModal.tsx    # Поўнафункцыянальнае акно пошуку па 19 слоўніках Verbum.by
 │   │   ├── SubakaLogo.tsx     # Вектарны кампанент фірмовага лагатыпа (пыса сабакі)
-│   │   └── TimelinePlayer.tsx # Мультымедыйны плэер з таймлайнам і выбарам дарожак
-│   ├── utils/                 # Утыліты і алгарытмы
+│   │   ├── SubtitleItem.tsx   # Кампанент асобнага субцітра (рэдагаванне, ролі, таймінгі, TTS)
+│   │   ├── SubtitleTrackSelectModal.tsx # Мадальнае акно выбару дарожак для транскрыпцыі
+│   │   ├── TimelinePlayer.tsx # Мультымедыйны плэер з таймлайнам і выбарам дарожак
+│   │   └── VerbumDictionaryModal.tsx # Поўнафункцыянальнае акно пошуку па 19 слоўніках Verbum.by
+│   ├── types/                 # Дадатковыя тыпавыя дэкларацыі
+│   │   └── verbum.ts          # Тыпы і інтэрфейсы слоўнікавых артыкулаў Verbum.by
+│   ├── utils/                 # Утыліты, бізнес-логіка і алгарытмы
 │   │   ├── assParser.ts       # Парсер і генератар фармату Advanced SubStation Alpha (.ass)
 │   │   ├── audioMerger.ts     # Аб'яднанне агучкі (OfflineAudioContext) і SOLA time-stretch
 │   │   ├── belG2P.ts / enG2P.ts # Фанетычная транскрыпцыя маўлення
 │   │   ├── belStress.ts       # База націскаў і правілы расстаноўкі націскаў
+│   │   ├── belarusianNumberToWords.ts # Нармалізацыя і пераўтварэнне лічбаў у словы па-беларуску
+│   │   ├── desktopAiClient.ts # Натыўны AI-кліент дэсктопа (транскрыпцыя, пераклад, вычытка праз Gemini API)
 │   │   ├── ffmpegExtractor.ts # Кліенцкая перакадыроўка і падрыхтоўка аўдыя
+│   │   ├── grammarDbData.ts   # Метададзеныя і кэш граматычнай базы
 │   │   ├── hunspellChecker.ts # Модуль праверкі правапісу Hunspell v0.5.2 з кэшаваннем у IndexedDB
 │   │   ├── mkvAudioExtractor.ts # Чытанне вялікіх файлаў (ChunkedFileReader) і дэмуксінг
-│   │   ├── persistence.ts     # Захаванне і раздзельная ачыстка працоўнай прасторы ў IndexedDB
+│   │   ├── mkvAudioExtractorForGen.ts # Выцягванне аўдыя для лакальнай транскрыпцыі
+│   │   ├── persistence.ts     # Захаванне і аднаўленне працоўнай прасторы ў IndexedDB
 │   │   ├── phoneticConverter.ts # Фанетычная нармалізацыя перад сінтэзам маўлення
-│   │   ├── phoneticUkrToBel.ts  # Модуль фанетычнай адаптацыі тэксту для сінтэзу маўлення (Corpus.by / BelG2P / Edge TTS)
-│   │   ├── srtSubtitleExtractor.ts # Парсінг убудаваных субцітраў MKV/MP4
+│   │   ├── phoneticUkrToBel.ts # Фанетычная адаптацыя тэксту для сінтэзу маўлення
+│   │   ├── pravilnaByRules.ts # Правілы беларускай арфаграфіі, дзеяслоўнага кіравання і выключэнняў
+│   │   ├── srtSubtitleExtractor.ts # Выцягванне тэкставых і графічных субцітраў з кантэйнераў
+│   │   ├── stressHelper.ts    # Арфаэпічная апрацоўка і расстаноўка націскаў з улікам варыятыўнасці
 │   │   ├── subtitleUtils.ts   # Парсінг/генерацыя SRT, спелчэкер беларускай мовы
+│   │   ├── synthesisClient.ts # Адзіны кліент сінтэзу маўлення (TTS Алесь, BelG2P, Gemini)
 │   │   ├── tauriBridge.ts     # Натыўны IPC-шлюз дэсктопа (захаванне, сховішча, кэш, лакальныя базы)
 │   │   ├── useGrammarDbStatus.ts # Хук маніторынгу стану сервера граматыкі
-│   │   ├── useVerbumDbStatus.ts  # Хук маніторынгу стану аўтаномнага рэзерву Verbum
-│   │   └── useSubtitleHistory.ts # Хук гісторыі змен субцітраў (Undo/Redo)
+│   │   ├── useSingleBrowserTab.ts # Хук кантролю адзінай актыўнай укладкі ў браўзеры
+│   │   ├── useSubtitleHistory.ts # Хук гісторыі змен субцітраў (Undo/Redo)
+│   │   └── useVerbumDbStatus.ts # Хук маніторынгу стану аўтаномнага рэзерву Verbum
 │   ├── App.tsx                # Галоўны кампанент прыкладання, стан, віртуалізацыя і бізнес-логіка
 │   ├── index.css              # Стылі Tailwind CSS 4 і тыпаграфіка
 │   ├── main.tsx               # Кропка ўваходу React (DOM root)
-│   └── types.ts               # Глабальныя тыпы TypeScript
+│   ├── types.ts               # Глабальныя тыпы TypeScript
+│   └── vite-env.d.ts          # Тыпы асяроддзя кліента Vite
 ├── src-tauri/                 # Дэсктопная частка на базе Tauri v2 (Rust) для Windows x64
 │   ├── Cargo.toml             # Канфігурацыя пакункаў і залежнасцей Rust
 │   ├── tauri.conf.json        # Канфігурацыя прыкладання (назва «SUBaka», вокны, іконкі, рэсурсы)
@@ -410,17 +441,19 @@
 │   ├── resources/             # Каталог лакальных рэсурсаў (grammardb.sqlite3, verbum_offline.sqlite3)
 │   ├── binaries/              # Натыўныя бінарныя файлы (FFmpeg sidecar для Windows x64)
 │   └── src/
-│       ├── main.rs            # Кропка запуску праграмы
+│       ├── main.rs            # Кропка запуску дэсктопнай праграмы
 │       ├── lib.rs             # Ініцыялізацыя Tauri, трэй, апрацоўка CloseRequested, рэгістрацыя IPC
 │       ├── commands.rs        # IPC-каманды (файлавы запіс, інфармацыя пра сховішча, ачыстка кэшу)
-│       ├── grammar_db.rs      # Аўтаномны менеджэр базы GrammarDB SQLite на Rust
-│       ├── verbum_db.rs       # Аўтаномны менеджэр слоўнікаў Verbum SQLite на Rust
+│       ├── grammar_db.rs      # Аўтаномны менеджэр базы GrammarDB SQLite на Rust з кэшаваннем статусу
+│       ├── verbum_db.rs       # Аўтаномны менеджэр слоўнікаў Verbum SQLite на Rust з падтрымкай варыятыўнасці
 │       └── media_probe.rs     # Зондаванне мультымедыя кантэйнераў праз FFmpeg sidecar
 ├── .github/workflows/         # CI/CD аўтаматызацыя
 │   └── release.yml            # Зборка і публікацыя рэлізаў Windows x64 (NSIS setup і MSI)
-├── subaka.md                  # Тэхнічная дакументацыя праекта
+├── shired.md                  # Поўны збор правіл вычыткі і рэдактара беларускай мовы (Граматыка 2008)
+├── subaka.md                  # Поўная тэхнічная і архітэктурная дакументацыя праекта
 ├── server.ts                  # Галоўны Express-сервер (для вэб-рэжыму)
 ├── package.json               # Канфігурацыя залежнасцей і скрыптоў
+├── tsconfig.json              # Канфігурацыя кампілятара TypeScript
 └── vite.config.ts             # Канфігурацыя зборшчыка Vite
 ```
 
