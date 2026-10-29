@@ -682,7 +682,7 @@
 | Катэгорыя даных | Дзе захоўваецца ў Windows x64 | Прызначэнне і дэталі |
 |---|---|---|
 | **Бягучы стан і праект** | `%LOCALAPPDATA%\com.subaka.desktop\EBWebView\...` (IndexedDB `SubakaWorkspaceDB` і LocalStorage) | Захоўвае ўсе карткі субцітраў, налады, тэму, памер вокнаў, стан прайгравання, гісторыю рэдагавання. |
-| **Слоўнікі і Граматычная база** | `<Папка_Праграмы>\resources\` (альбо `%LOCALAPPDATA%\com.subaka.desktop\resources\`) | Файлы `grammardb.sqlite3` (~128 МБ) і `verbum_offline.sqlite3` (~60 МБ). Разгортваюцца і загружаюцца аўтаматычна пры першым запуску пасля ўсталёўкі. |
+| **Слоўнікі і Граматычная база** | `<Папка_Праграмы>\resources\` (альбо `%LOCALAPPDATA%\com.subaka.desktop\resources\`) | Файлы `grammardb.sqlite3` і `verbum_offline.sqlite3`. Разгортваюцца і загружаюцца аўтаматычна пры першым запуску пасля ўсталёўкі. |
 | **Часовыя файлы і кэш** | `%TEMP%\subaka_*` і `%LOCALAPPDATA%\com.subaka.desktop\cache\` | Часовыя нарэзаныя аўдыяхвалі, прамежкавыя файлы дэмуксінгу і кэш транскадавання. |
 | **Карыстальніцкі Гласарый** | IndexedDB / LocalStorage профілю WebView2 | Ігнараваныя карыстальнікам уласныя імёны і тэрміны. |
 
