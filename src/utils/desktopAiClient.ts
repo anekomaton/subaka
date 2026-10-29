@@ -55,12 +55,6 @@ export const ACTIVE_GEMINI_MODELS: readonly GeminiModelInfo[] = [
     isRecommended: true,
   },
   {
-    id: 'gemini-3.7-flash',
-    name: 'Gemini 3.7 Flash',
-    description: 'Магутная стабільная мадэль папярэдняга пакалення',
-    badge: 'Стабільная',
-  },
-  {
     id: 'gemini-3.5-flash',
     name: 'Gemini 3.5 Flash',
     description: 'Хуткая і правераная Flash-мадэль',
@@ -82,10 +76,7 @@ export const ACTIVE_GEMINI_MODELS: readonly GeminiModelInfo[] = [
 
 export const DEFAULT_FALLBACK_MODELS: string[] = [
   'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
   'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
   'gemini-flash-lite-latest',
@@ -93,7 +84,7 @@ export const DEFAULT_FALLBACK_MODELS: string[] = [
 
 /**
  * Retrieves the user-selected Gemini model from localStorage.
- * Automatically migrates away from deprecated models (1.5, 2.0, 2.5, etc.)
+ * Automatically migrates away from deprecated models (1.5, 2.0, 2.5, 3.7, etc.)
  */
 export function getDesktopGeminiModel(): string {
   try {
@@ -102,7 +93,7 @@ export function getDesktopGeminiModel(): string {
       return raw;
     }
     // Auto-migrate away from deprecated models
-    if (raw && (raw.includes('1.5') || raw.includes('2.0') || raw.includes('2.5') || raw.includes('pro'))) {
+    if (raw && (raw.includes('1.5') || raw.includes('2.0') || raw.includes('2.5') || raw.includes('3.7') || raw.includes('pro'))) {
       localStorage.setItem('subaka_gemini_model', 'gemini-3.8-flash');
     }
   } catch {}
@@ -129,12 +120,9 @@ export function markDesktopModelTemporaryUnavailable(modelName: string, reason =
 }
 
 function getModelScore(id: string): number {
-  // Score ordered strictly from newest to older
+  // Score ordered strictly from newest to older active models
   if (id === 'gemini-3.8-flash') return 200;
   if (id.includes('3.8')) return 195;
-  if (id === 'gemini-3.7-flash') return 180;
-  if (id.includes('3.7')) return 175;
-  if (id === 'gemini-3.6-flash') return 172;
   if (id === 'gemini-3.5-flash') return 170;
   if (id.includes('3.5')) return 165;
   if (id === 'gemini-3.1-flash-lite') return 160;
@@ -149,6 +137,7 @@ function isModelDeprecated(name: string): boolean {
     name.includes('1.5') ||
     name.includes('2.0') ||
     name.includes('2.5') ||
+    name.includes('3.7') ||
     name.includes('pro') ||
     name.includes('embedding') ||
     name.includes('imagen') ||
@@ -256,21 +245,35 @@ async function callGenerativeLanguageApi(
   const chosenModel = preferredModel || getDesktopGeminiModel();
   const dynamicModels = await getDesktopDynamicModels(cleanKey);
   const now = Date.now();
-  const isChosenExhausted = !preferredModel && quotaExhaustedModels.has(chosenModel) && (now - (quotaExhaustedModels.get(chosenModel) || 0) < QUOTA_EXHAUSTED_TTL_MS);
 
-  // If chosenModel is currently exhausted, prioritize other active models first
+  // Filter models that are currently marked exhausted or overloaded
+  const isModelExhausted = (m: string) => {
+    const time = quotaExhaustedModels.get(m);
+    return time ? now - time < QUOTA_EXHAUSTED_TTL_MS : false;
+  };
+
+  const isChosenExhausted = isModelExhausted(chosenModel);
+
+  // If chosenModel is currently exhausted, prioritize available active models first
   let rawModelsToTry: string[];
   if (!isChosenExhausted) {
     rawModelsToTry = [chosenModel, ...dynamicModels];
   } else {
-    rawModelsToTry = [...dynamicModels, chosenModel];
+    // Put non-exhausted models first, push chosenModel to the back
+    const activeModels = dynamicModels.filter((m) => !isModelExhausted(m));
+    rawModelsToTry = activeModels.length > 0 ? [...activeModels, chosenModel] : [...dynamicModels, chosenModel];
   }
   const modelsToTry = Array.from(new Set(rawModelsToTry)).filter((m) => !isModelDeprecated(m));
 
   let lastError = '';
 
   for (const model of modelsToTry) {
-    let attempts = 2;
+    // Skip models marked exhausted if we have non-exhausted options
+    if (isModelExhausted(model) && modelsToTry.some((m) => !isModelExhausted(m))) {
+      continue;
+    }
+
+    let attempts = isModelExhausted(model) ? 1 : 2;
     while (attempts > 0) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       try {
@@ -353,10 +356,9 @@ async function callGenerativeLanguageApi(
 
         if (isOverloaded || isRateLimited) {
           const reason = isOverloaded ? '503 перагрузка' : '429 ліміт запытаў';
-          console.warn(`[Desktop AI] Model ${model} is busy (${reason}), switching to next model...`);
+          console.warn(`[Desktop AI] Model ${model} is busy (${reason}), switching immediately to next model...`);
           markDesktopModelTemporaryUnavailable(model, reason);
-          // Wait 1.2s before attempting next model to avoid rapid burst rate limits
-          await new Promise((r) => setTimeout(r, 1200));
+          // Instant switch without wasting retry loops or long delays on an overloaded model
           break;
         }
 
@@ -368,7 +370,7 @@ async function callGenerativeLanguageApi(
         console.warn(`[Desktop AI] Model ${model} returned error, retrying:`, errMsg);
         attempts--;
         if (attempts > 0) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 500));
           continue;
         }
         break;
@@ -438,7 +440,7 @@ CRITICAL LANGUAGE CONSTRAINTS:
 Return the results ONLY as a JSON array matching the exact IDs of the input. Do not alter any subtitle IDs.
 
 Subtitles to translate:
-${JSON.stringify(entries, null, 2)}`;
+${JSON.stringify(entries)}`;
 
   const bodyObj = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -486,7 +488,7 @@ export async function desktopProofreadBatch(
 4. Калі запіс субцітра не мае памылак, вярні пусты масіў issues [].
 
 Субцітры для праверкі:
-${JSON.stringify(entries, null, 2)}`;
+${JSON.stringify(entries)}`;
 
   const bodyObj = {
     contents: [{ parts: [{ text: prompt }] }],

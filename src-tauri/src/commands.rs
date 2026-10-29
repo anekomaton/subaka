@@ -293,6 +293,19 @@ pub fn lookup_verbum_word(
     articles
 }
 
+use std::sync::OnceLock;
+
+static HTTP_CLIENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+fn get_http_client() -> &'static ureq::Agent {
+    HTTP_CLIENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(180))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .build()
+    })
+}
+
 #[inline]
 fn silent_command(program: &str) -> std::process::Command {
     #[allow(unused_mut)]
@@ -309,12 +322,10 @@ fn fetch_audio_buffer_native_blocking(url: String) -> Result<String, String> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use std::io::Read;
 
-    // 1. Primary: In-process pure Rust HTTP client (ureq).
+    // 1. Primary: In-process pure Rust HTTP client with Keep-Alive connection pool (ureq Agent).
     // Socket created directly in subaka.exe process memory space for Split Tunneling VPN interception.
-    let req = ureq::get(&url)
-        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .set("Referer", "https://translate.google.com/")
-        .timeout(std::time::Duration::from_secs(30));
+    let req = get_http_client().get(&url)
+        .set("Referer", "https://translate.google.com/");
 
     if let Ok(resp) = req.call() {
         let mut bytes = Vec::new();
@@ -376,13 +387,11 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
     use std::io::Write;
     use std::process::Stdio;
 
-    // 1. Primary: In-process pure Rust HTTP client (ureq).
+    // 1. Primary: In-process pure Rust HTTP client with Keep-Alive connection pool (ureq Agent).
     // The TCP socket is opened directly by subaka.exe itself, ensuring 100% compatibility
     // with Windows VPN Split Tunneling (where only subaka.exe is routed through VPN).
-    let ureq_res = ureq::post(&url)
+    let ureq_res = get_http_client().post(&url)
         .set("Content-Type", "application/json; charset=utf-8")
-        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .timeout(std::time::Duration::from_secs(180))
         .send_bytes(json_body.as_bytes());
 
     match ureq_res {
@@ -394,8 +403,6 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
             }
         }
         Err(ureq::Error::Status(_code, resp)) => {
-            // Even if the HTTP status is 4xx/5xx (e.g. 429 rate limit or 400 error),
-            // return the response body so the frontend client can parse the exact Gemini error JSON!
             if let Ok(text) = resp.into_string() {
                 if !text.is_empty() {
                     return Ok(text);
@@ -475,12 +482,10 @@ pub async fn post_json_native(url: String, json_body: String) -> Result<String, 
 fn fetch_verbum_online_native_blocking(url: String) -> Result<String, String> {
     let is_verbum = url.contains("verbum.by");
 
-    // 1. Primary: In-process pure Rust HTTP client (ureq).
+    // 1. Primary: In-process pure Rust HTTP client with Keep-Alive connection pool (ureq Agent).
     // The TCP socket is opened directly by subaka.exe for Split Tunneling VPN support.
-    let mut req = ureq::get(&url)
-        .set("Accept", "application/json")
-        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .timeout(std::time::Duration::from_secs(20));
+    let mut req = get_http_client().get(&url)
+        .set("Accept", "application/json");
 
     if is_verbum {
         req = req.set("Referer", "https://verbum.by/");

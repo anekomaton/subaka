@@ -215,7 +215,6 @@ const MODEL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
 const DEFAULT_FALLBACK_MODELS = [
   "gemini-3.8-flash",
-  "gemini-3.7-flash",
   "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
@@ -248,6 +247,7 @@ function isModelDeprecated(name: string): boolean {
     name.includes("1.5") ||
     name.includes("2.0") ||
     name.includes("2.5") ||
+    name.includes("3.7") ||
     name.includes("pro") ||
     name.includes("embedding") ||
     name.includes("imagen") ||
@@ -452,7 +452,7 @@ CRITICAL LANGUAGE CONSTRAINTS:
 Return the results ONLY as a JSON array matching the exact IDs of the input. Do not alter any subtitle IDs.
 
 Subtitles to translate:
-${JSON.stringify(entries, null, 2)}`;
+${JSON.stringify(entries)}`;
 
     const schema = {
       type: Type.ARRAY,
@@ -474,22 +474,9 @@ ${JSON.stringify(entries, null, 2)}`;
     }
 
     const rawTranslations = JSON.parse(resultText.trim());
-    
-    // Apply automatic spellchecking with GrammarDB if enabled and target is Belarusian
-    const translations = rawTranslations.map((item: { id: string; translatedText: string }) => {
-      if (autoSpellCheck && (!targetLanguage || targetLanguage === "Belarusian")) {
-        const spellResult = spellCheckBelarusianText(item.translatedText);
-        return {
-          id: item.id,
-          translatedText: spellResult.correctedText,
-          spellChecked: true,
-          correctionsCount: spellResult.errors.length
-        };
-      }
-      return item;
-    });
 
-    res.json({ translations });
+    // Instant non-blocking response return to frontend
+    res.json({ translations: rawTranslations });
   } catch (err: any) {
     console.error("Translation api error:", err);
     res.status(500).json({ error: getFriendlyErrorMessage(err) });
