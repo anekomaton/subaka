@@ -982,6 +982,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
 
   const handleConvertPhonetic = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    onSelect();
     const orig = stripSrtTags(localText).trim();
     if (!orig) return;
     setIsConvertingPhonetic(true);
@@ -1883,7 +1884,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
             <div className="flex items-center gap-0.5 shrink-0">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); applyAccentMark('text', origTextareaRef); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(); applyAccentMark('text', origTextareaRef); }}
                 className={`px-1.5 py-0.5 text-[8px] font-bold rounded border transition-colors ${
                   theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-800'
                 }`}
@@ -1893,7 +1894,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
               </button>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); applyFormatTag('text', 'b', origTextareaRef); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(); applyFormatTag('text', 'b', origTextareaRef); }}
                 className={`px-1.5 py-0.5 text-[8px] font-bold rounded border transition-colors ${
                   theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-800'
                 }`}
@@ -1903,7 +1904,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
               </button>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); applyFormatTag('text', 'i', origTextareaRef); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(); applyFormatTag('text', 'i', origTextareaRef); }}
                 className={`px-1.5 py-0.5 text-[8px] italic rounded border transition-colors ${
                   theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-800'
                 }`}
@@ -1913,7 +1914,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
               </button>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); applyFormatTag('text', 'u', origTextareaRef); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(); applyFormatTag('text', 'u', origTextareaRef); }}
                 className={`px-1.5 py-0.5 text-[8px] underline rounded border transition-colors ${
                   theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-800'
                 }`}
@@ -2106,7 +2107,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); applyAccentMark('translatedText', transTextareaRef); }}
+                  onClick={(e) => { e.stopPropagation(); onSelect(); applyAccentMark('translatedText', transTextareaRef); }}
                   className={`px-1.5 py-0.5 text-[8px] font-bold rounded border transition-colors ${
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-amber-400' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-amber-700'
                   }`}
@@ -2116,7 +2117,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); applyFormatTag('translatedText', 'b', transTextareaRef); }}
+                  onClick={(e) => { e.stopPropagation(); onSelect(); applyFormatTag('translatedText', 'b', transTextareaRef); }}
                   className={`px-1.5 py-0.5 text-[8px] font-bold rounded border transition-colors ${
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-amber-400' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-amber-700'
                   }`}
@@ -2126,7 +2127,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); applyFormatTag('translatedText', 'i', transTextareaRef); }}
+                  onClick={(e) => { e.stopPropagation(); onSelect(); applyFormatTag('translatedText', 'i', transTextareaRef); }}
                   className={`px-1.5 py-0.5 text-[8px] italic rounded border transition-colors ${
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-amber-400' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-amber-700'
                   }`}
@@ -2136,7 +2137,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); applyFormatTag('translatedText', 'u', transTextareaRef); }}
+                  onClick={(e) => { e.stopPropagation(); onSelect(); applyFormatTag('translatedText', 'u', transTextareaRef); }}
                   className={`px-1.5 py-0.5 text-[8px] underline rounded border transition-colors ${
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-amber-400' : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-amber-700'
                   }`}
