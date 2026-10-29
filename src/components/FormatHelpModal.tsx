@@ -188,42 +188,23 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                       : 'bg-white border-amber-200 text-slate-900 shadow-2xs'
                   }`}>
                     <div>
-                      <span className="text-sky-950 dark:text-sky-300 font-bold">Папка resources (слоўнікі і граматыка):</span>{' '}
+                      <span className="text-sky-950 dark:text-sky-300 font-bold">Папка resources (слоўнікі і граматычная база):</span>{' '}
                       <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.resources_dir || '<Папка_Праграмы>\\resources\\'}</span>
                       <span className="text-slate-700 dark:text-slate-300 text-[10.5px] block font-sans mt-0.5 font-medium">
-                        Файлы grammardb.sqlite3 (~128 МБ) і verbum_offline.sqlite3 (~60 МБ). Загружаюцца пры ўсталёўцы праграмы.
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-emerald-950 dark:text-emerald-300 font-bold">Бягучы стан і праекты:</span>{' '}
-                      <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.app_data_dir || '%LOCALAPPDATA%\\com.subaka.desktop'}</span>
-                      <span className="text-slate-700 dark:text-slate-300 text-[10.5px] block font-sans mt-0.5 font-medium">
-                        IndexedDB (SubakaWorkspaceDB) і LocalStorage профілю WebView2 (карткі, налады, гласарый).
+                        Файлы grammardb.sqlite3 і verbum_offline.sqlite3. Загружаюцца пры ўсталёўцы праграмы.
                       </span>
                     </div>
                     <div>
                       <span className="text-amber-950 dark:text-amber-300 font-bold">Кэш і часовыя файлы:</span>{' '}
                       <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.cache_dir || desktopStorage?.temp_dir || '%TEMP%\\subaka_*'}</span>
+                      <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.app_data_dir || '%LOCALAPPDATA%\\com.subaka.desktop'}</span>
                       <span className="text-slate-700 dark:text-slate-300 text-[10.5px] block font-sans mt-0.5 font-medium">
-                        Часовыя і прамежкавыя файлы. Ачышчаюцца кнопкай «Ачысціць усё» без выдалення баз і гласарыя.
+                        Часовыя і прамежкавыя файлы (IndexedDB і LocalStorage профілю WebView2, карткі, налады, гласарый). Ачышчаюцца кнопкай «Ачысціць усё» без выдалення баз, гласарыя і API ключа.
                       </span>
                     </div>
-                    {desktopStorage?.grammardb_path && (
-                      <div className="pt-1.5 border-t border-slate-300 dark:border-slate-800">
-                        <span className="text-indigo-950 dark:text-indigo-300 font-bold">Актыўная база GrammarDB:</span>{' '}
-                        <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage.grammardb_path} {desktopStorage.grammardb_size_mb ? `(${desktopStorage.grammardb_size_mb} МБ)` : ''}</span>
-                      </div>
-                    )}
-                    {desktopStorage?.verbum_path && (
-                      <div className={desktopStorage?.grammardb_path ? '' : 'pt-1.5 border-t border-slate-300 dark:border-slate-800'}>
-                        <span className="text-indigo-950 dark:text-indigo-300 font-bold">Актыўныя слоўнікі Verbum:</span>{' '}
-                        <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage.verbum_path} {desktopStorage.verbum_size_mb ? `(${desktopStorage.verbum_size_mb} МБ)` : ''}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
-
             </div>
 
             {/* Footer */}
