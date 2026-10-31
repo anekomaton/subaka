@@ -74,13 +74,41 @@ pub(crate) fn save_window_state(window: &tauri::Window) {
     }
 }
 
+#[derive(Clone)]
+pub struct LaunchFilePath(pub std::sync::Arc<std::sync::Mutex<Option<String>>>);
+
+pub(crate) fn extract_file_path_from_args(args: &[String]) -> Option<String> {
+    for arg in args.iter().skip(1) {
+        if !arg.starts_with('-') && !arg.trim().is_empty() {
+            let path_str = arg.trim_matches('"').trim_matches('\'');
+            let p = std::path::Path::new(path_str);
+            if p.exists() || p.is_file() || p.extension().is_some() {
+                return Some(path_str.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let grammar_manager = GrammarDbManager::new();
     let verbum_manager = VerbumDbManager::new();
 
+    let env_args: Vec<String> = std::env::args().collect();
+    let initial_path = extract_file_path_from_args(&env_args);
+    let launch_path_state = LaunchFilePath(std::sync::Arc::new(std::sync::Mutex::new(initial_path)));
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(file_path) = extract_file_path_from_args(&args) {
+                if let Some(state) = app.try_state::<LaunchFilePath>() {
+                    if let Ok(mut guard) = state.0.lock() {
+                        *guard = Some(file_path.clone());
+                    }
+                }
+                let _ = app.emit("subaka-open-file-path", file_path);
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
@@ -89,6 +117,7 @@ pub fn run() {
         }))
         .manage(grammar_manager)
         .manage(verbum_manager)
+        .manage(launch_path_state)
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -110,6 +139,19 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Emit initial launch file path to webview once mounted
+            let handle_for_launch = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(600));
+                if let Some(state) = handle_for_launch.try_state::<LaunchFilePath>() {
+                    if let Ok(guard) = state.0.lock() {
+                        if let Some(ref path) = *guard {
+                            let _ = handle_for_launch.emit("subaka-open-file-path", path.clone());
+                        }
+                    }
+                }
+            });
 
             // Restore saved window size & position
             if let Some(window) = app.get_webview_window("main") {
@@ -206,6 +248,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_desktop_info,
+            take_launch_file_path,
             get_grammar_status,
             lookup_grammar_word,
             batch_check_words,

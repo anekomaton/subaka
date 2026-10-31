@@ -562,4 +562,77 @@ export async function hideDesktopWindow(): Promise<void> {
   }
 }
 
+/**
+ * Takes and clears launch file path passed via command-line / file association
+ */
+export async function takeLaunchFilePath(): Promise<string | null> {
+  if (isTauriDesktop()) {
+    try {
+      return await invoke<string | null>('take_launch_file_path');
+    } catch (err) {
+      console.warn('[TauriBridge] take_launch_file_path failed:', err);
+    }
+  }
+  return null;
+}
+
+/**
+ * Loads a desktop file path into text content or File object
+ */
+export async function loadDesktopFileFromPath(filePath: string): Promise<{
+  file?: File;
+  textContent?: string;
+  fileName: string;
+  isSubtitle: boolean;
+  isMedia: boolean;
+}> {
+  const cleanPath = filePath.trim().replace(/^["']|["']$/g, '');
+  const fileName = cleanPath.split(/[/\\]/).pop() || 'file';
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+  const subExts = ['srt', 'ass', 'vtt', 'sub', 'ssa', 'txt'];
+  const mediaExts = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'mp3', 'wav', 'aac', 'flac', 'm4a', 'ogg', 'wma', 'mka', 'ts', 'm2ts', '3gp'];
+
+  const isSubtitle = subExts.includes(ext);
+  const isMedia = mediaExts.includes(ext);
+
+  if (isSubtitle) {
+    const textContent = await readSubtitleDirect(cleanPath);
+    return { textContent, fileName, isSubtitle: true, isMedia: false };
+  }
+
+  if (isMedia) {
+    try {
+      const { convertFileSrc } = await import('@tauri-apps/api/core');
+      const assetUrl = convertFileSrc(cleanPath);
+      const res = await fetch(assetUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        const mimeMap: Record<string, string> = {
+          'mp4': 'video/mp4',
+          'mkv': 'video/x-matroska',
+          'webm': 'video/webm',
+          'avi': 'video/x-msvideo',
+          'mov': 'video/quicktime',
+          'mp3': 'audio/mp3',
+          'wav': 'audio/wav',
+          'aac': 'audio/aac',
+          'flac': 'audio/flac',
+          'm4a': 'audio/m4a',
+          'ogg': 'audio/ogg',
+        };
+        const file = new File([blob], fileName, { type: mimeMap[ext] || 'application/octet-stream' });
+        return { file, fileName, isSubtitle: false, isMedia: true };
+      }
+    } catch (err) {
+      console.warn('[TauriBridge] Failed to fetch media file via convertFileSrc:', err);
+    }
+  }
+
+  // Fallback read as text
+  const textContent = await readSubtitleDirect(cleanPath);
+  return { textContent, fileName, isSubtitle: true, isMedia: false };
+}
+
+
 

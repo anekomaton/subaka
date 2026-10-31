@@ -71,7 +71,9 @@ import {
   getDesktopStorageInfo,
   clearDesktopTempCache,
   DesktopStorageInfo,
-  openExternalUrl
+  openExternalUrl,
+  takeLaunchFilePath,
+  loadDesktopFileFromPath
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
@@ -3468,6 +3470,133 @@ export default function App() {
     setMediaFileName(file.name);
     addToast(`Медыяфайл "${file.name}" загружаны`, "success");
   };
+
+  const handleOpenDesktopFilePath = useCallback(async (filePath: string) => {
+    if (!filePath || !filePath.trim()) return;
+    try {
+      const loaded = await loadDesktopFileFromPath(filePath);
+      if (loaded.isSubtitle && loaded.textContent) {
+        const { entries, format, rawHeader } = parseSubtitleContent(loaded.textContent, loaded.fileName);
+        if (entries.length > 0) {
+          if (rawHeader) {
+            setOriginalAssHeader(rawHeader);
+          }
+          subtitles.forEach((sub) => {
+            if (sub.audioUrl) URL.revokeObjectURL(sub.audioUrl);
+          });
+          setSubtitles(entries);
+          setAutoSubtitles(null);
+          setActiveSubtitleIndex(0);
+          const namePart = loaded.fileName.replace(/\.[^/.]+$/, '');
+          setProjectName(namePart);
+          try {
+            localStorage.setItem('subaka_project_name', namePart);
+          } catch {}
+          addToast(`Файл субцітраў "${loaded.fileName}" адкрыты (${entries.length} картак)`, "success");
+        } else {
+          addToast(`Не ўдалося распазнаць субцітры ў файле "${loaded.fileName}"`, "error");
+        }
+      } else if (loaded.isMedia && loaded.file) {
+        handleMediaFileLoaded(loaded.file);
+      } else if (loaded.textContent) {
+        const { entries, format, rawHeader } = parseSubtitleContent(loaded.textContent, loaded.fileName);
+        if (entries.length > 0) {
+          if (rawHeader) setOriginalAssHeader(rawHeader);
+          setSubtitles(entries);
+          setAutoSubtitles(null);
+          setActiveSubtitleIndex(0);
+          addToast(`Файл "${loaded.fileName}" адкрыты (${entries.length} картак)`, "success");
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to open desktop file:", err);
+      addToast(`Памылка адкрыцця файла: ${err.message || err}`, "error");
+    }
+  }, [subtitles, addToast, handleMediaFileLoaded]);
+
+  // File association / "Open with..." / Command Line startup & single instance listener
+  useEffect(() => {
+    if (isTauriDesktop()) {
+      // 1. Check startup launch file path
+      takeLaunchFilePath().then((path) => {
+        if (path) {
+          handleOpenDesktopFilePath(path);
+        }
+      });
+
+      // 2. Listen for single instance / file open events
+      let unlistenOpenFile: (() => void) | null = null;
+      import('@tauri-apps/api/event').then(({ listen }) => {
+        listen<string>('subaka-open-file-path', (event) => {
+          if (event.payload) {
+            handleOpenDesktopFilePath(event.payload);
+          }
+        }).then((un) => {
+          unlistenOpenFile = un;
+        });
+      }).catch(() => {});
+
+      return () => {
+        if (unlistenOpenFile) unlistenOpenFile();
+      };
+    }
+  }, [handleOpenDesktopFilePath]);
+
+  // Global Drag-and-Drop listener for subtitle and media files
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (!e.dataTransfer) return;
+
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        const droppedFile = files[0];
+        const filePath = (droppedFile as any).path;
+        const fileName = droppedFile.name || 'file';
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const subExts = ['srt', 'ass', 'vtt', 'sub', 'ssa', 'txt'];
+        const mediaExts = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'mp3', 'wav', 'aac', 'flac', 'm4a', 'ogg', 'wma', 'mka', 'ts', '3gp'];
+
+        if (subExts.includes(ext)) {
+          const text = await droppedFile.text();
+          const { entries, format, rawHeader } = parseSubtitleContent(text, fileName);
+          if (entries.length > 0) {
+            if (rawHeader) setOriginalAssHeader(rawHeader);
+            subtitles.forEach((sub) => {
+              if (sub.audioUrl) URL.revokeObjectURL(sub.audioUrl);
+            });
+            setSubtitles(entries);
+            setAutoSubtitles(null);
+            setActiveSubtitleIndex(0);
+            const namePart = fileName.replace(/\.[^/.]+$/, '');
+            setProjectName(namePart);
+            try {
+              localStorage.setItem('subaka_project_name', namePart);
+            } catch {}
+            addToast(`Файл субцітраў "${fileName}" загружаны (${entries.length} картак)`, "success");
+          }
+        } else if (mediaExts.includes(ext)) {
+          handleMediaFileLoaded(droppedFile);
+        } else if (isTauriDesktop() && filePath) {
+          handleOpenDesktopFilePath(filePath);
+        }
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [subtitles, addToast, handleMediaFileLoaded, handleOpenDesktopFilePath]);
 
   const handleClearSubtitles = async () => {
     subtitles.forEach((sub) => {

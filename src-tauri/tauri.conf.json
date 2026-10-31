@@ -39,6 +39,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["srt", "ass", "vtt", "sub", "ssa"],
+        "name": "Subtitle File",
+        "role": "Editor"
+      },
+      {
+        "ext": ["mp4", "mkv", "webm", "avi", "mov", "mp3", "wav", "m4a", "aac", "flac"],
+        "name": "Media File",
+        "role": "Viewer"
+      }
+    ],
     "externalBin": [
       "binaries/ffmpeg"
     ],

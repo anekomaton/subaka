@@ -29,6 +29,15 @@ pub fn get_desktop_info() -> DesktopInfo {
 }
 
 #[tauri::command]
+pub fn take_launch_file_path(state: State<'_, crate::LaunchFilePath>) -> Option<String> {
+    if let Ok(mut guard) = state.0.lock() {
+        guard.take()
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
 pub fn get_grammar_status(
     app: AppHandle,
     manager: State<'_, GrammarDbManager>,
