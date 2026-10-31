@@ -205,7 +205,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                       <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.cache_dir || desktopStorage?.temp_dir || '%TEMP%\\subaka_*'}</span>
                       <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.app_data_dir || '%LOCALAPPDATA%\\com.subaka.desktop'}</span>
                       <span className="text-slate-700 dark:text-slate-300 text-[10.5px] block font-sans mt-0.5 font-medium break-normal">
-                        Часовыя і прамежкавыя файлы (IndexedDB і LocalStorage профілю WebView2, карткі, налады, гласарый). Ачышчаюцца кнопкай «Ачысціць усё» без выдалення баз, гласарыя і API ключа.
+                        Часовыя і прамежкавыя файлы (IndexedDB і LocalStorage профілю WebView2, карткі, налады, гласарый). Ачышчаюцца кнопкай «Ачысціць усё» без выдалення баз, гласарыя, API ключа і назвы праекта.
                       </span>
                     </div>
                   </div>
