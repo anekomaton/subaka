@@ -259,6 +259,7 @@ pub fn run() {
             save_file_direct,
             save_binary_file_direct,
             read_file_direct,
+            read_binary_file_direct,
             get_desktop_storage_info,
             clear_desktop_temp_cache,
             get_verbum_status,

@@ -1,4 +1,4 @@
-name: Release SUBaka Desktop (Windows x64)
+name: SUBaka Desktop (Windows x64)
 
 on:
   push:
@@ -178,7 +178,7 @@ jobs:
           files: release_artifacts/SUBaka_1.0.0_x64-setup.exe
           fail_on_unmatched_files: false
           body: |
-            ## Рэліз SUBaka для Windows x64 (інсталятар)
+            ## Праграма SUBaka пад Windows 10 (x64)
 
             - **`SUBaka_1.0.0_x64-setup.exe`** — інсталятар для Windows (x64).
           draft: false

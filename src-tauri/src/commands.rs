@@ -154,9 +154,118 @@ pub fn save_binary_file_direct(file_path: String, data_base64: String) -> Result
     Ok(true)
 }
 
+fn decode_cp1251_char(byte: u8) -> char {
+    match byte {
+        0x00..=0x7F => byte as char,
+        0x80 => 'Ђ', 0x81 => 'Ѓ', 0x82 => '‚', 0x83 => 'ѓ',
+        0x84 => '„', 0x85 => '…', 0x86 => '†', 0x87 => '‡',
+        0x88 => '€', 0x89 => '‰', 0x8A => 'Љ', 0x8B => '‹',
+        0x8C => 'Њ', 0x8D => 'Ќ', 0x8E => 'Ћ', 0x8F => 'Џ',
+        0x90 => 'ђ', 0x91 => '‘', 0x92 => '’', 0x93 => '“',
+        0x94 => '”', 0x95 => '•', 0x96 => '–', 0x97 => '—',
+        0x98 => '\u{0098}', 0x99 => '™', 0x9A => 'љ', 0x9B => '›',
+        0x9C => 'њ', 0x9D => 'ќ', 0x9E => 'ћ', 0x9F => 'џ',
+        0xA0 => '\u{00A0}',
+        0xA1 => 'Ў', // Belarusian capital Ў (U+040E) in Windows-1251
+        0xA2 => 'ў', // Belarusian small ў (U+045E) in Windows-1251
+        0xA3 => 'Ј',
+        0xA4 => '¤',
+        0xA5 => 'Ґ',
+        0xA6 => '¦',
+        0xA7 => '§',
+        0xA8 => 'Ё',
+        0xA9 => '©',
+        0xAA => 'Є',
+        0xAB => '«',
+        0xAC => '¬',
+        0xAD => '\u{00AD}',
+        0xAE => '®',
+        0xAF => 'Ї',
+        0xB0 => '°',
+        0xB1 => '±',
+        0xB2 => 'І', // Belarusian/Ukrainian capital І (U+0406)
+        0xB3 => 'і', // Belarusian/Ukrainian small і (U+0456)
+        0xB4 => 'ґ',
+        0xB5 => 'µ',
+        0xB6 => '¶',
+        0xB7 => '·',
+        0xB8 => 'ё',
+        0xB9 => '№',
+        0xBA => 'є',
+        0xBB => '»',
+        0xBC => 'ј',
+        0xBD => 'Ѕ',
+        0xBE => 'ѕ',
+        0xBF => 'ї',
+        0xC0..=0xDF => std::char::from_u32(0x0410 + (byte - 0xC0) as u32).unwrap_or('?'),
+        0xE0..=0xFF => std::char::from_u32(0x0430 + (byte - 0xE0) as u32).unwrap_or('?'),
+    }
+}
+
+fn decode_bytes_to_string(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+
+    // 1. Check for UTF-8 with optional BOM
+    let bytes_to_check = if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
+        &bytes[3..]
+    } else {
+        bytes
+    };
+
+    if let Ok(s) = std::str::from_utf8(bytes_to_check) {
+        return s.to_string();
+    }
+
+    // 2. Check for UTF-16 LE BOM (0xFF, 0xFE)
+    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        let u16_slice: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        if let Ok(s) = String::from_utf16(&u16_slice) {
+            return s;
+        }
+    }
+
+    // 3. Check for UTF-16 BE BOM (0xFE, 0xFF)
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let u16_slice: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect();
+        if let Ok(s) = String::from_utf16(&u16_slice) {
+            return s;
+        }
+    }
+
+    // 4. Try UTF-16 LE without BOM if even length and high null-byte count
+    if bytes.len() % 2 == 0 && bytes.iter().filter(|&&b| b == 0).count() > bytes.len() / 4 {
+        let u16_slice: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        if let Ok(s) = String::from_utf16(&u16_slice) {
+            return s;
+        }
+    }
+
+    // 5. Fallback to CP1251 (Windows-1251)
+    bytes.iter().map(|&b| decode_cp1251_char(b)).collect()
+}
+
 #[tauri::command]
 pub fn read_file_direct(file_path: String) -> Result<String, String> {
-    fs::read_to_string(&file_path).map_err(|e| e.to_string())
+    let bytes = fs::read(&file_path).map_err(|e| e.to_string())?;
+    Ok(decode_bytes_to_string(&bytes))
+}
+
+#[tauri::command]
+pub fn read_binary_file_direct(file_path: String) -> Result<String, String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let bytes = fs::read(&file_path).map_err(|e| e.to_string())?;
+    Ok(STANDARD.encode(&bytes))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

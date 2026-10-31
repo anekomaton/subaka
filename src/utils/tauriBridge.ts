@@ -602,34 +602,62 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
   }
 
   if (isMedia) {
+    const mimeMap: Record<string, string> = {
+      'mp4': 'video/mp4',
+      'mkv': 'video/x-matroska',
+      'webm': 'video/webm',
+      'avi': 'video/x-msvideo',
+      'mov': 'video/quicktime',
+      'mp3': 'audio/mp3',
+      'wav': 'audio/wav',
+      'aac': 'audio/aac',
+      'flac': 'audio/flac',
+      'm4a': 'audio/m4a',
+      'ogg': 'audio/ogg',
+      'wma': 'audio/x-ms-wma',
+      'mka': 'audio/x-matroska',
+      'ts': 'video/mp2t',
+      'm2ts': 'video/mp2t',
+      '3gp': 'video/3gpp',
+    };
+    const mimeType = mimeMap[ext] || 'application/octet-stream';
+
+    // 1. Primary: convertFileSrc + fetch asset protocol
     try {
       const { convertFileSrc } = await import('@tauri-apps/api/core');
       const assetUrl = convertFileSrc(cleanPath);
       const res = await fetch(assetUrl);
       if (res.ok) {
         const blob = await res.blob();
-        const mimeMap: Record<string, string> = {
-          'mp4': 'video/mp4',
-          'mkv': 'video/x-matroska',
-          'webm': 'video/webm',
-          'avi': 'video/x-msvideo',
-          'mov': 'video/quicktime',
-          'mp3': 'audio/mp3',
-          'wav': 'audio/wav',
-          'aac': 'audio/aac',
-          'flac': 'audio/flac',
-          'm4a': 'audio/m4a',
-          'ogg': 'audio/ogg',
-        };
-        const file = new File([blob], fileName, { type: mimeMap[ext] || 'application/octet-stream' });
+        const file = new File([blob], fileName, { type: mimeType });
         return { file, fileName, isSubtitle: false, isMedia: true };
       }
     } catch (err) {
       console.warn('[TauriBridge] Failed to fetch media file via convertFileSrc:', err);
     }
+
+    // 2. Secondary fallback: native read_binary_file_direct command
+    try {
+      const base64 = await invoke<string>('read_binary_file_direct', { filePath: cleanPath });
+      if (base64) {
+        const binStr = atob(base64);
+        const len = binStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binStr.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mimeType });
+        const file = new File([blob], fileName, { type: mimeType });
+        return { file, fileName, isSubtitle: false, isMedia: true };
+      }
+    } catch (err) {
+      console.warn('[TauriBridge] read_binary_file_direct failed for media:', err);
+    }
+
+    throw new Error(`Не ўдалося загрузіць медыяфайл: ${fileName}`);
   }
 
-  // Fallback read as text
+  // Fallback for non-media files: read as text/subtitle
   const textContent = await readSubtitleDirect(cleanPath);
   return { textContent, fileName, isSubtitle: true, isMedia: false };
 }
