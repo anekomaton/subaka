@@ -187,7 +187,7 @@ npm run tauri:build
 2. 🗣️ **[BelG2P](https://github.com/Belarus/BelG2P)** — алгарытмы фанетычнай транскрыпцыі, правілы і базы беларускага націску.
 3. ✍️ **[PravilnaBy](https://github.com/alroniks/pravilnaby)** (`v0.1.0`) — алгарытмы і правілы беларускага правапісу.
 4. 🔍 **[Hunspell-BE](https://spell.by-reservation.com/)** (`v0.5.2`) — афіцыйны пакет праверкі арфаграфіі (RZR team / BNKorpus.info).
-5. 📊 **[Беларускі N-корпус (bnkorpus.info)](https://bnkorpus.info)** — корпус беларускай мовы, статыстыка частатнасці і базы націскаў.
+5. 📊 **[Беларускі N-корпус (bnkorpus.info)](https://bnkorpus.info)** — корпус беларускай мовы, статыстыка і базы націскаў.
 6. 📖 **[Verbum.by](https://verbum.by)** — адкрыты корпус лічбавых слоўнікаў беларускай мовы (ТСБЛМ, ТСБМ, ЭСБМ, БРС і інш.).
 7. 🎙️ **[Corpus.by](https://corpus.by/TextToSpeechBelarusianPy/?lang=be)** — API сінтэзу маўлення беларускай мовы (голас «Алесь»).
 
