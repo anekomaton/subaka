@@ -64,4 +64,7 @@ During installation on Microsoft Windows, SUBaka installs by default to the user
 
 - **Gemini API Key:** Stored locally in the WebView2 user profile storage (`%LOCALAPPDATA%\com.subaka.desktop\EBWebView`).
 - **Direct Endpoints:** API requests are sent directly to official Google API endpoints (`generativelanguage.googleapis.com`) using TLS 1.2/1.3 encrypted HTTPS. No intermediate proxy servers collect or inspect your API key or subtitle content.
-- **Zero Telemetry:** SUBaka contains zero tracking scripts, telemetry analytics, or third-party ads.
+- **Analytics & Web Telemetry:**
+  - **Desktop Build (Tauri):** Google Analytics and tracking scripts are dynamically disabled and NOT loaded in desktop mode.
+  - **Web Version (`subaka.ai.studio`):** Standard Google Analytics (`gtag.js`, `G-HFXMLHR2W4`) is used solely for measuring aggregate web visitor traffic. Subtitle content, media files, and API keys are strictly excluded from analytics.
+- **Advertising:** Zero ad networks or tracking cookies exist in either version.

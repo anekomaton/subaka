@@ -69,14 +69,23 @@
         };
       })();
     </script>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-HFXMLHR2W4"></script>
+    <!-- Google tag (gtag.js) - Web only -->
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
+      (function() {
+        var isDesktop = !!(window.__TAURI_INTERNALS__ || window.__TAURI__ || window.__TAURI_METADATA__);
+        if (!isDesktop) {
+          var script = document.createElement('script');
+          script.async = true;
+          script.src = "https://www.googletagmanager.com/gtag/js?id=G-HFXMLHR2W4";
+          document.head.appendChild(script);
 
-      gtag('config', 'G-HFXMLHR2W4');
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          window.gtag = gtag;
+          gtag('js', new Date());
+          gtag('config', 'G-HFXMLHR2W4');
+        }
+      })();
     </script>
   </head>
   <body>
