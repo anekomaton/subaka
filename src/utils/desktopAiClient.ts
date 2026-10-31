@@ -48,11 +48,23 @@ export interface GeminiModelInfo {
 
 export const ACTIVE_GEMINI_MODELS: readonly GeminiModelInfo[] = [
   {
+    id: 'gemini-flash-latest',
+    name: 'Gemini Flash Latest',
+    description: 'Аўтаматычны псеўданім актуальнай стабільнай Flash-мадэлі Google',
+    badge: 'Аўта',
+    isRecommended: true,
+  },
+  {
+    id: 'gemini-flash-lite-latest',
+    name: 'Gemini Flash Lite Latest',
+    description: 'Звышхуткая, эканамічная па квотах, высокая надзейнасць',
+    badge: 'Звышхуткая',
+  },
+  {
     id: 'gemini-3.8-flash',
     name: 'Gemini 3.8 Flash',
     description: 'Найноўшая флагманская Flash-мадэль з максімальнай дакладнасцю перакладу',
-    badge: 'Найноўшая',
-    isRecommended: true,
+    badge: 'Флагман',
   },
   {
     id: 'gemini-3.5-flash',
@@ -63,23 +75,17 @@ export const ACTIVE_GEMINI_MODELS: readonly GeminiModelInfo[] = [
   {
     id: 'gemini-3.1-flash-lite',
     name: 'Gemini 3.1 Flash Lite',
-    description: 'Звышхуткая, эканамічная па квотах, высокая надзейнасць',
-    badge: 'Звышхуткая',
-  },
-  {
-    id: 'gemini-flash-latest',
-    name: 'Gemini Flash Latest',
-    description: 'Аўтаматычны псеўданім актуальнай стабільнай Flash-мадэлі',
-    badge: 'Аўта',
+    description: 'Эканамічная па квотах, высокая надзейнасць',
+    badge: 'Эканамічная',
   },
 ] as const;
 
 export const DEFAULT_FALLBACK_MODELS: string[] = [
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
   'gemini-3.8-flash',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
-  'gemini-flash-latest',
-  'gemini-flash-lite-latest',
 ];
 
 /**
@@ -93,11 +99,11 @@ export function getDesktopGeminiModel(): string {
       return raw;
     }
     // Auto-migrate away from deprecated models
-    if (raw && (raw.includes('1.5') || raw.includes('2.0') || raw.includes('2.5') || raw.includes('3.7') || raw.includes('pro'))) {
-      localStorage.setItem('subaka_gemini_model', 'gemini-3.8-flash');
+    if (raw && (raw.includes('1.5') || raw.includes('2.0') || raw.includes('2.5') || raw.includes('3.7') || raw.includes('pro') || raw === 'gemini-3.8-flash')) {
+      localStorage.setItem('subaka_gemini_model', 'gemini-flash-latest');
     }
   } catch {}
-  return 'gemini-3.8-flash';
+  return 'gemini-flash-latest';
 }
 
 export function setDesktopGeminiModel(modelId: string): void {
@@ -120,15 +126,12 @@ export function markDesktopModelTemporaryUnavailable(modelName: string, reason =
 }
 
 function getModelScore(id: string): number {
-  // Score ordered strictly from newest to older active models
-  if (id === 'gemini-3.8-flash') return 200;
-  if (id.includes('3.8')) return 195;
-  if (id === 'gemini-3.5-flash') return 170;
-  if (id.includes('3.5')) return 165;
-  if (id === 'gemini-3.1-flash-lite') return 160;
-  if (id.includes('3.1')) return 155;
-  if (id === 'gemini-flash-latest') return 150;
-  if (id.includes('flash-lite')) return 145;
+  // Score ordered strictly with gemini-flash-latest first for instant 0ms preflight success
+  if (id === 'gemini-flash-latest') return 200;
+  if (id === 'gemini-flash-lite-latest') return 195;
+  if (id === 'gemini-3.8-flash' || id.includes('3.8')) return 180;
+  if (id === 'gemini-3.5-flash' || id.includes('3.5')) return 170;
+  if (id === 'gemini-3.1-flash-lite' || id.includes('3.1')) return 160;
   return 10;
 }
 

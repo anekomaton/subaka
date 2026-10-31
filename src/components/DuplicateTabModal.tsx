@@ -42,14 +42,14 @@ export const DuplicateTabModal: React.FC<DuplicateTabModalProps> = ({
 
             {/* Header */}
             <h2 className="text-base sm:text-lg font-bold tracking-tight mb-2 text-slate-900 dark:text-slate-100">
-              SUBaka ўжо адкрытая
+              SUBaka ўжо працуе
             </h2>
 
             {/* User message */}
             <p className={`text-xs sm:text-sm leading-relaxed px-1 sm:px-3 mb-5 ${
               isDark ? 'text-slate-300' : 'text-slate-700'
             }`}>
-              SUBaka ўжо адкрытая. Каб пазбегнуць перазапісу праекта ў IndexedDB, калі ласка, працуйце ў першай укладцы або зачыніце яе.
+              SUBaka ўжо адкрыты. Каб пазбегнуць перазапісу праекта, працуйце ў адной укладцы.
             </p>
 
             {/* Action Buttons */}

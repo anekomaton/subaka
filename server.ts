@@ -214,10 +214,11 @@ let lastModelFetchTime = 0;
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
 const DEFAULT_FALLBACK_MODELS = [
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
   "gemini-3.8-flash",
   "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
-  "gemini-flash-latest",
 ];
 
 const quotaExhaustedModels = new Map<string, number>();
@@ -311,16 +312,13 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
     if (pool.length > 0) {
       const sorted = pool.sort((a, b) => {
         const getScore = (id: string) => {
-          // Ordered strictly from newest to older active models
-          if (id === "gemini-3.8-flash") return 200;
-          if (id.includes("3.8")) return 195;
-          if (id === "gemini-3.7-flash") return 180;
-          if (id.includes("3.7")) return 175;
-          if (id === "gemini-3.5-flash") return 170;
-          if (id.includes("3.5")) return 165;
-          if (id === "gemini-3.1-flash-lite") return 160;
-          if (id.includes("3.1")) return 155;
-          if (id === "gemini-flash-latest") return 150;
+          // Ordered strictly with gemini-flash-latest first for instant success
+          if (id === "gemini-flash-latest") return 200;
+          if (id === "gemini-flash-lite-latest") return 195;
+          if (id === "gemini-3.8-flash" || id.includes("3.8")) return 180;
+          if (id === "gemini-3.7-flash" || id.includes("3.7")) return 175;
+          if (id === "gemini-3.5-flash" || id.includes("3.5")) return 170;
+          if (id === "gemini-3.1-flash-lite" || id.includes("3.1")) return 160;
           return 10;
         };
         return getScore(b) - getScore(a);
@@ -1783,7 +1781,7 @@ CRITICAL MANDATES:
     !m.includes("image") && !m.includes("tts") && !m.includes("live") && !m.includes("pro")
   );
   if (transcribeModels.length === 0) {
-    transcribeModels = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash"];
+    transcribeModels = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"];
   }
 
   for (const model of transcribeModels) {

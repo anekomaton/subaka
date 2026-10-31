@@ -1849,15 +1849,19 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                 disabled={isTranslating || !entry.text?.trim()}
                 className={`px-1.5 py-0.5 text-[8px] font-semibold rounded border transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
                   entry.translatedText 
-                    ? theme === 'dark' ? 'bg-slate-950 border-slate-850 text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                    : theme === 'dark' ? 'bg-indigo-600/15 border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                    ? theme === 'dark'
+                      ? 'bg-purple-950/30 border-purple-900/40 text-purple-400 hover:bg-purple-900/40 hover:text-purple-200'
+                      : 'bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100'
+                    : theme === 'dark'
+                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-200 hover:bg-purple-500/30 hover:text-white'
+                      : 'bg-purple-100 border-purple-300 text-purple-950 hover:bg-purple-200 font-bold'
                 } ${isTranslating ? 'opacity-60 cursor-wait' : ''} ${!entry.text?.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title="Перакласці гэтую картку праз Gemini"
               >
                 {isTranslating ? (
-                  <RefreshCw className="h-2 w-2 animate-spin text-indigo-500 shrink-0" />
+                  <RefreshCw className="h-2 w-2 animate-spin text-purple-400 shrink-0" />
                 ) : (
-                  <Sparkles className="h-2 w-2 shrink-0" />
+                  <Sparkles className="h-2 w-2 text-purple-400 shrink-0" />
                 )}
                 пераклад
               </button>
@@ -1865,17 +1869,23 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                 type="button"
                 onClick={handleConvertPhonetic}
                 disabled={isConvertingPhonetic || !entry.text?.trim()}
-                className={`px-1.5 py-0.5 text-[8px] font-semibold rounded border transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
-                  entry.translatedText 
-                    ? theme === 'dark' ? 'bg-slate-950 border-slate-850 text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                    : theme === 'dark' ? 'bg-indigo-600/15 border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                } ${isConvertingPhonetic ? 'opacity-60 cursor-wait' : ''} ${!entry.text?.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title="Арфаэпічны канвертар поля &quot;Арыгінал&quot;"
+                className={`px-1.5 py-0.5 text-[8px] font-bold rounded border transition-all flex items-center gap-1 shrink-0 whitespace-nowrap ${
+                  !entry.text?.trim()
+                    ? theme === 'dark'
+                      ? 'bg-slate-900/50 text-slate-600 border-slate-800/40 cursor-not-allowed opacity-40'
+                      : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-40'
+                    : isConvertingPhonetic
+                      ? 'bg-indigo-950/60 border-indigo-800/80 text-indigo-300 animate-pulse cursor-wait'
+                      : theme === 'dark'
+                        ? 'text-indigo-300 hover:text-indigo-200 bg-indigo-500/15 hover:bg-indigo-500/25 border-indigo-500/30 cursor-pointer'
+                        : 'text-indigo-900 hover:text-indigo-950 bg-indigo-100 hover:bg-indigo-200 border-indigo-300 font-bold cursor-pointer'
+                }`}
+                title="Канвертаваць картку арыгіналу ў школьную транскрыпцыю"
               >
                 {isConvertingPhonetic ? (
-                  <RefreshCw className="h-2 w-2 animate-spin text-indigo-500 shrink-0" />
+                  <RefreshCw className="h-2 w-2 animate-spin text-indigo-400 shrink-0" />
                 ) : (
-                  <AudioLines className="h-2 w-2 shrink-0" />
+                  <AudioLines className={`h-2 w-2 shrink-0 ${!entry.text?.trim() ? 'text-slate-600' : 'text-indigo-400'}`} />
                 )}
                 арфаэпія
               </button>

@@ -1617,7 +1617,11 @@ function TimelinePlayerComponent({
       <div 
         className={`relative w-full aspect-video shrink-0 lg:shrink lg:aspect-auto lg:flex-1 ${
           isFullscreen ? 'max-h-none flex-1 h-full w-full' : 'min-h-[180px] sm:min-h-[220px] max-h-[360px] lg:max-h-none'
-        } bg-slate-950 rounded-lg flex items-center justify-center overflow-hidden border border-slate-900 shadow-inner group mx-auto`}
+        } ${
+          mediaType === 'none' && theme === 'light'
+            ? 'bg-[#f1f5f9] border-slate-300/80 shadow-xs'
+            : 'bg-slate-950 border-slate-900 shadow-inner'
+        } rounded-lg flex items-center justify-center overflow-hidden border group mx-auto`}
       >
         
         {/* Real Video Player */}
@@ -1707,12 +1711,22 @@ function TimelinePlayerComponent({
         {/* Ambient watermark/logo when no media file is loaded */}
         {mediaType === 'none' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900/60" />
-            <div className="relative z-10 flex items-center justify-center w-[35%] h-[35%] opacity-[0.45] hover:opacity-75 transition-opacity duration-200">
+            <div className={`absolute inset-0 ${
+              theme === 'light'
+                ? 'bg-[#f1f5f9]'
+                : 'bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900/60'
+            }`} />
+            <div className={`relative z-10 flex items-center justify-center w-[35%] h-[35%] ${
+              theme === 'light' ? 'opacity-70' : 'opacity-[0.45]'
+            } hover:opacity-85 transition-opacity duration-200`}>
               <img 
                 src="/player-watermark.svg"
                 alt="СУБАКА"
-                className="w-full h-full object-contain drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]"
+                className={`w-full h-full object-contain ${
+                  theme === 'light'
+                    ? 'drop-shadow-[0_4px_16px_rgba(147,51,234,0.15)]'
+                    : 'drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]'
+                }`}
                 aria-hidden="true"
                 draggable={false}
               />

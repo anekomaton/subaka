@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { HelpCircle, X, ExternalLink, Film, Music, FileText, BookMarked, CheckCircle2, AlertTriangle, HardDrive } from 'lucide-react';
 import { isTauriDesktop, DesktopStorageInfo, openExternalUrl } from '../utils/tauriBridge';
+import packageJson from '../../package.json';
 
 interface FormatHelpModalProps {
   isOpen: boolean;
@@ -57,7 +58,12 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                   <HelpCircle className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-xs sm:text-sm">Даведка</h3>
+                  <h3 className="font-bold text-xs sm:text-sm flex items-center gap-1.5 flex-wrap">
+                    <span>Даведка</span>
+                    <span className={`text-[11px] sm:text-xs font-semibold font-mono ${isDark ? 'text-amber-400/90' : 'text-amber-800'}`}>
+                      (SUBaka v{packageJson.version})
+                    </span>
+                  </h3>
                 </div>
               </div>
               <button

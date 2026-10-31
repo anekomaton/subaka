@@ -351,14 +351,14 @@ export default function ControlsPanel({
                 disabled={!hasSubtitles}
                 className={`py-1 px-1.5 text-[9.5px] font-bold rounded-md border transition-all flex items-center gap-1 shrink-0 whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed ${
                   !hasSubtitles
-                    ? 'border-transparent text-slate-500'
+                    ? 'border-transparent text-slate-500 cursor-not-allowed'
                     : theme === 'dark'
-                      ? 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-indigo-200 border-indigo-500/40 cursor-pointer shadow-sm'
-                      : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-950 border-indigo-300 font-bold hover:text-indigo-900 cursor-pointer shadow-sm'
+                      ? 'text-purple-300 hover:text-purple-200 bg-purple-500/15 hover:bg-purple-500/25 border-purple-500/30 cursor-pointer'
+                      : 'text-purple-900 hover:text-purple-950 bg-purple-100 hover:bg-purple-200 border-purple-300 font-bold cursor-pointer'
                 }`}
                 title="Перакласці ўсе субцітры на беларускую мову праз Gemini"
               >
-                <Sparkles className={`h-2.5 w-2.5 shrink-0 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                <Sparkles className={`h-2.5 w-2.5 shrink-0 ${!hasSubtitles ? 'text-slate-500' : 'text-purple-400'}`} />
                 перакласці ўсё
               </button>
             )}
@@ -520,19 +520,19 @@ export default function ControlsPanel({
                       }
                     }}
                     disabled={isTranscribeDisabled}
-                    className={`py-1 px-2.5 text-[9.5px] leading-[14.25px] font-bold rounded-md border transition-all flex items-center gap-1.5 shadow cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`py-1 px-1.5 text-[9.5px] font-bold rounded-md border transition-all flex items-center gap-1 shrink-0 whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed ${
                       isTranscribeDisabled
-                        ? 'bg-slate-800/40 text-slate-500 border-slate-700/40 cursor-not-allowed opacity-50'
+                        ? 'bg-slate-800/40 text-slate-500 border-slate-700/40 cursor-not-allowed opacity-40'
                         : theme === 'dark'
-                          ? 'border-indigo-500/50 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200'
-                          : 'border-indigo-400 bg-indigo-100 hover:bg-indigo-200 text-indigo-900 font-bold'
+                          ? 'text-purple-300 hover:text-purple-200 bg-purple-500/15 hover:bg-purple-500/25 border-purple-500/30 cursor-pointer'
+                          : 'text-purple-900 hover:text-purple-950 bg-purple-100 hover:bg-purple-200 border-purple-300 font-bold cursor-pointer'
                     }`}
                     title={transcribeTitle}
                   >
                     {isAudioProcessing ? (
-                      <RefreshCw className="h-3 w-3 shrink-0 text-amber-400 animate-spin" />
+                      <RefreshCw className="h-2.5 w-2.5 shrink-0 text-amber-400 animate-spin" />
                     ) : (
-                      <AudioLines className={`h-3 w-3 shrink-0 ${isTranscribeDisabled ? 'text-slate-500' : 'text-indigo-400 animate-pulse'}`} />
+                      <Sparkles className={`h-2.5 w-2.5 shrink-0 ${isTranscribeDisabled ? 'text-slate-500' : 'text-purple-400'}`} />
                     )}
                     {isAudioProcessing ? "Апрацоўка дарожкі..." : "генераваць субцітры"}
                   </button>
@@ -544,10 +544,10 @@ export default function ControlsPanel({
             {isSynthesizingAll ? (
               <button
                 onClick={onCancelSynthesizeAll}
-                className={`py-1 px-1.5 text-[9.5px] font-bold rounded-md border transition-all flex items-center gap-1 shadow cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`py-1 px-1.5 text-[9.5px] font-bold rounded-md border transition-all flex items-center gap-1 shadow-sm cursor-pointer whitespace-nowrap shrink-0 ${
                   theme === 'dark'
-                    ? 'bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300'
-                    : 'bg-red-600 hover:bg-red-700 text-white border border-red-700 shadow-md'
+                    ? 'bg-red-950/80 hover:bg-red-900 border-red-500/50 text-red-300'
+                    : 'bg-red-600 hover:bg-red-700 text-white border-red-700 shadow-md ring-1 ring-red-400/30'
                 }`}
                 title="Спыніць працэс агучвання"
               >
@@ -558,16 +558,16 @@ export default function ControlsPanel({
               <button
                 onClick={onSynthesizeAll}
                 disabled={!hasSubtitles}
-                className={`py-1 px-1.5 text-[9.5px] font-bold rounded-md border transition-all flex items-center gap-1 shadow cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`py-1 px-1.5 text-[9.5px] font-bold rounded-md border transition-all flex items-center gap-1 shrink-0 whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed ${
                   !hasSubtitles
-                    ? 'bg-slate-900/50 text-slate-600 border-slate-800/40 cursor-not-allowed opacity-40'
+                    ? 'border-transparent text-slate-500 cursor-not-allowed'
                     : theme === 'dark'
-                      ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200 hover:text-white'
-                      : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800 font-bold'
+                      ? 'bg-indigo-600/10 hover:bg-indigo-600/25 border-indigo-500/20 text-indigo-400 hover:text-indigo-300 cursor-pointer'
+                      : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700 hover:text-indigo-900 font-bold cursor-pointer'
                 }`}
                 title="Агучыць усе перакладзеныя карткі"
               >
-                <Volume2 className="h-2.5 w-2.5 text-indigo-500 shrink-0" />
+                <Volume2 className={`h-2.5 w-2.5 shrink-0 ${!hasSubtitles ? 'text-slate-500' : theme === 'dark' ? 'text-indigo-400' : 'text-indigo-700'}`} />
                 агучыць усё
               </button>
             )}

@@ -94,6 +94,7 @@ interface HeaderProps {
   redErrorsCount?: number;
   activeQuickFilter?: 'comments' | 'errors' | null;
   onToggleQuickFilter?: (filter: 'comments' | 'errors') => void;
+  isDbLoading?: boolean;
 }
 
 export default function Header({
@@ -158,6 +159,7 @@ export default function Header({
   redErrorsCount = 0,
   activeQuickFilter = null,
   onToggleQuickFilter,
+  isDbLoading = false,
 }: HeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const translationFileInputRef = useRef<HTMLInputElement>(null);
@@ -366,15 +368,19 @@ export default function Header({
               <button
                 type="button"
                 onClick={onOpenFormatHelp}
-                title="Даведка"
+                title="Даведка пра праграму"
                 style={{ fontSize: '10px', lineHeight: '12px' }}
-                className={`p-0.5 rounded transition-colors flex items-center justify-center font-bold text-[10px] leading-[12px] shrink-0 ${
-                  theme === 'dark'
-                    ? 'hover:bg-slate-800 text-slate-400 hover:text-amber-400 cursor-pointer'
-                    : 'hover:bg-slate-200 text-slate-600 hover:text-amber-600 cursor-pointer'
+                className={`p-0.5 rounded transition-all flex items-center justify-center font-bold text-[10px] leading-[12px] shrink-0 ${
+                  isDbLoading
+                    ? theme === 'dark'
+                      ? 'text-amber-400 bg-amber-500/20 border border-amber-500/50 animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.35)] cursor-pointer'
+                      : 'text-amber-800 bg-amber-100/90 border border-amber-400/70 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.25)] cursor-pointer'
+                    : theme === 'dark'
+                      ? 'hover:bg-slate-800 text-slate-400 hover:text-amber-400 cursor-pointer'
+                      : 'hover:bg-slate-200 text-slate-600 hover:text-amber-600 cursor-pointer'
                 }`}
               >
-                <HelpCircle className="w-3.5 h-3.5" />
+                <HelpCircle className={`w-3.5 h-3.5 ${isDbLoading ? 'text-amber-500 dark:text-amber-400' : ''}`} />
               </button>
             )}
 

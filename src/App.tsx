@@ -3786,6 +3786,7 @@ export default function App() {
         redErrorsCount={redErrorsCount}
         activeQuickFilter={quickFilter}
         onToggleQuickFilter={handleToggleQuickFilter}
+        isDbLoading={Boolean(grammarDbStatus.building || verbumDbStatus.building)}
       />
 
       {/* Main Workspace Frame with resizable split pane */}
