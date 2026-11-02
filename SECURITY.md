@@ -14,9 +14,9 @@
 If you discover a potential security vulnerability in **SUBaka**, please report it responsibly:
 
 - **Email:** Create a GitHub Issue tagged with `security` or contact the maintainer directly via GitHub repository issues.
-- **Response Time:** We aim to acknowledge reports within 48 hours and provide a patch/mitigation timeline promptly.
+- **Response Time:** We aim to acknowledge reports and provide a patch/mitigation timeline promptly.
 
-Please do not disclose potential security issues publicly until we have evaluated and addressed the report.
+You are free to disclose potential security issues publicly until we have evaluated and addressed the report.
 
 ---
 
