@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,5 +298,101 @@ impl MediaProbeService {
             }
             Err(e) => Err(format!("System ffmpeg failed: {}", e)),
         }
+    }
+
+    pub fn prepare_compatible_video(
+        app: &AppHandle,
+        input_path: &str,
+        output_path: Option<String>,
+    ) -> Result<String, String> {
+        let in_p = Path::new(input_path);
+        if !in_p.exists() {
+            return Err(format!("Input file does not exist: {}", input_path));
+        }
+
+        let target_out_path = if let Some(out) = output_path {
+            if !out.trim().is_empty() {
+                out
+            } else {
+                Self::compute_cache_video_path(app, input_path)
+            }
+        } else {
+            Self::compute_cache_video_path(app, input_path)
+        };
+
+        let out_p = Path::new(&target_out_path);
+
+        if out_p.exists() {
+            if let Ok(meta) = std::fs::metadata(out_p) {
+                if meta.len() > 1024 * 1024 {
+                    log::info!("[MediaProbe] Reusing existing clean video: {}", target_out_path);
+                    return Ok(target_out_path);
+                }
+            }
+        }
+
+        if let Some(parent) = out_p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let args = [
+            "-y",
+            "-i",
+            input_path,
+            "-map",
+            "0:v:0",
+            "-c:v",
+            "copy",
+            "-an",
+            "-sn",
+            "-dn",
+            "-movflags",
+            "+faststart",
+            &target_out_path,
+        ];
+
+        let output = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
+            let res = tauri::async_runtime::block_on(sidecar.args(&args).output());
+            match res {
+                Ok(out) => {
+                    if out.status.success() {
+                        Ok(target_out_path.clone())
+                    } else {
+                        Err(String::from_utf8_lossy(&out.stderr).to_string())
+                    }
+                }
+                Err(_) => Self::run_system_extract(&args, &target_out_path),
+            }
+        } else {
+            Self::run_system_extract(&args, &target_out_path)
+        };
+
+        match output {
+            Ok(path) => {
+                log::info!("[MediaProbe] Clean compatible video stream created: {}", path);
+                Ok(path)
+            }
+            Err(e) => {
+                log::error!("[MediaProbe] Failed to create clean compatible video stream: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    fn compute_cache_video_path(app: &AppHandle, input_path: &str) -> String {
+        use std::hash::{Hash, Hasher, DefaultHasher};
+        let mut hasher = DefaultHasher::new();
+        input_path.hash(&mut hasher);
+        if let Ok(meta) = std::fs::metadata(input_path) {
+            meta.len().hash(&mut hasher);
+        }
+        let hash = hasher.finish();
+
+        let base_dir = app.path().app_cache_dir()
+            .or_else(|_| app.path().app_local_data_dir().map(|d| d.join("cache")))
+            .unwrap_or_else(|_| std::env::temp_dir());
+
+        let out_file = base_dir.join(format!("clean_video_{:x}.mp4", hash));
+        out_file.to_string_lossy().to_string()
     }
 }

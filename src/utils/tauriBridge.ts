@@ -700,6 +700,29 @@ export function getDesktopAssetUrl(filePath: string): string {
 }
 
 /**
+ * Creates a clean, 100% compatible video stream (video-only bitstream copy)
+ * Eliminates AC3/DTS/multichannel audio codec initialization crashes in WebView2.
+ */
+export async function prepareCompatibleVideoDesktop(
+  inputPath: string,
+  outputPath?: string
+): Promise<string | null> {
+  if (!isTauriDesktop() || !inputPath) return null;
+  const cleanIn = inputPath.trim().replace(/^["']|["']$/g, '');
+  try {
+    const result = await invoke<string>('prepare_compatible_video', {
+      inputPath: cleanIn,
+      outputPath: outputPath || null,
+    });
+    return result || null;
+  } catch (err) {
+    console.warn('[TauriBridge] prepare_compatible_video failed:', err);
+    logDesktopError('VideoPipeline', 'Failed to prepare clean compatible video', { error: String(err) });
+    return null;
+  }
+}
+
+/**
  * Strips personal paths, usernames, tokens, and sensitive file names from log entries
  */
 export function sanitizeLogText(text: string): string {

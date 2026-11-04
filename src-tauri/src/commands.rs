@@ -129,6 +129,19 @@ pub async fn extract_audio_track(
 }
 
 #[tauri::command]
+pub async fn prepare_compatible_video(
+    app: AppHandle,
+    input_path: String,
+    output_path: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        MediaProbeService::prepare_compatible_video(&app, &input_path, output_path)
+    })
+    .await
+    .map_err(|e| format!("Памылка падрыхтоўкі сумяшчальнага відэа: {}", e))?
+}
+
+#[tauri::command]
 pub fn save_file_direct(file_path: String, content: String) -> Result<bool, String> {
     let path = Path::new(&file_path);
     if let Some(parent) = path.parent() {

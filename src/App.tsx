@@ -1056,6 +1056,9 @@ export default function App() {
     initStorage();
   }, [resetHistory]);
 
+  const playbackCurrentTimeRef = useRef(playbackState.currentTime);
+  playbackCurrentTimeRef.current = playbackState.currentTime;
+
   // Robust Auto-Save function (saves to IndexedDB and records timestamp)
   const triggerAutosave = useCallback(async (isManual = false) => {
     if (!isRestored || isClearingWorkspaceRef.current) return;
@@ -1074,7 +1077,7 @@ export default function App() {
         originalAssHeader,
         projectName,
         splitRatio,
-        playbackState.currentTime
+        playbackCurrentTimeRef.current
       );
       const nowStr = new Date().toLocaleTimeString('be-BY', { hour: '2-digit', minute: '2-digit' });
       setLastSavedTime(nowStr);
@@ -1103,7 +1106,6 @@ export default function App() {
     originalAssHeader,
     projectName,
     splitRatio,
-    playbackState.currentTime,
   ]);
 
   // Periodic interval auto-save + trigger save on tab unload / refresh

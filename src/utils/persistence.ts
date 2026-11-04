@@ -65,6 +65,17 @@ export interface SavedWorkspace {
 // In-memory cache of audioBlobs per subtitle ID to prevent constant re-fetching of blob URLs
 const audioBlobCache = new Map<string, Blob>();
 
+// Deduplication signatures for binary blobs to avoid re-writing 100MB-300MB files to IndexedDB
+let lastSavedMediaFileSig: string | null = null;
+let lastSavedExtAudioSig: string | null = null;
+let lastSavedProcessedTracksSig: string | null = null;
+
+export function resetPersistenceBlobSignatures() {
+  lastSavedMediaFileSig = null;
+  lastSavedExtAudioSig = null;
+  lastSavedProcessedTracksSig = null;
+}
+
 export function cacheAudioBlob(id: string, blob: Blob) {
   audioBlobCache.set(id, blob);
 }
@@ -191,17 +202,26 @@ export async function saveWorkspaceToStorage(
       store.delete('originalAssHeader');
     }
 
-    if (processedTracks && Object.keys(processedTracks).length > 0) {
-      const tracksToSave = Object.entries(processedTracks).map(([numStr, item]) => ({
-        trackNumber: Number(numStr),
-        name: item.audioFile.name,
-        type: item.audioFile.type,
-        blob: item.blob || item.audioFile,
-        label: item.label,
-      }));
-      store.put(tracksToSave, 'processedTracksData');
-    } else {
-      store.delete('processedTracksData');
+    // Deduplicate heavy binary blob writes to IndexedDB.
+    // Transcoded audio tracks (100MB-300MB) must NOT be rewritten to disk on every 10-second autosave tick.
+    const currentProcessedTracksSig = processedTracks && Object.keys(processedTracks).length > 0
+      ? Object.entries(processedTracks).map(([numStr, item]) => `${numStr}:${item.audioFile.name}:${item.audioFile.size}:${item.audioFile.lastModified || 0}`).join(';')
+      : '';
+
+    if (currentProcessedTracksSig !== lastSavedProcessedTracksSig) {
+      if (processedTracks && Object.keys(processedTracks).length > 0) {
+        const tracksToSave = Object.entries(processedTracks).map(([numStr, item]) => ({
+          trackNumber: Number(numStr),
+          name: item.audioFile.name,
+          type: item.audioFile.type,
+          blob: item.blob || item.audioFile,
+          label: item.label,
+        }));
+        store.put(tracksToSave, 'processedTracksData');
+      } else {
+        store.delete('processedTracksData');
+      }
+      lastSavedProcessedTracksSig = currentProcessedTracksSig;
     }
 
     if (activeTrackNumber !== undefined && activeTrackNumber !== null) {
@@ -217,47 +237,61 @@ export async function saveWorkspaceToStorage(
     }
 
     const desktopPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
-    if (mediaFile || desktopPath) {
-      try {
-        const canSaveBlob = mediaFile && mediaFile.size > 0 && mediaFile.size <= 150 * 1024 * 1024;
-        store.put({
-          name: mediaFile?.name || mediaFileName || 'media',
-          type: mediaFile?.type || '',
-          blob: canSaveBlob ? mediaFile : undefined,
-          desktopPath: desktopPath || undefined,
-        }, 'mediaFileData');
-      } catch (err) {
-        console.warn('[Persistence] Could not store mediaFile blob in IDB, saving descriptor:', err);
-        store.put({
-          name: mediaFile?.name || mediaFileName || 'media',
-          type: mediaFile?.type || '',
-          desktopPath: desktopPath || undefined,
-        }, 'mediaFileData');
+    const currentMediaSig = mediaFile
+      ? `${mediaFile.name}:${mediaFile.size}:${mediaFile.lastModified || 0}:${desktopPath || ''}`
+      : (mediaFileName || '');
+
+    if (currentMediaSig !== lastSavedMediaFileSig) {
+      if (mediaFile || desktopPath) {
+        try {
+          const canSaveBlob = mediaFile && mediaFile.size > 0 && mediaFile.size <= 150 * 1024 * 1024;
+          store.put({
+            name: mediaFile?.name || mediaFileName || 'media',
+            type: mediaFile?.type || '',
+            blob: canSaveBlob ? mediaFile : undefined,
+            desktopPath: desktopPath || undefined,
+          }, 'mediaFileData');
+        } catch (err) {
+          console.warn('[Persistence] Could not store mediaFile blob in IDB, saving descriptor:', err);
+          store.put({
+            name: mediaFile?.name || mediaFileName || 'media',
+            type: mediaFile?.type || '',
+            desktopPath: desktopPath || undefined,
+          }, 'mediaFileData');
+        }
+      } else {
+        store.delete('mediaFileData');
       }
-    } else {
-      store.delete('mediaFileData');
+      lastSavedMediaFileSig = currentMediaSig;
     }
 
-    if (extAudioFile) {
-      const extDesktopPath = (extAudioFile as any)?.desktopPath || (extAudioFile as any)?.path;
-      let extType = extAudioFile.type || 'audio/mp4';
-      if (extType === 'audio/aac') extType = 'audio/mp4';
-      try {
-        store.put({
-          name: extAudioFile.name,
-          type: extType,
-          blob: extAudioFile,
-          desktopPath: extDesktopPath || undefined
-        }, 'extAudioFileData');
-      } catch (err) {
-        store.put({
-          name: extAudioFile.name,
-          type: extType,
-          desktopPath: extDesktopPath || undefined
-        }, 'extAudioFileData');
+    const currentExtAudioSig = extAudioFile
+      ? `${extAudioFile.name}:${extAudioFile.size}:${extAudioFile.lastModified || 0}:${(extAudioFile as any)?.desktopPath || ''}`
+      : '';
+
+    if (currentExtAudioSig !== lastSavedExtAudioSig) {
+      if (extAudioFile) {
+        const extDesktopPath = (extAudioFile as any)?.desktopPath || (extAudioFile as any)?.path;
+        let extType = extAudioFile.type || 'audio/mp4';
+        if (extType === 'audio/aac') extType = 'audio/mp4';
+        try {
+          store.put({
+            name: extAudioFile.name,
+            type: extType,
+            blob: extAudioFile,
+            desktopPath: extDesktopPath || undefined
+          }, 'extAudioFileData');
+        } catch (err) {
+          store.put({
+            name: extAudioFile.name,
+            type: extType,
+            desktopPath: extDesktopPath || undefined
+          }, 'extAudioFileData');
+        }
+      } else {
+        store.delete('extAudioFileData');
       }
-    } else {
-      store.delete('extAudioFileData');
+      lastSavedExtAudioSig = currentExtAudioSig;
     }
 
     if (typeof splitRatio === 'number' && !isNaN(splitRatio) && splitRatio >= 25 && splitRatio <= 75) {
@@ -459,6 +493,7 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
  */
 export async function clearWorkspaceFromStorage(): Promise<void> {
   clearAudioBlobCache();
+  resetPersistenceBlobSignatures();
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');

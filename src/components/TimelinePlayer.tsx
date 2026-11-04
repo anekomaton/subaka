@@ -10,7 +10,7 @@ import { srtTimeToSeconds, secondsToSrtTime, sanitizeSrtHtml, parseSrt } from '.
 import { extractAudioFromMkv, probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
 import { extractAudioWithFFmpeg, terminateFFmpegWorker } from '../utils/ffmpegExtractor';
 import { extractSrtSubtitles, probeSubtitles, SubtitleTrackInfo, isSupportedSubtitleCodec, downloadRawSubtitleTrack } from '../utils/srtSubtitleExtractor';
-import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop, getDesktopAssetUrl, logDesktopError } from '../utils/tauriBridge';
+import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop, getDesktopAssetUrl, logDesktopError, prepareCompatibleVideoDesktop } from '../utils/tauriBridge';
 
 interface TimelinePlayerProps {
   subtitles: SubtitleEntry[];
@@ -606,6 +606,20 @@ function TimelinePlayerComponent({
 
           const isUnsupported = trackInfo?.isUnsupportedCodec ?? false;
           setRequiresTranscode(isUnsupported);
+
+          // On desktop: if the video has an unsupported audio codec (AC3, DTS, etc.), prepare clean video stream
+          // so Chromium WebView2 will not crash with DECODER_ERROR_NOT_SUPPORTED on the video element.
+          const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path;
+          if (isTauriDesktop() && rawPath && (isUnsupported || requiresTranscodeNeeded)) {
+            prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+              if (cleanPath) {
+                const streamUrl = getDesktopAssetUrl(cleanPath);
+                if (streamUrl) {
+                  setMediaUrl(streamUrl);
+                }
+              }
+            }).catch(() => {});
+          }
         }
       } else {
         setAudioProcessingStatus({ isProcessing: false, message: '', progress: null });
@@ -1681,13 +1695,41 @@ function TimelinePlayerComponent({
                   videoRef.current.currentTime = currentTime;
                 }
               }}
-              onError={(e) => {
+              onError={async (e) => {
                 const mediaError = (e.target as HTMLMediaElement)?.error;
+                const errMsg = mediaError?.message || '';
+                const errCode = mediaError?.code;
                 logDesktopError('VideoPlayer', 'Video playback error', {
-                  code: mediaError?.code,
-                  message: mediaError?.message || 'MEDIA_ELEMENT_ERROR',
+                  code: errCode,
+                  message: errMsg || 'MEDIA_ELEMENT_ERROR',
                 });
-                console.warn('[Video Player] Media playback error:', e);
+                console.warn('[Video Player] Media playback error:', errMsg, errCode);
+
+                const isAudioDecoderError = errMsg.includes('audio decoder') ||
+                  errMsg.includes('kUnsupportedConfig') ||
+                  errMsg.includes('DECODER_ERROR_NOT_SUPPORTED');
+
+                const rawPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+
+                // If Chromium / WebView2 audio decoder failed on internal audio stream (e.g. AC3/DTS/LAV filter),
+                // automatically create and switch to a clean audio-less video stream.
+                if (isTauriDesktop() && rawPath && (isAudioDecoderError || !!extAudioUrl)) {
+                  try {
+                    addToast?.('Аптымізацыя відэапатоку для сістэмнага плэера...', 'info');
+                    const cleanVideoPath = await prepareCompatibleVideoDesktop(rawPath);
+                    if (cleanVideoPath) {
+                      const streamUrl = getDesktopAssetUrl(cleanVideoPath);
+                      if (streamUrl && streamUrl !== mediaUrl) {
+                        setMediaUrl(streamUrl);
+                        addToast?.('Відэапаток паспяхова адаптаваны!', 'success');
+                        return;
+                      }
+                    }
+                  } catch (cleanErr) {
+                    console.warn('[TimelinePlayer] Failed to switch to clean video stream:', cleanErr);
+                  }
+                }
+
                 if (mediaFile && mediaFile.size > 0 && mediaUrl && !mediaUrl.startsWith('blob:')) {
                   try {
                     const fallbackUrl = URL.createObjectURL(mediaFile);
