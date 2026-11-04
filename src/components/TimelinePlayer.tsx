@@ -10,7 +10,7 @@ import { srtTimeToSeconds, secondsToSrtTime, sanitizeSrtHtml, parseSrt } from '.
 import { extractAudioFromMkv, probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
 import { extractAudioWithFFmpeg, terminateFFmpegWorker } from '../utils/ffmpegExtractor';
 import { extractSrtSubtitles, probeSubtitles, SubtitleTrackInfo, isSupportedSubtitleCodec, downloadRawSubtitleTrack } from '../utils/srtSubtitleExtractor';
-import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop } from '../utils/tauriBridge';
+import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop, getDesktopAssetUrl, logDesktopError } from '../utils/tauriBridge';
 
 interface TimelinePlayerProps {
   subtitles: SubtitleEntry[];
@@ -563,14 +563,25 @@ function TimelinePlayerComponent({
       }
 
       if (blobToUse) {
-        let mimeTypeToUse = result?.mimeType || blobToUse.type || 'audio/aac';
-        if (mimeTypeToUse === 'audio/mp4') mimeTypeToUse = 'audio/aac';
-        let extToUse = '.aac';
-        if (mimeTypeToUse.includes('mp3') || mimeTypeToUse.includes('mpeg')) extToUse = '.mp3';
-        else if (mimeTypeToUse.includes('wav')) extToUse = '.wav';
-        else if (mimeTypeToUse.includes('ogg')) extToUse = '.ogg';
-        else if (mimeTypeToUse.includes('flac')) extToUse = '.flac';
-        else if (mimeTypeToUse.includes('aac') || mimeTypeToUse.includes('mp4') || mimeTypeToUse.includes('m4a')) extToUse = '.aac';
+        let mimeTypeToUse = result?.mimeType || blobToUse.type || 'audio/mp4';
+        let extToUse = '.m4a';
+        if (mimeTypeToUse.includes('mp3') || mimeTypeToUse.includes('mpeg')) {
+          mimeTypeToUse = 'audio/mpeg';
+          extToUse = '.mp3';
+        } else if (mimeTypeToUse.includes('wav')) {
+          mimeTypeToUse = 'audio/wav';
+          extToUse = '.wav';
+        } else if (mimeTypeToUse.includes('ogg')) {
+          mimeTypeToUse = 'audio/ogg';
+          extToUse = '.ogg';
+        } else if (mimeTypeToUse.includes('flac')) {
+          mimeTypeToUse = 'audio/flac';
+          extToUse = '.flac';
+        } else {
+          // Standard MP4 container with AAC audio ensures 100% compatibility in Chromium, Edge WebView2 and Safari
+          mimeTypeToUse = 'audio/mp4';
+          extToUse = '.m4a';
+        }
 
         const cleanAudioName = targetFile.name.replace(/\.[^/.]+$/, '') + `_audio${trackNumKey}${extToUse}`;
         const audioFile = new File([blobToUse], cleanAudioName, { type: mimeTypeToUse });
@@ -598,11 +609,19 @@ function TimelinePlayerComponent({
         }
       } else {
         setAudioProcessingStatus({ isProcessing: false, message: '', progress: null });
+        logDesktopError('AudioExtraction', 'Audio extraction produced no usable payload', {
+          track: trackNumKey,
+          codec: displayTag || 'unknown',
+        });
         addToast?.(`Файл ${targetFile.name}: Не ўдалося выцягнуць аўдыядарожку.`, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       if (controller.signal.aborted) return;
       setAudioProcessingStatus({ isProcessing: false, message: '', progress: null });
+      logDesktopError('AudioExtraction', err?.message || 'Audio extraction exception', {
+        track: trackNumKey,
+        codec: displayTag || 'unknown',
+      });
       console.warn('Audio extraction failed:', err);
       addToast?.(`Файл ${targetFile.name}: Памылка апрацоўкі аўдыя.`, 'error');
     }
@@ -732,7 +751,16 @@ function TimelinePlayerComponent({
       // Distinguish video vs non-video (audio-only) files
       const isVideo = isExplicitVideoType && !isExplicitAudioType;
 
-      const url = URL.createObjectURL(mediaFile);
+      const rawPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+      let url = (mediaFile as any)?.streamUrl || (mediaFile as any)?.assetUrl || '';
+      if (!url && rawPath && isTauriDesktop()) {
+        url = getDesktopAssetUrl(rawPath);
+      }
+      if (!url && mediaFile && mediaFile.size > 0) {
+        try {
+          url = URL.createObjectURL(mediaFile);
+        } catch (_) {}
+      }
       setMediaUrl(url);
       setMediaType(isVideo ? 'video' : 'audio');
 
@@ -862,7 +890,11 @@ function TimelinePlayerComponent({
           audioAbortControllerRef.current.abort();
           audioAbortControllerRef.current = null;
         }
-        URL.revokeObjectURL(url);
+        if (url && url.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+        }
       };
     } else {
       if (audioAbortControllerRef.current) {
@@ -1096,15 +1128,15 @@ function TimelinePlayerComponent({
       if (extAudioRef.current && mediaType === 'video') {
         extAudioRef.current.currentTime = activePlayer.currentTime;
       }
-      activePlayer.play().catch(() => {
-        if (!audioProcessingStatus.isProcessing) {
-          onPlaybackStateChange({ isPlaying: false });
-        } else {
+      activePlayer.play().catch((err) => {
+        console.warn('[TimelinePlayer] activePlayer.play() warning:', err);
+        if (audioProcessingStatus.isProcessing) {
           addToast?.('Аўдыя апрацоўваецца, пачакайце...', 'info');
         }
       });
       if (extAudioRef.current && mediaType === 'video') {
         extAudioRef.current.currentTime = activePlayer.currentTime;
+        extAudioRef.current.playbackRate = activePlayer.playbackRate;
         extAudioRef.current.play().catch(() => {});
       }
     } else {
@@ -1124,13 +1156,15 @@ function TimelinePlayerComponent({
     const syncPlay = () => {
       audio.currentTime = video.currentTime;
       audio.playbackRate = video.playbackRate;
-      audio.play().catch(() => {});
+      if (audio.paused) {
+        audio.play().catch(() => {});
+      }
     };
 
     const syncPause = () => {
       audio.pause();
-      // If the video is paused only because it is actively seeking/scrubbing, do not pause playback
-      if (video && !video.seeking) {
+      // If the video is paused only because it is actively seeking/scrubbing or buffering, do not cancel isPlaying
+      if (video && !video.seeking && video.readyState >= 2) {
         onPlaybackStateChange({ currentTime: video.currentTime, isPlaying: false });
       }
     };
@@ -1647,6 +1681,20 @@ function TimelinePlayerComponent({
                   videoRef.current.currentTime = currentTime;
                 }
               }}
+              onError={(e) => {
+                const mediaError = (e.target as HTMLMediaElement)?.error;
+                logDesktopError('VideoPlayer', 'Video playback error', {
+                  code: mediaError?.code,
+                  message: mediaError?.message || 'MEDIA_ELEMENT_ERROR',
+                });
+                console.warn('[Video Player] Media playback error:', e);
+                if (mediaFile && mediaFile.size > 0 && mediaUrl && !mediaUrl.startsWith('blob:')) {
+                  try {
+                    const fallbackUrl = URL.createObjectURL(mediaFile);
+                    setMediaUrl(fallbackUrl);
+                  } catch (_) {}
+                }
+              }}
               onClick={() => onPlaybackStateChange({ isPlaying: !isPlaying })}
             />
             {extAudioUrl ? (
@@ -1668,6 +1716,17 @@ function TimelinePlayerComponent({
                     if (isPlaying) {
                       extAudioRef.current.play().catch(() => {});
                     }
+                  }
+                }}
+                onError={(err) => {
+                  const audioErr = (err.target as HTMLMediaElement)?.error;
+                  logDesktopError('ExtAudioPlayer', 'External audio stream error', {
+                    code: audioErr?.code,
+                    message: audioErr?.message || 'AUDIO_ELEMENT_ERROR',
+                  });
+                  console.warn('[TimelinePlayer] extAudio error:', err);
+                  if (videoRef.current && !isMediaMuted) {
+                    videoRef.current.muted = false;
                   }
                 }}
               />

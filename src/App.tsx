@@ -73,7 +73,8 @@ import {
   DesktopStorageInfo,
   openExternalUrl,
   takeLaunchFilePath,
-  loadDesktopFileFromPath
+  loadDesktopFileFromPath,
+  logDesktopError
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
@@ -203,6 +204,33 @@ export default function App() {
     return () => {
       window.removeEventListener('storage', handleCapChange as EventListener);
       window.removeEventListener('subaka-ignored-capitalization-updated', handleCapChange as EventListener);
+    };
+  }, []);
+
+  // Desktop Error Logging to AppData\Local\com.subaka.desktop\logs\SUBaka.log (Sanitized & Anonymized)
+  useEffect(() => {
+    if (!isTauriDesktop()) return;
+
+    const errorHandler = (event: ErrorEvent) => {
+      const fileName = event.filename ? event.filename.split(/[/\\]/).pop() : 'script';
+      logDesktopError('WindowError', event.message || 'Unknown window error', {
+        file: fileName,
+        line: event.lineno,
+        col: event.colno,
+      });
+    };
+
+    const rejectionHandler = (event: PromiseRejectionEvent) => {
+      const reasonMsg = event.reason instanceof Error ? event.reason.message : String(event.reason || 'Unhandled rejection');
+      logDesktopError('UnhandledRejection', reasonMsg);
+    };
+
+    window.addEventListener('error', errorHandler);
+    window.addEventListener('unhandledrejection', rejectionHandler);
+
+    return () => {
+      window.removeEventListener('error', errorHandler);
+      window.removeEventListener('unhandledrejection', rejectionHandler);
     };
   }, []);
 
@@ -3583,6 +3611,9 @@ export default function App() {
             addToast(`Файл субцітраў "${fileName}" загружаны (${entries.length} картак)`, "success");
           }
         } else if (mediaExts.includes(ext)) {
+          if (filePath && isTauriDesktop()) {
+            (droppedFile as any).desktopPath = filePath;
+          }
           handleMediaFileLoaded(droppedFile);
         } else if (isTauriDesktop() && filePath) {
           handleOpenDesktopFilePath(filePath);

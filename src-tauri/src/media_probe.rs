@@ -166,21 +166,62 @@ impl MediaProbeService {
         output_path: &str,
     ) -> Result<String, String> {
         let map_arg = format!("0:a:{}", track_index);
-        let args = vec![
-            "-y",
-            "-i",
-            input_path,
-            "-map",
-            &map_arg,
-            "-vn",
-            "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            output_path,
+
+        let out_p = Path::new(output_path);
+        if let Some(parent) = out_p.parent() {
+            if !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+
+        let ext = Path::new(output_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("m4a")
+            .to_lowercase();
+
+        let mut args = vec![
+            "-y".to_string(),
+            "-i".to_string(),
+            input_path.to_string(),
+            "-map".to_string(),
+            map_arg,
+            "-vn".to_string(),
+            "-sn".to_string(),
+            "-dn".to_string(),
         ];
+
+        if ext == "m4a" || ext == "mp4" {
+            args.extend(vec![
+                "-c:a".to_string(), "aac".to_string(),
+                "-b:a".to_string(), "192k".to_string(),
+                "-ar".to_string(), "44100".to_string(),
+                "-ac".to_string(), "2".to_string(),
+            ]);
+        } else if ext == "mp3" {
+            args.extend(vec![
+                "-c:a".to_string(), "libmp3lame".to_string(),
+                "-q:a".to_string(), "2".to_string(),
+                "-ar".to_string(), "44100".to_string(),
+                "-ac".to_string(), "2".to_string(),
+            ]);
+        } else if ext == "wav" {
+            args.extend(vec![
+                "-c:a".to_string(), "pcm_s16le".to_string(),
+                "-ar".to_string(), "44100".to_string(),
+                "-ac".to_string(), "2".to_string(),
+            ]);
+        } else {
+            args.extend(vec![
+                "-c:a".to_string(), "aac".to_string(),
+                "-b:a".to_string(), "192k".to_string(),
+                "-ar".to_string(), "44100".to_string(),
+                "-ac".to_string(), "2".to_string(),
+            ]);
+        }
+
+        args.push(output_path.to_string());
+        let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
         let _ = app.emit(
             "media-extraction-progress",
@@ -194,7 +235,7 @@ impl MediaProbeService {
 
         // Try sidecar first, fallback to system ffmpeg
         let output = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
-            let res = tauri::async_runtime::block_on(sidecar.args(&args).output());
+            let res = tauri::async_runtime::block_on(sidecar.args(&args_refs).output());
             match res {
                 Ok(out) => {
                     if out.status.success() {
@@ -203,10 +244,10 @@ impl MediaProbeService {
                         Err(String::from_utf8_lossy(&out.stderr).to_string())
                     }
                 }
-                Err(_) => Self::run_system_extract(&args, output_path),
+                Err(_) => Self::run_system_extract(&args_refs, output_path),
             }
         } else {
-            Self::run_system_extract(&args, output_path)
+            Self::run_system_extract(&args_refs, output_path)
         };
 
         match output {
@@ -223,6 +264,7 @@ impl MediaProbeService {
                 Ok(path)
             }
             Err(e) => {
+                log::error!("[MediaProbe] Audio extraction failed for track index {}", track_index);
                 let _ = app.emit(
                     "media-extraction-progress",
                     ExtractionProgressPayload {

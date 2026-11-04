@@ -508,7 +508,7 @@ export async function transcodeRawAudioLocallyWithWasm(
 
     if (resData && resData.length > 512 && !signal?.aborted) {
       if (onProgress) onProgress(100, 'апрацоўка аўдыя 100%');
-      return new Blob([resData.buffer], { type: mimeType });
+      return new Blob([resData], { type: mimeType });
     }
   } catch (err) {
     console.warn('[Method 3 WebAudio+WASM] Local raw audio transcode error:', err);
@@ -799,7 +799,7 @@ export async function extractAudioWithFFmpeg(
     }
 
     if (success && data && data.length > 0) {
-      const blob = new Blob([data.buffer], { type: mimeType });
+      const blob = new Blob([data], { type: mimeType });
       if (onProgress) onProgress(100, 'апрацоўка аўдыя 100%');
       return {
         blob,

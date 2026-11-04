@@ -3,7 +3,7 @@
  * Provides transparent switching between Native Rust Desktop commands and Web fallback APIs.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 
@@ -622,15 +622,20 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
     };
     const mimeType = mimeMap[ext] || 'application/octet-stream';
 
-    // 1. Primary: convertFileSrc + fetch asset protocol
+    const assetUrl = getDesktopAssetUrl(cleanPath);
+
+    // 1. Primary: convertFileSrc + fetch asset protocol (for files <= 150MB)
     try {
-      const { convertFileSrc } = await import('@tauri-apps/api/core');
-      const assetUrl = convertFileSrc(cleanPath);
-      const res = await fetch(assetUrl);
-      if (res.ok) {
-        const blob = await res.blob();
-        const file = new File([blob], fileName, { type: mimeType });
-        return { file, fileName, isSubtitle: false, isMedia: true };
+      if (assetUrl) {
+        const res = await fetch(assetUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          const file = new File([blob], fileName, { type: mimeType });
+          (file as any).desktopPath = cleanPath;
+          (file as any).streamUrl = assetUrl;
+          (file as any).assetUrl = assetUrl;
+          return { file, fileName, isSubtitle: false, isMedia: true };
+        }
       }
     } catch (err) {
       console.warn('[TauriBridge] Failed to fetch media file via convertFileSrc:', err);
@@ -648,10 +653,25 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
         }
         const blob = new Blob([bytes], { type: mimeType });
         const file = new File([blob], fileName, { type: mimeType });
+        (file as any).desktopPath = cleanPath;
+        if (assetUrl) {
+          (file as any).streamUrl = assetUrl;
+          (file as any).assetUrl = assetUrl;
+        }
         return { file, fileName, isSubtitle: false, isMedia: true };
       }
     } catch (err) {
       console.warn('[TauriBridge] read_binary_file_direct failed for media:', err);
+    }
+
+    // 3. Fallback for large files: construct File shell with desktopPath and streaming asset URL
+    if (assetUrl) {
+      const emptyBlob = new Blob([], { type: mimeType });
+      const file = new File([emptyBlob], fileName, { type: mimeType });
+      (file as any).desktopPath = cleanPath;
+      (file as any).streamUrl = assetUrl;
+      (file as any).assetUrl = assetUrl;
+      return { file, fileName, isSubtitle: false, isMedia: true };
     }
 
     throw new Error(`Не ўдалося загрузіць медыяфайл: ${fileName}`);
@@ -661,6 +681,91 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
   const textContent = await readSubtitleDirect(cleanPath);
   return { textContent, fileName, isSubtitle: true, isMedia: false };
 }
+
+/**
+ * Converts local desktop file path to streaming asset URL via Tauri asset protocol
+ */
+export function getDesktopAssetUrl(filePath: string): string {
+  if (!filePath) return '';
+  const cleanPath = filePath.trim().replace(/^["']|["']$/g, '');
+  if (isTauriDesktop()) {
+    try {
+      const url = convertFileSrc(cleanPath);
+      if (url) return url;
+    } catch (err) {
+      console.warn('[TauriBridge] convertFileSrc error:', err);
+    }
+  }
+  return '';
+}
+
+/**
+ * Strips personal paths, usernames, tokens, and sensitive file names from log entries
+ */
+export function sanitizeLogText(text: string): string {
+  if (!text) return '';
+  return text
+    // Replace Windows user profile paths: C:\Users\<Username>\... -> C:\Users\<user>\...
+    .replace(/[A-Za-z]:\\(?:Users|Пользователи|home)\\[^\\]+/gi, '<user_dir>')
+    // Replace full file paths with generic placeholders keeping only extension
+    .replace(/[A-Za-z]:\\[^"'\n\r\t<>*|?]+\.([a-zA-Z0-9]{2,5})\b/gi, '<path>/<file>.$1')
+    .replace(/\/(?:home|Users)\/[^"'\n\r\t<>*|?]+\.([a-zA-Z0-9]{2,5})\b/gi, '<path>/<file>.$1')
+    // Remove query params or keys from URLs
+    .replace(/([?&](?:key|token|auth|secret|api_key)=)[^&]+/gi, '$1<redacted>')
+    // Remove IP addresses or emails
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '<email>');
+}
+
+/**
+ * Logs sanitized error information directly into AppData\Local\com.subaka.desktop\logs\SUBaka.log
+ */
+export async function logDesktopError(
+  category: string,
+  message: string,
+  details?: Record<string, any> | string
+): Promise<void> {
+  if (!isTauriDesktop()) return;
+  try {
+    const cleanMsg = sanitizeLogText(message);
+    const detailsStr = details
+      ? (typeof details === 'string' ? sanitizeLogText(details) : sanitizeLogText(JSON.stringify(details)))
+      : undefined;
+    await invoke('log_desktop_event', {
+      level: 'error',
+      category: sanitizeLogText(category),
+      message: cleanMsg,
+      details: detailsStr,
+    });
+  } catch (_) {
+    // Logging failure should never interrupt application flow
+  }
+}
+
+/**
+ * Logs sanitized warning information into SUBaka.log
+ */
+export async function logDesktopWarn(
+  category: string,
+  message: string,
+  details?: Record<string, any> | string
+): Promise<void> {
+  if (!isTauriDesktop()) return;
+  try {
+    const cleanMsg = sanitizeLogText(message);
+    const detailsStr = details
+      ? (typeof details === 'string' ? sanitizeLogText(details) : sanitizeLogText(JSON.stringify(details)))
+      : undefined;
+    await invoke('log_desktop_event', {
+      level: 'warn',
+      category: sanitizeLogText(category),
+      message: cleanMsg,
+      details: detailsStr,
+    });
+  } catch (_) {
+    // Logging failure should never interrupt application flow
+  }
+}
+
 
 
 

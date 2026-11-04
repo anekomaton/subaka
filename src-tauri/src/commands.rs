@@ -719,3 +719,14 @@ pub fn restore_post_fullscreen_bounds(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn log_desktop_event(level: String, category: String, message: String, details: Option<String>) {
+    let details_str = details.map(|d| format!(" | {}", d)).unwrap_or_default();
+    let entry = format!("[{}] {}{}", category, message, details_str);
+    match level.to_lowercase().as_str() {
+        "warn" => log::warn!("{}", entry),
+        "info" => log::info!("{}", entry),
+        _ => log::error!("{}", entry),
+    }
+}
+

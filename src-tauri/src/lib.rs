@@ -269,6 +269,7 @@ pub fn run() {
             fetch_verbum_online_native,
             open_external_url,
             restore_post_fullscreen_bounds,
+            log_desktop_event,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SUBaka desktop application");

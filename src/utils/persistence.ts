@@ -1,4 +1,5 @@
 import { SubtitleEntry } from '../types';
+import { isTauriDesktop, loadDesktopFileFromPath } from './tauriBridge';
 
 const DB_NAME = 'SubakaWorkspaceDB';
 const DB_VERSION = 1;
@@ -215,22 +216,45 @@ export async function saveWorkspaceToStorage(
       store.delete('activeExternalTrackId');
     }
 
-    if (mediaFile) {
+    const desktopPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+    if (mediaFile || desktopPath) {
       try {
-        store.put({ name: mediaFile.name, type: mediaFile.type, blob: mediaFile }, 'mediaFileData');
+        const canSaveBlob = mediaFile && mediaFile.size > 0 && mediaFile.size <= 150 * 1024 * 1024;
+        store.put({
+          name: mediaFile?.name || mediaFileName || 'media',
+          type: mediaFile?.type || '',
+          blob: canSaveBlob ? mediaFile : undefined,
+          desktopPath: desktopPath || undefined,
+        }, 'mediaFileData');
       } catch (err) {
-        console.warn('[Persistence] Could not store mediaFile blob in IDB, saving name only:', err);
-        store.put({ name: mediaFile.name, type: mediaFile.type }, 'mediaFileData');
+        console.warn('[Persistence] Could not store mediaFile blob in IDB, saving descriptor:', err);
+        store.put({
+          name: mediaFile?.name || mediaFileName || 'media',
+          type: mediaFile?.type || '',
+          desktopPath: desktopPath || undefined,
+        }, 'mediaFileData');
       }
     } else {
       store.delete('mediaFileData');
     }
 
     if (extAudioFile) {
+      const extDesktopPath = (extAudioFile as any)?.desktopPath || (extAudioFile as any)?.path;
+      let extType = extAudioFile.type || 'audio/mp4';
+      if (extType === 'audio/aac') extType = 'audio/mp4';
       try {
-        store.put({ name: extAudioFile.name, type: extAudioFile.type, blob: extAudioFile }, 'extAudioFileData');
+        store.put({
+          name: extAudioFile.name,
+          type: extType,
+          blob: extAudioFile,
+          desktopPath: extDesktopPath || undefined
+        }, 'extAudioFileData');
       } catch (err) {
-        store.put({ name: extAudioFile.name, type: extAudioFile.type }, 'extAudioFileData');
+        store.put({
+          name: extAudioFile.name,
+          type: extType,
+          desktopPath: extDesktopPath || undefined
+        }, 'extAudioFileData');
       }
     } else {
       store.delete('extAudioFileData');
@@ -346,25 +370,56 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
     }
 
     let restoredMediaFile: File | null = null;
-    if (mediaFileData && mediaFileData.blob instanceof Blob) {
-      restoredMediaFile = new File([mediaFileData.blob], mediaFileData.name, {
-        type: mediaFileData.type || '',
-      });
+    if (mediaFileData) {
+      if (mediaFileData.blob instanceof Blob && mediaFileData.blob.size > 0) {
+        restoredMediaFile = new File([mediaFileData.blob], mediaFileData.name, {
+          type: mediaFileData.type || '',
+        });
+        if (mediaFileData.desktopPath) {
+          (restoredMediaFile as any).desktopPath = mediaFileData.desktopPath;
+        }
+      } else if (mediaFileData.desktopPath && isTauriDesktop()) {
+        try {
+          const loaded = await loadDesktopFileFromPath(mediaFileData.desktopPath);
+          if (loaded.isMedia && loaded.file) {
+            restoredMediaFile = loaded.file;
+            (restoredMediaFile as any).desktopPath = mediaFileData.desktopPath;
+          }
+        } catch (e) {
+          console.warn('[Persistence] Could not reload desktop media from path:', e);
+        }
+      }
     }
 
     let restoredExtAudioFile: File | null = null;
-    if (extAudioFileData && extAudioFileData.blob instanceof Blob) {
-      restoredExtAudioFile = new File([extAudioFileData.blob], extAudioFileData.name, {
-        type: extAudioFileData.type || '',
-      });
+    if (extAudioFileData) {
+      let extType = extAudioFileData.type || 'audio/mp4';
+      if (extType === 'audio/aac') extType = 'audio/mp4';
+      if (extAudioFileData.blob instanceof Blob && extAudioFileData.blob.size > 0) {
+        restoredExtAudioFile = new File([extAudioFileData.blob], extAudioFileData.name, {
+          type: extType,
+        });
+        if (extAudioFileData.desktopPath) {
+          (restoredExtAudioFile as any).desktopPath = extAudioFileData.desktopPath;
+        }
+      } else if (extAudioFileData.desktopPath && isTauriDesktop()) {
+        try {
+          const loaded = await loadDesktopFileFromPath(extAudioFileData.desktopPath);
+          if (loaded.isMedia && loaded.file) {
+            restoredExtAudioFile = loaded.file;
+          }
+        } catch (_) {}
+      }
     }
 
     const restoredProcessedTracks: Record<number, { blob: Blob; audioFile: File; label: string }> = {};
     if (rawProcessedTracks && Array.isArray(rawProcessedTracks)) {
       for (const item of rawProcessedTracks) {
         if (item && item.trackNumber && item.blob instanceof Blob) {
+          let itemType = item.type || 'audio/mp4';
+          if (itemType === 'audio/aac') itemType = 'audio/mp4';
           const audioFile = new File([item.blob], item.name || `track_${item.trackNumber}.m4a`, {
-            type: item.type || '',
+            type: itemType,
           });
           restoredProcessedTracks[item.trackNumber] = {
             blob: item.blob,
