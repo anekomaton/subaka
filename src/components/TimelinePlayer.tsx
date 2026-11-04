@@ -873,6 +873,16 @@ function TimelinePlayerComponent({
               setActiveTrackNumberAndRef(activeTr.trackNumber);
               const needsTc = activeTr.isUnsupportedCodec || probe.needsTranscode || false;
               setRequiresTranscode(needsTc);
+
+              if (isTauriDesktop() && rawPath && needsTc) {
+                prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+                  if (cleanPath) {
+                    const streamUrl = getDesktopAssetUrl(cleanPath);
+                    if (streamUrl) setMediaUrl(streamUrl);
+                  }
+                }).catch(() => {});
+              }
+
               if (processedTracks[activeTr.trackNumber]) {
                 const cached = processedTracks[activeTr.trackNumber];
                 setExtAudioFileName(`${mediaFile.name} [Аўдыя: ${cached.label}]`);
@@ -1705,15 +1715,11 @@ function TimelinePlayerComponent({
                 });
                 console.warn('[Video Player] Media playback error:', errMsg, errCode);
 
-                const isAudioDecoderError = errMsg.includes('audio decoder') ||
-                  errMsg.includes('kUnsupportedConfig') ||
-                  errMsg.includes('DECODER_ERROR_NOT_SUPPORTED');
-
                 const rawPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
 
-                // If Chromium / WebView2 audio decoder failed on internal audio stream (e.g. AC3/DTS/LAV filter),
-                // automatically create and switch to a clean audio-less video stream.
-                if (isTauriDesktop() && rawPath && (isAudioDecoderError || !!extAudioUrl)) {
+                // On Desktop: ANY video element error (e.g. AC3/DTS/LAV filter or kUnsupportedConfig in WebView2)
+                // when rawPath exists will automatically create and switch to a clean audio-less video stream.
+                if (isTauriDesktop() && rawPath) {
                   try {
                     addToast?.('Аптымізацыя відэапатоку для сістэмнага плэера...', 'info');
                     const cleanVideoPath = await prepareCompatibleVideoDesktop(rawPath);
@@ -1809,29 +1815,59 @@ function TimelinePlayerComponent({
           </div>
         )}
 
-        {/* Ambient watermark/logo when no media file is loaded */}
+        {/* Ambient watermark/logo or reconnect prompt when no media file is attached */}
         {mediaType === 'none' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none overflow-hidden">
+          <div className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden">
             <div className={`absolute inset-0 ${
               theme === 'light'
                 ? 'bg-[#f1f5f9]'
                 : 'bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900/60'
             }`} />
-            <div className={`relative z-10 flex items-center justify-center w-[35%] h-[35%] ${
-              theme === 'light' ? 'opacity-70' : 'opacity-[0.45]'
-            } hover:opacity-85 transition-opacity duration-200`}>
-              <img 
-                src="/player-watermark.svg"
-                alt="СУБАКА"
-                className={`w-full h-full object-contain ${
-                  theme === 'light'
-                    ? 'drop-shadow-[0_4px_16px_rgba(147,51,234,0.15)]'
-                    : 'drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]'
-                }`}
-                aria-hidden="true"
-                draggable={false}
-              />
-            </div>
+            {mediaFileName ? (
+              <div className="relative z-20 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
+                <div className="p-3 bg-indigo-500/10 rounded-full text-indigo-400 mb-3 border border-indigo-500/20 shadow-md">
+                  <Film className="h-8 w-8 animate-pulse" />
+                </div>
+                <p className="text-sm font-semibold text-slate-200 truncate w-full px-2 mb-1">
+                  <span className="text-indigo-300 font-medium">{mediaFileName}</span>
+                </p>
+                <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                  Усе субцітры і таймкоды захаваны. Патрабуецца аднавіць доступ да лакальнага медыяфайла.
+                </p>
+                <label className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg cursor-pointer text-xs font-semibold shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-95">
+                  <RefreshCw className="h-4 w-4 animate-spin-slow" />
+                  Аднавіць медыяфайл
+                  <input
+                    type="file"
+                    accept="video/*,audio/*,.mkv,.mp4,.webm,.avi,.mov,.mp3,.wav,.m4a"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setMediaFile(file);
+                        setMediaFileName(file.name);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className={`relative z-10 flex items-center justify-center w-[35%] h-[35%] ${
+                theme === 'light' ? 'opacity-70' : 'opacity-[0.45]'
+              } hover:opacity-85 transition-opacity duration-200 pointer-events-none`}>
+                <img 
+                  src="/player-watermark.svg"
+                  alt="СУБАКА"
+                  className={`w-full h-full object-contain ${
+                    theme === 'light'
+                      ? 'drop-shadow-[0_4px_16px_rgba(147,51,234,0.15)]'
+                      : 'drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]'
+                  }`}
+                  aria-hidden="true"
+                  draggable={false}
+                />
+              </div>
+            )}
           </div>
         )}
 

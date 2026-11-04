@@ -245,18 +245,22 @@ export async function saveWorkspaceToStorage(
       if (mediaFile || desktopPath) {
         try {
           const canSaveBlob = mediaFile && mediaFile.size > 0 && mediaFile.size <= 150 * 1024 * 1024;
+          const fileHandle = (mediaFile as any)?.fileHandle;
           store.put({
             name: mediaFile?.name || mediaFileName || 'media',
             type: mediaFile?.type || '',
             blob: canSaveBlob ? mediaFile : undefined,
             desktopPath: desktopPath || undefined,
+            fileHandle: fileHandle || undefined,
           }, 'mediaFileData');
         } catch (err) {
           console.warn('[Persistence] Could not store mediaFile blob in IDB, saving descriptor:', err);
+          const fileHandle = (mediaFile as any)?.fileHandle;
           store.put({
             name: mediaFile?.name || mediaFileName || 'media',
             type: mediaFile?.type || '',
             desktopPath: desktopPath || undefined,
+            fileHandle: fileHandle || undefined,
           }, 'mediaFileData');
         }
       } else {
@@ -421,6 +425,23 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
           }
         } catch (e) {
           console.warn('[Persistence] Could not reload desktop media from path:', e);
+        }
+      } else if (mediaFileData.fileHandle) {
+        try {
+          const handle = mediaFileData.fileHandle as FileSystemFileHandle;
+          let perm = 'granted';
+          if (typeof (handle as any).queryPermission === 'function') {
+            perm = await (handle as any).queryPermission({ mode: 'read' });
+          }
+          if (perm === 'granted') {
+            const f = await handle.getFile();
+            if (f && f.size > 0) {
+              restoredMediaFile = f;
+              (restoredMediaFile as any).fileHandle = handle;
+            }
+          }
+        } catch (err) {
+          console.warn('[Persistence] FileSystemFileHandle restore skipped:', err);
         }
       }
     }
