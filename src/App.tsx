@@ -3502,6 +3502,7 @@ export default function App() {
 
     setMediaFile(file);
     setMediaFileName(file.name);
+    setExtAudioFile(null);
     addToast(`Медыяфайл "${file.name}" загружаны`, "success");
   };
 

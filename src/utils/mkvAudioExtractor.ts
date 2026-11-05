@@ -1180,7 +1180,7 @@ export async function probeMkvAudioCodec(file: File | Blob): Promise<MkvAudioPro
         const { probeMediaStreamsNative } = await import('./tauriBridge');
         const probe = await probeMediaStreamsNative(rawDesktopPath);
         if (probe && probe.audio_tracks && probe.audio_tracks.length > 0) {
-          const unsupportedCodecs = ['ac3', 'eac3', 'e-ac-3', 'dts', 'dtshd', 'truehd', 'mlp', 'wma', 'pcm', 'pcm_s16le', 'pcm_s24le', 'vorbis'];
+          const unsupportedCodecs = ['ac3', 'eac3', 'e-ac-3', 'dts', 'dca', 'dtshd', 'truehd', 'thd', 'mlp', 'wma', 'wmapro', 'wmav1', 'wmav2', 'pcm', 'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_s16be', 'pcm_s24be', 'vorbis', 'alac', 'mp2', 'mp1', 'adpcm'];
           const mappedTracks: AudioTrackInfo[] = probe.audio_tracks.map((tr, idx) => {
             const rawCodec = (tr.codec || 'aac').toLowerCase();
             const isUnsupported = unsupportedCodecs.some(u => rawCodec.includes(u));
@@ -1188,8 +1188,8 @@ export async function probeMkvAudioCodec(file: File | Blob): Promise<MkvAudioPro
             let displayCodec = tr.codec.toUpperCase();
             if (rawCodec === 'ac3') displayCodec = 'Dolby Digital (AC-3)';
             else if (rawCodec.includes('eac3') || rawCodec.includes('e-ac-3')) displayCodec = 'Dolby Digital Plus (E-AC-3)';
-            else if (rawCodec.includes('dts')) displayCodec = 'DTS Digital Surround';
-            else if (rawCodec.includes('truehd')) displayCodec = 'Dolby TrueHD';
+            else if (rawCodec.includes('dts') || rawCodec.includes('dca')) displayCodec = 'DTS Digital Surround';
+            else if (rawCodec.includes('truehd') || rawCodec.includes('thd')) displayCodec = 'Dolby TrueHD';
             else if (rawCodec === 'aac') displayCodec = 'AAC';
             else if (rawCodec === 'flac') displayCodec = 'FLAC';
             else if (rawCodec === 'mp3') displayCodec = 'MP3';
@@ -2507,13 +2507,17 @@ export async function extractAudioFromMkv(
     if (actualSignal?.aborted) return null;
 
     // Step 0: On Desktop, use native FFmpeg sidecar directly for maximum speed and 100% codec compatibility
-    const rawDesktopPath = (fileObj as any)?.desktopPath || (fileObj as any)?.path;
+    const rawDesktopPath = (file as any)?.desktopPath || (file as any)?.path || (fileObj as any)?.desktopPath || (fileObj as any)?.path;
+    if (fileObj && rawDesktopPath && !(fileObj as any).desktopPath) {
+      (fileObj as any).desktopPath = rawDesktopPath;
+    }
+
     if (isTauriDesktop() && rawDesktopPath) {
       try {
-        if (actualOnProgress) actualOnProgress(10, `Апрацоўка аўдыя натыўным FFmpeg (${codecName})...`);
+        if (actualOnProgress) actualOnProgress(5, 'ffmpeg.exe 5% 00:00:00');
         const trackIndex = (audioTrackNumber && audioTrackNumber > 0) ? audioTrackNumber - 1 : 0;
         const tempInfo = await getDesktopStorageInfo().catch(() => null);
-        const tempDir = tempInfo?.temp_dir || '';
+        const tempDir = (tempInfo?.temp_dir || '').replace(/[/\\]+$/, '');
         const outName = `extracted_audio_${Date.now()}_tr${trackIndex + 1}.m4a`;
         const targetOutPath = tempDir ? `${tempDir}/${outName}` : outName;
 
@@ -2523,8 +2527,8 @@ export async function extractAudioFromMkv(
           targetOutPath,
           (payload) => {
             if (actualOnProgress && payload.progress >= 0) {
-              const pct = Math.min(99, Math.max(10, Math.round(payload.progress * 100)));
-              actualOnProgress(pct, payload.message || `апрацоўка аўдыя ${pct}%`);
+              const pct = Math.min(100, Math.max(1, Math.round(payload.progress * 100)));
+              actualOnProgress(pct, payload.message || `ffmpeg.exe ${pct}%`);
             }
           }
         );
@@ -2535,7 +2539,7 @@ export async function extractAudioFromMkv(
           if (res.ok) {
             const audioBlob = await res.blob();
             if (audioBlob && audioBlob.size > 512) {
-              if (actualOnProgress) actualOnProgress(100, 'Аўдыя апрацавана 100%');
+              if (actualOnProgress) actualOnProgress(100, 'ffmpeg.exe 100%');
               return {
                 blob: audioBlob,
                 mimeType: 'audio/mp4',

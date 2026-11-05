@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,6 +262,41 @@ impl MediaProbeService {
         })
     }
 
+    fn parse_time_from_ffmpeg_output(text: &str) -> Option<(f64, String)> {
+        let time_idx = text.find("time=")?;
+        let after_time = &text[time_idx + 5..];
+        let time_raw = after_time.trim_start().split_whitespace().next()?.trim();
+        let parts: Vec<&str> = time_raw.split(':').collect();
+        if parts.len() == 3 {
+            let h = parts[0].parse::<f64>().ok()?;
+            let m = parts[1].parse::<f64>().ok()?;
+            let s = parts[2].parse::<f64>().ok()?;
+            let secs = h * 3600.0 + m * 60.0 + s;
+            let total_s = secs as u64;
+            let formatted = format!("{:02}:{:02}:{:02}", total_s / 3600, (total_s % 3600) / 60, total_s % 60);
+            Some((secs, formatted))
+        } else {
+            None
+        }
+    }
+
+    fn parse_duration_from_ffmpeg_output(text: &str) -> Option<f64> {
+        if let Some(dur_idx) = text.find("Duration:") {
+            let after_dur = &text[dur_idx + 9..];
+            let parts: Vec<&str> = after_dur.split(',').collect();
+            if let Some(time_part) = parts.first() {
+                let segs: Vec<&str> = time_part.trim().split(':').collect();
+                if segs.len() == 3 {
+                    let h = segs[0].parse::<f64>().ok()?;
+                    let m = segs[1].parse::<f64>().ok()?;
+                    let s = segs[2].parse::<f64>().ok()?;
+                    return Some(h * 3600.0 + m * 60.0 + s);
+                }
+            }
+        }
+        None
+    }
+
     pub fn extract_audio(
         app: &AppHandle,
         input_path: &str,
@@ -299,6 +335,7 @@ impl MediaProbeService {
                 "-b:a".to_string(), "192k".to_string(),
                 "-ar".to_string(), "44100".to_string(),
                 "-ac".to_string(), "2".to_string(),
+                "-movflags".to_string(), "+faststart".to_string(),
             ]);
         } else if ext == "mp3" {
             args.extend(vec![
@@ -325,31 +362,83 @@ impl MediaProbeService {
         args.push(output_path.to_string());
         let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
+        let initial_duration = Self::probe_file(app, input_path)
+            .ok()
+            .and_then(|p| p.duration_seconds)
+            .unwrap_or(0.0);
+
         let _ = app.emit(
             "media-extraction-progress",
             ExtractionProgressPayload {
-                progress: 0.1,
-                message: "Starting audio extraction with FFmpeg sidecar...".into(),
+                progress: 0.05,
+                message: "ffmpeg.exe 5% 00:00:00".into(),
                 finished: false,
                 error: None,
             },
         );
 
-        // Try sidecar first, fallback to system ffmpeg
-        let output = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
-            let res = tauri::async_runtime::block_on(sidecar.args(&args_refs).output());
-            match res {
-                Ok(out) => {
-                    if out.status.success() {
-                        Ok(output_path.to_string())
-                    } else {
-                        Err(String::from_utf8_lossy(&out.stderr).to_string())
+        let mut ran_sidecar = false;
+        let mut sidecar_success = false;
+        let mut last_time_display = "00:00:00".to_string();
+
+        if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
+            if let Ok((mut rx, _child)) = sidecar.args(&args_refs).spawn() {
+                ran_sidecar = true;
+                let mut total_duration = initial_duration;
+                let mut last_emit = std::time::Instant::now();
+                let mut last_pct = 5u32;
+
+                tauri::async_runtime::block_on(async {
+                    while let Some(event) = rx.recv().await {
+                        match event {
+                            CommandEvent::Stderr(bytes) => {
+                                let text = String::from_utf8_lossy(&bytes);
+                                for line in text.split(&['\r', '\n'][..]) {
+                                    if total_duration <= 0.0 {
+                                        if let Some(d) = Self::parse_duration_from_ffmpeg_output(line) {
+                                            total_duration = d;
+                                        }
+                                    }
+                                    if let Some((secs, formatted)) = Self::parse_time_from_ffmpeg_output(line) {
+                                        last_time_display = formatted;
+                                        let pct = if total_duration > 0.0 {
+                                            ((secs / total_duration) * 100.0).clamp(1.0, 99.0).round() as u32
+                                        } else {
+                                            10
+                                        };
+                                        if pct != last_pct || last_emit.elapsed() >= std::time::Duration::from_millis(200) {
+                                            last_pct = pct;
+                                            last_emit = std::time::Instant::now();
+                                            let msg = format!("ffmpeg.exe {}% {}", pct, last_time_display);
+                                            let _ = app.emit(
+                                                "media-extraction-progress",
+                                                ExtractionProgressPayload {
+                                                    progress: (pct as f64) / 100.0,
+                                                    message: msg,
+                                                    finished: false,
+                                                    error: None,
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            CommandEvent::Terminated(term) => {
+                                if term.code == Some(0) && Path::new(output_path).exists() {
+                                    sidecar_success = true;
+                                }
+                            }
+                            _ => {}
+                        }
                     }
-                }
-                Err(_) => Self::run_system_extract(&args_refs, output_path),
+                });
             }
+        }
+
+        let output = if ran_sidecar && sidecar_success {
+            Ok(output_path.to_string())
         } else {
-            Self::run_system_extract(&args_refs, output_path)
+            Self::run_system_extract_with_progress(app, &args_refs, output_path, initial_duration)
         };
 
         match output {
@@ -358,7 +447,7 @@ impl MediaProbeService {
                     "media-extraction-progress",
                     ExtractionProgressPayload {
                         progress: 1.0,
-                        message: "Audio extraction complete".into(),
+                        message: format!("ffmpeg.exe 100% {}", last_time_display),
                         finished: true,
                         error: None,
                     },
@@ -371,13 +460,81 @@ impl MediaProbeService {
                     "media-extraction-progress",
                     ExtractionProgressPayload {
                         progress: 0.0,
-                        message: "Audio extraction failed".into(),
+                        message: "ffmpeg.exe error".into(),
                         finished: true,
                         error: Some(e.clone()),
                     },
                 );
                 Err(e)
             }
+        }
+    }
+
+    fn run_system_extract_with_progress(
+        app: &AppHandle,
+        args: &[&str],
+        output_path: &str,
+        mut total_duration: f64,
+    ) -> Result<String, String> {
+        let mut cmd = Command::new("ffmpeg");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.args(args);
+        cmd.stderr(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::null());
+
+        let mut child = cmd.spawn().map_err(|e| format!("System ffmpeg failed to spawn: {}", e))?;
+        let mut last_emit = std::time::Instant::now();
+        let mut last_pct = 5u32;
+        let mut last_time_display = "00:00:00".to_string();
+
+        if let Some(stderr) = child.stderr.take() {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stderr);
+            for segment in reader.split(b'\r') {
+                if let Ok(bytes) = segment {
+                    let text = String::from_utf8_lossy(&bytes);
+                    for line in text.split(&['\r', '\n'][..]) {
+                        if total_duration <= 0.0 {
+                            if let Some(d) = Self::parse_duration_from_ffmpeg_output(line) {
+                                total_duration = d;
+                            }
+                        }
+                        if let Some((secs, formatted)) = Self::parse_time_from_ffmpeg_output(line) {
+                            last_time_display = formatted;
+                            let pct = if total_duration > 0.0 {
+                                ((secs / total_duration) * 100.0).clamp(1.0, 99.0).round() as u32
+                            } else {
+                                10
+                            };
+                            if pct != last_pct || last_emit.elapsed() >= std::time::Duration::from_millis(200) {
+                                last_pct = pct;
+                                last_emit = std::time::Instant::now();
+                                let msg = format!("ffmpeg.exe {}% {}", pct, last_time_display);
+                                let _ = app.emit(
+                                    "media-extraction-progress",
+                                    ExtractionProgressPayload {
+                                        progress: (pct as f64) / 100.0,
+                                        message: msg,
+                                        finished: false,
+                                        error: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let status = child.wait().map_err(|e| format!("System ffmpeg process failed: {}", e))?;
+        if status.success() && Path::new(output_path).exists() {
+            Ok(output_path.to_string())
+        } else {
+            Err(format!("System ffmpeg failed with status {:?}", status.code()))
         }
     }
 

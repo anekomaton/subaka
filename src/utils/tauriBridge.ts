@@ -659,6 +659,7 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
       const emptyBlob = new Blob([], { type: mimeType });
       const file = new File([emptyBlob], fileName, { type: mimeType });
       (file as any).desktopPath = cleanPath;
+      (file as any).path = cleanPath;
       (file as any).streamUrl = assetUrl;
       (file as any).assetUrl = assetUrl;
       return { file, fileName, isSubtitle: false, isMedia: true };
@@ -672,6 +673,7 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
           const blob = await res.blob();
           const file = new File([blob], fileName, { type: mimeType });
           (file as any).desktopPath = cleanPath;
+          (file as any).path = cleanPath;
           (file as any).streamUrl = assetUrl;
           (file as any).assetUrl = assetUrl;
           return { file, fileName, isSubtitle: false, isMedia: true };
@@ -694,6 +696,7 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
         const blob = new Blob([bytes], { type: mimeType });
         const file = new File([blob], fileName, { type: mimeType });
         (file as any).desktopPath = cleanPath;
+        (file as any).path = cleanPath;
         if (assetUrl) {
           (file as any).streamUrl = assetUrl;
           (file as any).assetUrl = assetUrl;
@@ -709,6 +712,7 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
       const emptyBlob = new Blob([], { type: mimeType });
       const file = new File([emptyBlob], fileName, { type: mimeType });
       (file as any).desktopPath = cleanPath;
+      (file as any).path = cleanPath;
       (file as any).streamUrl = assetUrl;
       (file as any).assetUrl = assetUrl;
       return { file, fileName, isSubtitle: false, isMedia: true };

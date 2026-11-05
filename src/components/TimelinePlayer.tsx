@@ -437,7 +437,7 @@ function TimelinePlayerComponent({
 
     // 0. Ensure we have probed track info
     let trackInfo = availableAudioTracks.find(t => t.trackNumber === trackNumKey);
-    if (!trackInfo && availableAudioTracks.length === 0) {
+    if (!trackInfo) {
       try {
         const probe = await probeMkvAudioCodec(targetFile);
         if (probe.tracks && probe.tracks.length > 0) {
@@ -479,16 +479,17 @@ function TimelinePlayerComponent({
       return;
     }
 
-    const hasNativeAudioTrackSwitching = !!(videoRef.current && (videoRef.current as any).audioTracks && (videoRef.current as any).audioTracks.length > 0);
-    const isSupportedCodec = trackInfo ? !trackInfo.isUnsupportedCodec : true;
+    const isDesktop = isTauriDesktop();
+    const hasNativeAudioTrackSwitching = !isDesktop && !!(videoRef.current && (videoRef.current as any).audioTracks && (videoRef.current as any).audioTracks.length > 0);
+    const isUnsupportedCodec = trackInfo?.isUnsupportedCodec ?? false;
+    const isSupportedCodec = trackInfo ? !trackInfo.isUnsupportedCodec : false;
 
     // Native playback without extraction is ONLY possible if:
-    // 1) The track is a supported browser codec (!trackInfo.isUnsupportedCodec), AND
-    // 2) EITHER the browser supports HTMLMediaElement.audioTracks native switching,
+    // 1) Not in Desktop mode where multi-track MKV/MP4 or clean audio-less video stream is used,
+    // 2) The track is a supported browser codec (!isUnsupportedCodec), AND
+    // 3) EITHER browser supports HTMLMediaElement.audioTracks native switching,
     //    OR this is track #1 (which <video> naturally plays by default).
-    // In Chromium / WebView2 (Tauri Desktop), audioTracks is not available.
-    // Therefore track #2+ CANNOT play natively and must be extracted into extAudioUrl.
-    const canPlayNatively = !forceExtraction && isSupportedCodec && (
+    const canPlayNatively = !forceExtraction && !isDesktop && isSupportedCodec && (
       hasNativeAudioTrackSwitching || trackNumKey === 1
     );
 
@@ -535,12 +536,12 @@ function TimelinePlayerComponent({
     setActiveTrackNumberAndRef(trackNumKey);
 
     trackInfo = trackInfo || availableAudioTracks.find(t => t.trackNumber === trackNumKey);
-    const requiresTranscodeNeeded = trackInfo?.isUnsupportedCodec ?? !isSupportedCodec;
+    const requiresTranscodeNeeded = trackInfo?.isUnsupportedCodec ?? isUnsupportedCodec;
     setRequiresTranscode(requiresTranscodeNeeded);
 
     setAudioProcessingStatus({
       isProcessing: true,
-      message: !requiresTranscodeNeeded ? 'выцягванне аўдыя 5%' : 'транскод аўдыя 5%',
+      message: isDesktop ? 'ffmpeg.exe 5% 00:00:00' : (!requiresTranscodeNeeded ? 'выцягванне аўдыя 5%' : 'транскод аўдыя 5%'),
       progress: 5,
     });
 
@@ -562,7 +563,7 @@ function TimelinePlayerComponent({
           if (controller.signal.aborted) return;
           setAudioProcessingStatus({
             isProcessing: true,
-            message: msg || (p !== null && p >= 0 ? `апрацоўка аўдыя ${p}%` : 'апрацоўка аўдыя...'),
+            message: msg || (p !== null && p >= 0 ? (isDesktop ? `ffmpeg.exe ${p}%` : `апрацоўка аўдыя ${p}%`) : 'апрацоўка аўдыя...'),
             progress: p
           });
         },
@@ -583,8 +584,8 @@ function TimelinePlayerComponent({
       if (!blobToUse) {
         setAudioProcessingStatus({
           isProcessing: true,
-          message: 'апрацоўка аўдыя 10%',
-          progress: 10,
+          message: isTauriDesktop() ? 'ffmpeg.exe 5% 00:00:00' : 'апрацоўка аўдыя 5%',
+          progress: 5,
         });
         const ffResult = await extractAudioWithFFmpeg(
           targetFile,
@@ -592,7 +593,7 @@ function TimelinePlayerComponent({
             if (controller.signal.aborted) return;
             setAudioProcessingStatus({
               isProcessing: true,
-              message: msg || (p !== null && p >= 0 ? `апрацоўка аўдыя ${p}%` : 'апрацоўка аўдыя...'),
+              message: msg || (p !== null && p >= 0 ? (isTauriDesktop() ? `ffmpeg.exe ${p}%` : `апрацоўка аўдыя ${p}%`) : 'апрацоўка аўдыя...'),
               progress: p
             });
           },
@@ -791,6 +792,7 @@ function TimelinePlayerComponent({
       setExtAudioFileName('');
       setUploadedAudioTracks([]);
       setProcessedTracks({});
+      setAvailableAudioTracks([]);
       setActiveExternalTrackId(null);
       setActiveTrackNumberAndRef(1);
       onExtAudioFileChange?.(null);
@@ -810,7 +812,7 @@ function TimelinePlayerComponent({
       const ext = (mediaFile.name.toLowerCase().split('.').pop() || '').trim();
       
       const nativeAudioExts = ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'mp2', 'm4b'];
-      const unsupportedAudioExts = ['ac3', 'eac3', 'e-ac-3', 'dts', 'dtshd', 'truehd', 'thd', 'wma', 'ape', 'ra', 'pcm'];
+      const unsupportedAudioExts = ['ac3', 'eac3', 'e-ac-3', 'dts', 'dca', 'dtshd', 'truehd', 'thd', 'wma', 'ape', 'ra', 'pcm', 'mp2'];
       
       const isExplicitAudioType = mediaFile.type.startsWith('audio/') || 
         nativeAudioExts.includes(ext) || 
@@ -888,8 +890,8 @@ function TimelinePlayerComponent({
 
           setAudioProcessingStatus({
             isProcessing: true,
-            message: 'апрацоўка аўдыя 10%',
-            progress: 10,
+            message: isTauriDesktop() ? 'ffmpeg.exe 5% 00:00:00' : 'апрацоўка аўдыя 5%',
+            progress: 5,
           });
 
           probeMkvAudioCodec(mediaFile).then((probe) => {
@@ -902,7 +904,7 @@ function TimelinePlayerComponent({
             if (controller.signal.aborted) return;
             setAudioProcessingStatus({
               isProcessing: true,
-              message: msg || (p !== null && p >= 0 ? `апрацоўка аўдыя ${p}%` : 'апрацоўка аўдыя...'),
+              message: msg || (p !== null && p >= 0 ? (isTauriDesktop() ? `ffmpeg.exe ${p}%` : `апрацоўка аўдыя ${p}%`) : 'апрацоўка аўдыя...'),
               progress: p
             });
           }, controller.signal).then((ffResult) => {
@@ -959,18 +961,18 @@ function TimelinePlayerComponent({
                 onExtAudioFileChange?.(cached.audioFile);
                 if (extAudioUrl) URL.revokeObjectURL(extAudioUrl);
                 setExtAudioUrl(URL.createObjectURL(cached.audioFile));
-              } else if (needsTc && !extAudioFile) {
+              } else if (needsTc) {
                 executeAudioExtraction(activeTr.trackNumber, mediaFile);
               }
             } else {
               setRequiresTranscode(probe.needsTranscode || false);
-              if (probe.needsTranscode && !extAudioFile) {
+              if (probe.needsTranscode) {
                 executeAudioExtraction(probe.audioTrackNumber || 1, mediaFile);
               }
             }
           } else {
             setRequiresTranscode(probe.needsTranscode || false);
-            if (probe.needsTranscode && !extAudioFile) {
+            if (probe.needsTranscode) {
               executeAudioExtraction(probe.audioTrackNumber || 1, mediaFile);
             }
           }
@@ -1167,8 +1169,8 @@ function TimelinePlayerComponent({
 
       setAudioProcessingStatus({
         isProcessing: true,
-        message: 'апрацоўка аўдыя 10%',
-        progress: 10,
+        message: isTauriDesktop() ? 'ffmpeg.exe 5% 00:00:00' : 'апрацоўка аўдыя 5%',
+        progress: 5,
       });
       addToast?.(`Фармат .${fileExt}: Запуск апрацоўкі аўдыядарожкі...`, 'info');
       try {
@@ -1176,7 +1178,7 @@ function TimelinePlayerComponent({
           if (controller.signal.aborted) return;
           setAudioProcessingStatus({
             isProcessing: true,
-            message: msg || (p !== null && p >= 0 ? `апрацоўка аўдыя ${p}%` : 'апрацоўка аўдыя...'),
+            message: msg || (p !== null && p >= 0 ? (isTauriDesktop() ? `ffmpeg.exe ${p}%` : `апрацоўка аўдыя ${p}%`) : 'апрацоўка аўдыя...'),
             progress: p
           });
         }, controller.signal);
@@ -2706,7 +2708,7 @@ function TimelinePlayerComponent({
                         addToast?.(`Пераключана на знешнюю аўдыядарожку: ${tr.extTrack.originalName}`, 'info');
                       } else {
                         setActiveExternalTrackId(null);
-                        executeAudioExtraction(tr.trackNumber, undefined, false);
+                        executeAudioExtraction(tr.trackNumber, undefined, true);
                       }
                     }}
                     className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-all ${
@@ -2840,7 +2842,7 @@ function TimelinePlayerComponent({
                     addToast?.(`Пераключана на знешнюю аўдыядарожку: ${chosen.extTrack.originalName}`, 'info');
                   } else {
                     setActiveExternalTrackId(null);
-                    executeAudioExtraction(chosen.trackNumber, undefined, false);
+                    executeAudioExtraction(chosen.trackNumber, undefined, true);
                   }
                 }}
                 className="px-3.5 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
