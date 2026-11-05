@@ -3593,6 +3593,30 @@ export default function App() {
 
   // Global Drag-and-Drop listener for subtitle and media files
   useEffect(() => {
+    // 1. Native Tauri v2 OS Drag-and-Drop listener (returns absolute system file paths)
+    if (isTauriDesktop()) {
+      let unlistenDragDrop: (() => void) | null = null;
+      import('@tauri-apps/api/webview').then(({ getCurrentWebview }) => {
+        getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload.type === 'drop' && event.payload.paths && event.payload.paths.length > 0) {
+            const droppedPath = event.payload.paths[0];
+            if (droppedPath) {
+              handleOpenDesktopFilePath(droppedPath);
+            }
+          }
+        }).then((un) => {
+          unlistenDragDrop = un;
+        });
+      }).catch((err) => {
+        console.warn('Native DragDrop listener setup error:', err);
+      });
+
+      return () => {
+        if (unlistenDragDrop) unlistenDragDrop();
+      };
+    }
+
+    // 2. Standard HTML5 Drag-and-Drop fallback (for web browser mode)
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
