@@ -256,6 +256,7 @@ pub fn run() {
             batch_lookup_stressed,
             probe_media_streams,
             extract_audio_track,
+            extract_subtitle_track,
             prepare_compatible_video,
             save_file_direct,
             save_binary_file_direct,

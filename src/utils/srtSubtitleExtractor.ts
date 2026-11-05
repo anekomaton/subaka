@@ -342,6 +342,38 @@ async function findTracksViaSeekHead(reader: ChunkedFileReader): Promise<number>
  * Universal video & media subtitle probe (MKV, MP4, MOV, TS, AVI, WebM, etc.)
  */
 export async function probeMkvSubtitles(fileObj: File): Promise<SubtitleProbeResult> {
+  const rawDesktopPath = (fileObj as any)?.desktopPath || (fileObj as any)?.path;
+  if (typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__) && rawDesktopPath) {
+    try {
+      const { probeMediaStreamsNative } = await import('./tauriBridge');
+      const probe = await probeMediaStreamsNative(rawDesktopPath);
+      if (probe && probe.subtitle_tracks && probe.subtitle_tracks.length > 0) {
+        const foundTracks: SubtitleTrackInfo[] = probe.subtitle_tracks.map((tr, idx) => {
+          const trackNum = idx + 1;
+          const langTag = tr.language ? `[${tr.language.toUpperCase()}] ` : '';
+          const nameTag = tr.title ? tr.title : `Субцітры #${trackNum}`;
+          return {
+            trackNumber: trackNum,
+            trackIndex: tr.index,
+            language: tr.language || undefined,
+            trackName: `${langTag}${nameTag}`.trim(),
+            codecId: tr.codec || 'subrip',
+          };
+        });
+
+        return {
+          hasSubtitles: true,
+          codecId: foundTracks[0].codecId,
+          trackName: foundTracks[0].trackName || 'Убудаваныя субцітры',
+          trackNumber: foundTracks[0].trackNumber,
+          tracks: foundTracks,
+        };
+      }
+    } catch (nativeProbeErr) {
+      console.warn('[srtSubtitleExtractor] Native subtitle probe failed, falling back to JS:', nativeProbeErr);
+    }
+  }
+
   const ext = fileObj.name.split('.').pop()?.toLowerCase() || '';
   const isMkvExt = ['mkv', 'mka', 'webm'].includes(ext);
 
@@ -807,6 +839,31 @@ export async function extractSrtSubtitles(
 ): Promise<ExtractedSrtResult | null> {
   const baseName = fileObj.name.replace(/\.[^/.]+$/, '');
   const targetSrtFileName = `${baseName}.srt`;
+
+  // Method 0: Native FFmpeg sidecar in Desktop mode
+  const rawDesktopPath = (fileObj as any)?.desktopPath || (fileObj as any)?.path;
+  if (typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__) && rawDesktopPath) {
+    try {
+      if (onProgress) onProgress(20, 'выцягванне субцітраў натыўным FFmpeg...');
+      const { extractSubtitleTrackNative } = await import('./tauriBridge');
+      const trackIdx = targetTrackIndex !== undefined ? targetTrackIndex : (
+        targetTrackNumber !== undefined && targetTrackNumber > 0 ? targetTrackNumber - 1 : 0
+      );
+      const srtText = await extractSubtitleTrackNative(rawDesktopPath, trackIdx);
+      if (srtText && srtText.trim().length > 5) {
+        if (onProgress) onProgress(100, 'Субцітры паспяхова выцягнуты!');
+        const subtitleCount = (srtText.match(/\d+\r?\n\d\d:\d\d:/g) || []).length;
+        return {
+          srtContent: srtText,
+          fileName: targetSrtFileName,
+          subtitleCount: subtitleCount || 1,
+          codecId: 'SRT'
+        };
+      }
+    } catch (nativeExtractErr) {
+      console.warn('[srtSubtitleExtractor] Native extractSubtitleTrackNative failed, falling back to JS/WASM:', nativeExtractErr);
+    }
+  }
 
   // Method 1: Pure JS fast Matroska demuxer for MKV/WebM
   const ext = fileObj.name.split('.').pop()?.toLowerCase() || '';

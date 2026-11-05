@@ -129,6 +129,19 @@ pub async fn extract_audio_track(
 }
 
 #[tauri::command]
+pub async fn extract_subtitle_track(
+    app: AppHandle,
+    input_path: String,
+    track_index: usize,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        MediaProbeService::extract_subtitle(&app, &input_path, track_index)
+    })
+    .await
+    .map_err(|e| format!("Памылка патоку пры здабыванні субцітраў: {}", e))?
+}
+
+#[tauri::command]
 pub async fn prepare_compatible_video(
     app: AppHandle,
     input_path: String,
@@ -215,7 +228,7 @@ fn decode_cp1251_char(byte: u8) -> char {
     }
 }
 
-fn decode_bytes_to_string(bytes: &[u8]) -> String {
+pub fn decode_bytes_to_string(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         return String::new();
     }

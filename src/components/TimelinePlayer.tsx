@@ -111,8 +111,38 @@ function TimelinePlayerComponent({
     onAudioProcessingChange?.(audioProcessingStatus.isProcessing);
   }, [audioProcessingStatus.isProcessing, onAudioProcessingChange]);
   const extAudioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const audioAbortControllerRef = useRef<AbortController | null>(null);
   const restoreMediaInputRef = useRef<HTMLInputElement>(null);
+
+  const safelySwitchVideoUrl = useCallback((newUrl: string, cleanPath?: string) => {
+    if (!newUrl) return;
+    setMediaUrl((prevUrl) => {
+      if (prevUrl === newUrl) return prevUrl;
+      const v = videoRef.current;
+      const savedTime = v && !isNaN(v.currentTime) ? v.currentTime : (playbackState.currentTime || 0);
+      const wasPlaying = playbackState.isPlaying || (v && !v.paused);
+
+      if (cleanPath && mediaFile) {
+        (mediaFile as any).cleanVideoPath = cleanPath;
+        (mediaFile as any).cleanStreamUrl = newUrl;
+      }
+
+      requestAnimationFrame(() => {
+        if (videoRef.current) {
+          if (savedTime > 0) {
+            videoRef.current.currentTime = savedTime;
+          }
+          if (wasPlaying) {
+            videoRef.current.play().catch(() => {});
+          }
+        }
+      });
+
+      return newUrl;
+    });
+  }, [playbackState.currentTime, playbackState.isPlaying, mediaFile]);
 
   const [availableAudioTracks, setAvailableAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [showAudioTrackSelectModal, setShowAudioTrackSelectModal] = useState<boolean>(false);
@@ -432,19 +462,13 @@ function TimelinePlayerComponent({
       if (isTauriDesktop() && rawPath) {
         const existingCleanUrl = (targetFile as any)?.cleanStreamUrl || (mediaFile as any)?.cleanStreamUrl;
         if (existingCleanUrl) {
-          setMediaUrl(existingCleanUrl);
+          safelySwitchVideoUrl(existingCleanUrl);
         } else {
           prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
             if (cleanPath) {
               const streamUrl = getDesktopAssetUrl(cleanPath);
               if (streamUrl) {
-                (targetFile as any).cleanVideoPath = cleanPath;
-                (targetFile as any).cleanStreamUrl = streamUrl;
-                if (mediaFile) {
-                  (mediaFile as any).cleanVideoPath = cleanPath;
-                  (mediaFile as any).cleanStreamUrl = streamUrl;
-                }
-                setMediaUrl(streamUrl);
+                safelySwitchVideoUrl(streamUrl, cleanPath);
               }
             }
           }).catch(() => {});
@@ -630,13 +654,7 @@ function TimelinePlayerComponent({
             if (cleanPath) {
               const streamUrl = getDesktopAssetUrl(cleanPath);
               if (streamUrl) {
-                (targetFile as any).cleanVideoPath = cleanPath;
-                (targetFile as any).cleanStreamUrl = streamUrl;
-                if (mediaFile) {
-                  (mediaFile as any).cleanVideoPath = cleanPath;
-                  (mediaFile as any).cleanStreamUrl = streamUrl;
-                }
-                setMediaUrl(streamUrl);
+                safelySwitchVideoUrl(streamUrl, cleanPath);
               }
             }
           } catch (cleanErr) {
@@ -922,15 +940,13 @@ function TimelinePlayerComponent({
               if (isTauriDesktop() && rawPath && needsTc) {
                 const existingCleanUrl = (mediaFile as any)?.cleanStreamUrl;
                 if (existingCleanUrl) {
-                  setMediaUrl(existingCleanUrl);
+                  safelySwitchVideoUrl(existingCleanUrl);
                 } else {
                   prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
                     if (cleanPath) {
                       const streamUrl = getDesktopAssetUrl(cleanPath);
                       if (streamUrl) {
-                        (mediaFile as any).cleanVideoPath = cleanPath;
-                        (mediaFile as any).cleanStreamUrl = streamUrl;
-                        setMediaUrl(streamUrl);
+                        safelySwitchVideoUrl(streamUrl, cleanPath);
                       }
                     }
                   }).catch(() => {});
@@ -1002,19 +1018,13 @@ function TimelinePlayerComponent({
       if (isTauriDesktop() && rawPath) {
         const existingCleanUrl = (mediaFile as any)?.cleanStreamUrl;
         if (existingCleanUrl) {
-          if (mediaUrl !== existingCleanUrl) {
-            setMediaUrl(existingCleanUrl);
-          }
+          safelySwitchVideoUrl(existingCleanUrl);
         } else {
           prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
             if (cleanPath) {
               const streamUrl = getDesktopAssetUrl(cleanPath);
               if (streamUrl) {
-                if (mediaFile) {
-                  (mediaFile as any).cleanVideoPath = cleanPath;
-                  (mediaFile as any).cleanStreamUrl = streamUrl;
-                }
-                setMediaUrl(streamUrl);
+                safelySwitchVideoUrl(streamUrl, cleanPath);
               }
             }
           }).catch(() => {});
@@ -1057,8 +1067,6 @@ function TimelinePlayerComponent({
     }
   }, [extAudioFile, activeTrackNumber, extAudioFileName]);
   
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const playerStageRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
@@ -1232,6 +1240,17 @@ function TimelinePlayerComponent({
       }
       activePlayer.play().catch((err) => {
         console.warn('[TimelinePlayer] activePlayer.play() warning:', err);
+        // If the browser stalled on idle connection or decode error, reload and resume
+        if (activePlayer.error || activePlayer.readyState < 2) {
+          try {
+            const savedTime = currentTime;
+            activePlayer.load();
+            if (savedTime > 0) {
+              activePlayer.currentTime = savedTime;
+            }
+            activePlayer.play().catch(() => {});
+          } catch (_) {}
+        }
         if (audioProcessingStatus.isProcessing) {
           addToast?.('Аўдыя апрацоўваецца, пачакайце...', 'info');
         }
@@ -1252,45 +1271,55 @@ function TimelinePlayerComponent({
   // Strict Master (Video) -> Slave (External Audio) Event Synchronization
   useEffect(() => {
     const video = videoRef.current;
+    if (!video || mediaType !== 'video') return;
     const audio = extAudioRef.current;
-    if (!video || !audio || mediaType !== 'video') return;
 
     const syncPlay = () => {
-      audio.currentTime = video.currentTime;
-      audio.playbackRate = video.playbackRate;
-      if (audio.paused) {
-        audio.play().catch(() => {});
+      if (audio) {
+        audio.currentTime = video.currentTime;
+        audio.playbackRate = video.playbackRate;
+        if (audio.paused) {
+          audio.play().catch(() => {});
+        }
+      }
+      if (!isPlaying) {
+        onPlaybackStateChange({ isPlaying: true });
       }
     };
 
     const syncPause = () => {
-      audio.pause();
+      if (audio) {
+        audio.pause();
+      }
       // If the video is paused only because it is actively seeking/scrubbing or buffering, do not cancel isPlaying
-      if (video && !video.seeking && video.readyState >= 2) {
+      if (!video.seeking && video.readyState >= 2) {
         onPlaybackStateChange({ currentTime: video.currentTime, isPlaying: false });
       }
     };
 
     const syncSeek = () => {
-      audio.currentTime = video.currentTime;
-      if (video) {
-        onPlaybackStateChange({ currentTime: video.currentTime });
+      if (audio) {
+        audio.currentTime = video.currentTime;
       }
+      onPlaybackStateChange({ currentTime: video.currentTime });
     };
 
     const syncRate = () => {
-      audio.playbackRate = video.playbackRate;
+      if (audio) {
+        audio.playbackRate = video.playbackRate;
+      }
     };
 
     const syncEnded = () => {
-      if (video) {
-        onPlaybackStateChange({ currentTime: video.currentTime, isPlaying: false });
+      if (audio) {
+        audio.pause();
       }
+      onPlaybackStateChange({ currentTime: video.currentTime, isPlaying: false });
     };
 
     const syncTime = () => {
       // Keep audio tightly locked to video (100ms max allowed drift for perfect lip sync)
-      if (Math.abs(audio.currentTime - video.currentTime) > 0.1) {
+      if (audio && Math.abs(audio.currentTime - video.currentTime) > 0.1) {
         audio.currentTime = video.currentTime;
       }
       if (video.paused) {
@@ -1308,12 +1337,14 @@ function TimelinePlayerComponent({
     video.addEventListener('timeupdate', syncTime);
 
     // Align initial states
-    audio.playbackRate = video.playbackRate;
-    audio.currentTime = video.currentTime;
-    if (!video.paused) {
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
+    if (audio) {
+      audio.playbackRate = video.playbackRate;
+      audio.currentTime = video.currentTime;
+      if (!video.paused) {
+        audio.play().catch(() => {});
+      } else {
+        audio.pause();
+      }
     }
 
     return () => {
@@ -1326,7 +1357,7 @@ function TimelinePlayerComponent({
       video.removeEventListener('ratechange', syncRate);
       video.removeEventListener('timeupdate', syncTime);
     };
-  }, [extAudioUrl, mediaType]);
+  }, [extAudioUrl, mediaType, isPlaying]);
 
   // Audio-only synchronization
   useEffect(() => {
@@ -1776,6 +1807,9 @@ function TimelinePlayerComponent({
                   if (currentTime > 0) {
                     videoRef.current.currentTime = currentTime;
                   }
+                  if (isPlaying) {
+                    videoRef.current.play().catch(() => {});
+                  }
                 }
               }}
               onCanPlay={() => {
@@ -1804,17 +1838,7 @@ function TimelinePlayerComponent({
                     if (cleanVideoPath) {
                       const streamUrl = getDesktopAssetUrl(cleanVideoPath);
                       if (streamUrl) {
-                        (mediaFile as any).cleanVideoPath = cleanVideoPath;
-                        (mediaFile as any).cleanStreamUrl = streamUrl;
-                        const savedTime = videoRef.current?.currentTime || currentTime;
-                        if (streamUrl !== mediaUrl) {
-                          setMediaUrl(streamUrl);
-                        } else if (videoRef.current) {
-                          videoRef.current.load();
-                        }
-                        if (videoRef.current && savedTime > 0) {
-                          videoRef.current.currentTime = savedTime;
-                        }
+                        safelySwitchVideoUrl(streamUrl, cleanVideoPath);
                         addToast?.('Відэапаток паспяхова адаптаваны!', 'success');
                         return;
                       }

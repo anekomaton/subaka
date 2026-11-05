@@ -1174,6 +1174,63 @@ export async function probeStandaloneAudioFile(file: File | Blob): Promise<MkvAu
  */
 export async function probeMkvAudioCodec(file: File | Blob): Promise<MkvAudioProbeResult> {
   try {
+    const rawDesktopPath = (file as any)?.desktopPath || (file as any)?.path;
+    if (typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__) && rawDesktopPath) {
+      try {
+        const { probeMediaStreamsNative } = await import('./tauriBridge');
+        const probe = await probeMediaStreamsNative(rawDesktopPath);
+        if (probe && probe.audio_tracks && probe.audio_tracks.length > 0) {
+          const unsupportedCodecs = ['ac3', 'eac3', 'e-ac-3', 'dts', 'dtshd', 'truehd', 'mlp', 'wma', 'pcm', 'pcm_s16le', 'pcm_s24le', 'vorbis'];
+          const mappedTracks: AudioTrackInfo[] = probe.audio_tracks.map((tr, idx) => {
+            const rawCodec = (tr.codec || 'aac').toLowerCase();
+            const isUnsupported = unsupportedCodecs.some(u => rawCodec.includes(u));
+            const trackNum = idx + 1;
+            let displayCodec = tr.codec.toUpperCase();
+            if (rawCodec === 'ac3') displayCodec = 'Dolby Digital (AC-3)';
+            else if (rawCodec.includes('eac3') || rawCodec.includes('e-ac-3')) displayCodec = 'Dolby Digital Plus (E-AC-3)';
+            else if (rawCodec.includes('dts')) displayCodec = 'DTS Digital Surround';
+            else if (rawCodec.includes('truehd')) displayCodec = 'Dolby TrueHD';
+            else if (rawCodec === 'aac') displayCodec = 'AAC';
+            else if (rawCodec === 'flac') displayCodec = 'FLAC';
+            else if (rawCodec === 'mp3') displayCodec = 'MP3';
+
+            const langStr = tr.language ? `[${tr.language.toUpperCase()}] ` : '';
+            const titleStr = tr.title ? tr.title : `Дарожка #${trackNum}`;
+
+            return {
+              trackNumber: trackNum,
+              mkvTrackNumber: tr.stream_index || trackNum,
+              codecId: tr.codec.toUpperCase(),
+              codecName: displayCodec,
+              language: tr.language || undefined,
+              trackName: `${langStr}${titleStr}`.trim(),
+              isUnsupportedCodec: isUnsupported,
+              isDefault: tr.is_default || idx === 0,
+              channels: tr.channels || 2,
+              sampleRate: tr.sample_rate || 48000,
+            };
+          });
+
+          const defaultTr = mappedTracks.find(t => t.isDefault) || mappedTracks[0];
+          const hasAnyUnsupported = mappedTracks.some(t => t.isUnsupportedCodec);
+          const needsTc = hasAnyUnsupported || defaultTr.isUnsupportedCodec;
+
+          return {
+            hasAudio: true,
+            codecId: defaultTr.codecId || 'AAC',
+            codecName: defaultTr.codecName || 'AAC',
+            isBrowserPlayable: !needsTc,
+            needsTranscode: needsTc,
+            audioTrackNumber: defaultTr.trackNumber,
+            tracks: mappedTracks,
+            durationSec: probe.duration_seconds ? Math.round(probe.duration_seconds) : undefined,
+          };
+        }
+      } catch (nativeProbeErr) {
+        console.warn('[mkvAudioExtractor] Native probe failed, falling back to JS demuxer:', nativeProbeErr);
+      }
+    }
+
     const fileName = (file as File).name ? (file as File).name.toLowerCase() : '';
     const fileExt = fileName.split('.').pop() || '';
     const fileType = file.type ? file.type.toLowerCase() : '';

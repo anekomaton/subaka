@@ -13,6 +13,17 @@ pub struct AudioTrackInfo {
     pub sample_rate: u32,
     pub language: Option<String>,
     pub title: Option<String>,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtitleTrackInfo {
+    pub index: usize,
+    pub stream_index: usize,
+    pub codec: String,
+    pub language: Option<String>,
+    pub title: Option<String>,
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +32,7 @@ pub struct MediaProbeResult {
     pub duration_seconds: Option<f64>,
     pub format: String,
     pub audio_tracks: Vec<AudioTrackInfo>,
+    pub subtitle_tracks: Vec<SubtitleTrackInfo>,
     pub video_streams_count: usize,
 }
 
@@ -73,11 +85,21 @@ impl MediaProbeService {
 
     pub fn parse_ffmpeg_probe_output(file_path: &str, output: &str) -> Result<MediaProbeResult, String> {
         let mut audio_tracks = Vec::new();
+        let mut subtitle_tracks = Vec::new();
         let mut duration_seconds = None;
         let mut video_count = 0;
 
+        #[derive(Copy, Clone, PartialEq, Eq)]
+        enum LastTrackType {
+            Audio(usize),
+            Subtitle(usize),
+            None,
+        }
+        let mut last_track = LastTrackType::None;
+
         for line in output.lines() {
             let trimmed = line.trim();
+
             // Parse duration: "Duration: 00:01:23.45, start: ..."
             if trimmed.starts_with("Duration:") {
                 if let Some(dur_str) = trimmed.strip_prefix("Duration:") {
@@ -98,49 +120,128 @@ impl MediaProbeService {
                 }
             }
 
-            // Parse Stream line: "Stream #0:1(bel): Audio: aac, 48000 Hz, stereo, fltp"
-            if trimmed.contains("Stream #") && trimmed.contains("Audio:") {
-                let stream_idx = audio_tracks.len();
+            // Stream line detection
+            if trimmed.contains("Stream #") {
+                let is_default = trimmed.contains("(default)");
+
+                // Parse stream index: "Stream #0:2..." -> 2
+                let stream_idx = if let Some(hash_pos) = trimmed.find('#') {
+                    let after_hash = &trimmed[hash_pos + 1..];
+                    if let Some(colon_pos) = after_hash.find(':') {
+                        let after_colon = &after_hash[colon_pos + 1..];
+                        let num_str: String = after_colon.chars().take_while(|c| c.is_ascii_digit()).collect();
+                        num_str.parse::<usize>().unwrap_or(0)
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+
+                // Parse language: "Stream #0:1(rus): Audio..."
                 let mut lang = None;
                 if let Some(paren_start) = trimmed.find('(') {
                     if let Some(paren_end) = trimmed[paren_start..].find(')') {
-                        lang = Some(trimmed[paren_start + 1..paren_start + paren_end].to_string());
+                        let l = trimmed[paren_start + 1..paren_start + paren_end].trim().to_string();
+                        if !l.is_empty() {
+                            lang = Some(l);
+                        }
                     }
                 }
 
-                let codec = if let Some(audio_idx) = trimmed.find("Audio:") {
-                    let after_audio = &trimmed[audio_idx + 6..];
-                    after_audio.split(',').next().unwrap_or("unknown").trim().to_string()
+                if trimmed.contains("Audio:") {
+                    let audio_track_idx = audio_tracks.len();
+
+                    let codec = if let Some(audio_idx) = trimmed.find("Audio:") {
+                        let after_audio = &trimmed[audio_idx + 6..];
+                        let raw = after_audio.split(',').next().unwrap_or("unknown").trim();
+                        // "aac (LC)" -> "aac"
+                        raw.split(' ').next().unwrap_or(raw).to_string()
+                    } else {
+                        "unknown".to_string()
+                    };
+
+                    let channels = if trimmed.contains("7.1") {
+                        8
+                    } else if trimmed.contains("5.1") {
+                        6
+                    } else if trimmed.contains("stereo") {
+                        2
+                    } else if trimmed.contains("mono") {
+                        1
+                    } else {
+                        2
+                    };
+
+                    let sample_rate = if let Some(hz_idx) = trimmed.find("Hz") {
+                        let before_hz = &trimmed[..hz_idx];
+                        before_hz.split(',').last().unwrap_or("").trim().parse::<u32>().unwrap_or(48000)
+                    } else {
+                        48000
+                    };
+
+                    audio_tracks.push(AudioTrackInfo {
+                        index: audio_track_idx,
+                        stream_index: stream_idx,
+                        codec,
+                        channels,
+                        sample_rate,
+                        language: lang,
+                        title: None,
+                        is_default,
+                    });
+                    last_track = LastTrackType::Audio(audio_track_idx);
+                } else if trimmed.contains("Subtitle:") {
+                    let sub_track_idx = subtitle_tracks.len();
+
+                    let codec = if let Some(sub_idx) = trimmed.find("Subtitle:") {
+                        let after_sub = &trimmed[sub_idx + 9..];
+                        let raw = after_sub.split(',').next().unwrap_or("subrip").trim();
+                        raw.split(' ').next().unwrap_or(raw).to_string()
+                    } else {
+                        "subrip".to_string()
+                    };
+
+                    subtitle_tracks.push(SubtitleTrackInfo {
+                        index: sub_track_idx,
+                        stream_index: stream_idx,
+                        codec,
+                        language: lang,
+                        title: None,
+                        is_default,
+                    });
+                    last_track = LastTrackType::Subtitle(sub_track_idx);
+                } else if trimmed.contains("Video:") {
+                    video_count += 1;
+                    last_track = LastTrackType::None;
                 } else {
-                    "unknown".to_string()
+                    last_track = LastTrackType::None;
+                }
+            } else if trimmed.to_lowercase().starts_with("title") && (trimmed.contains(':') || trimmed.contains('=')) {
+                // Parse Metadata title line for currently active stream
+                let title_val = if let Some((_, v)) = trimmed.split_once(':') {
+                    v.trim().to_string()
+                } else if let Some((_, v)) = trimmed.split_once('=') {
+                    v.trim().to_string()
+                } else {
+                    String::new()
                 };
 
-                let channels = if trimmed.contains("stereo") {
-                    2
-                } else if trimmed.contains("5.1") {
-                    6
-                } else {
-                    1
-                };
-
-                let sample_rate = if let Some(hz_idx) = trimmed.find("Hz") {
-                    let before_hz = &trimmed[..hz_idx];
-                    before_hz.split(',').last().unwrap_or("").trim().parse::<u32>().unwrap_or(44100)
-                } else {
-                    44100
-                };
-
-                audio_tracks.push(AudioTrackInfo {
-                    index: stream_idx,
-                    stream_index: stream_idx + 1,
-                    codec,
-                    channels,
-                    sample_rate,
-                    language: lang,
-                    title: None,
-                });
-            } else if trimmed.contains("Stream #") && trimmed.contains("Video:") {
-                video_count += 1;
+                if !title_val.is_empty() {
+                    match last_track {
+                        LastTrackType::Audio(idx) => {
+                            if idx < audio_tracks.len() {
+                                audio_tracks[idx].title = Some(title_val);
+                            }
+                        }
+                        LastTrackType::Subtitle(idx) => {
+                            if idx < subtitle_tracks.len() {
+                                subtitle_tracks[idx].title = Some(title_val);
+                            }
+                        }
+                        LastTrackType::None => {}
+                    }
+                }
             }
         }
 
@@ -155,6 +256,7 @@ impl MediaProbeService {
             duration_seconds,
             format: ext,
             audio_tracks,
+            subtitle_tracks,
             video_streams_count: video_count,
         })
     }
@@ -300,6 +402,67 @@ impl MediaProbeService {
         }
     }
 
+    pub fn extract_subtitle(
+        app: &AppHandle,
+        input_path: &str,
+        track_index: usize,
+    ) -> Result<String, String> {
+        let in_p = Path::new(input_path);
+        if !in_p.exists() {
+            return Err(format!("Input file does not exist: {}", input_path));
+        }
+
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let out_file = temp_dir.join(format!("subaka_sub_{}_{}_{}.srt", pid, track_index, now));
+        let out_path = out_file.to_string_lossy().to_string();
+
+        let map_arg = format!("0:s:{}", track_index);
+        let args = [
+            "-y",
+            "-i",
+            input_path,
+            "-map",
+            &map_arg,
+            "-f",
+            "srt",
+            &out_path,
+        ];
+
+        let status = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
+            let res = tauri::async_runtime::block_on(sidecar.args(&args).output());
+            match res {
+                Ok(out) => {
+                    if out.status.success() {
+                        Ok(())
+                    } else {
+                        Err(String::from_utf8_lossy(&out.stderr).to_string())
+                    }
+                }
+                Err(_) => Self::run_system_extract(&args, &out_path).map(|_| ()),
+            }
+        } else {
+            Self::run_system_extract(&args, &out_path).map(|_| ())
+        };
+
+        match status {
+            Ok(()) => {
+                let content = std::fs::read(&out_file)
+                    .map_err(|e| format!("Failed to read extracted subtitle file: {}", e))?;
+                let _ = std::fs::remove_file(&out_file);
+                Ok(crate::commands::decode_bytes_to_string(&content))
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&out_file);
+                Err(format!("FFmpeg subtitle extraction failed: {}", e))
+            }
+        }
+    }
+
     pub fn prepare_compatible_video(
         app: &AppHandle,
         input_path: &str,
@@ -407,8 +570,16 @@ impl MediaProbeService {
         }
 
         let pid = std::process::id();
-        let temp_mp4_path = format!("{}.part_{}", target_out_path, pid);
-        let temp_mkv_path = format!("{}.part_{}", mkv_out_path, pid);
+        let temp_mp4_path = if target_out_path.ends_with(".mp4") {
+            format!("{}_part_{}.mp4", &target_out_path[..target_out_path.len() - 4], pid)
+        } else {
+            format!("{}_part_{}.mp4", target_out_path, pid)
+        };
+        let temp_mkv_path = if mkv_out_path.ends_with(".mkv") {
+            format!("{}_part_{}.mkv", &mkv_out_path[..mkv_out_path.len() - 4], pid)
+        } else {
+            format!("{}_part_{}.mkv", mkv_out_path, pid)
+        };
 
         // Helper to run FFmpeg and return Ok(true) if the output file was successfully written and non-empty
         let run_cmd = |args: &[&str], out_file: &str| -> Result<(), String> {
@@ -444,7 +615,7 @@ impl MediaProbeService {
             }
         };
 
-        // Attempt 1: Fast stream copy to MP4 (-map 0:v:0? -c:v copy -an)
+        // Attempt 1: Fast stream copy to MP4 (-map 0:v:0? -c:v copy -an -f mp4)
         let args_copy_mp4 = [
             "-y",
             "-i",
@@ -458,6 +629,8 @@ impl MediaProbeService {
             "-dn",
             "-movflags",
             "+faststart",
+            "-f",
+            "mp4",
             &temp_mp4_path,
         ];
 
@@ -485,6 +658,8 @@ impl MediaProbeService {
             "-an",
             "-sn",
             "-dn",
+            "-f",
+            "matroska",
             &temp_mkv_path,
         ];
 
@@ -519,6 +694,8 @@ impl MediaProbeService {
             "-dn",
             "-movflags",
             "+faststart",
+            "-f",
+            "mp4",
             &temp_mp4_path,
         ];
 

@@ -52,6 +52,16 @@ export interface AudioTrackInfo {
   sample_rate: number;
   language?: string | null;
   title?: string | null;
+  is_default?: boolean;
+}
+
+export interface SubtitleTrackInfo {
+  index: number;
+  stream_index: number;
+  codec: string;
+  language?: string | null;
+  title?: string | null;
+  is_default?: boolean;
 }
 
 export interface MediaProbeResult {
@@ -59,6 +69,7 @@ export interface MediaProbeResult {
   duration_seconds?: number | null;
   format: string;
   audio_tracks: AudioTrackInfo[];
+  subtitle_tracks: SubtitleTrackInfo[];
   video_streams_count: number;
 }
 
@@ -480,6 +491,22 @@ export async function extractAudioTrackNative(
       unlisten();
     }
   }
+}
+
+/**
+ * Extracts embedded text subtitle track (.srt, .ass, subrip) natively using FFmpeg sidecar
+ */
+export async function extractSubtitleTrackNative(
+  inputPath: string,
+  trackIndex: number
+): Promise<string> {
+  if (!isTauriDesktop()) {
+    throw new Error('Native subtitle extraction is only supported in desktop mode');
+  }
+  return await invoke<string>('extract_subtitle_track', {
+    inputPath,
+    trackIndex,
+  });
 }
 
 /**
