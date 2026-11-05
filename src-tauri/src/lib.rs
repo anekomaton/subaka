@@ -118,7 +118,15 @@ pub fn run() {
         .manage(grammar_manager)
         .manage(verbum_manager)
         .manage(launch_path_state)
-        .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .level_for("ureq", log::LevelFilter::Warn)
+                .level_for("rustls", log::LevelFilter::Warn)
+                .level_for("h2", log::LevelFilter::Warn)
+                .level_for("hyper", log::LevelFilter::Warn)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -238,11 +246,11 @@ pub fn run() {
             // Initialize managers
             let g_state: tauri::State<GrammarDbManager> = handle.state();
             let g_status = g_state.initialize(&handle);
-            log::info!("SUBaka desktop initialized. Grammar status: {:?}", g_status.message);
+            log::info!("SUBaka desktop initialized. Grammar status: {}", commands::sanitize_sensitive_info(&g_status.message));
 
             let v_state: tauri::State<VerbumDbManager> = handle.state();
             let v_status = v_state.initialize(&handle);
-            log::info!("SUBaka desktop initialized. Verbum status: {:?}", v_status.message);
+            log::info!("SUBaka desktop initialized. Verbum status: {}", commands::sanitize_sensitive_info(&v_status.message));
 
             Ok(())
         })

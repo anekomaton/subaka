@@ -535,16 +535,140 @@ pub async fn fetch_audio_buffer_native(url: String) -> Result<String, String> {
         .map_err(|e| format!("Памылка фонавага патоку аўдыя: {}", e))?
 }
 
-fn post_json_native_blocking(url: String, json_body: String) -> Result<String, String> {
+pub fn sanitize_path_str(path_str: &str) -> String {
+    if path_str.is_empty() {
+        return String::new();
+    }
+    let p = Path::new(path_str);
+    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    let is_cache_file = file_name.starts_with("clean_video")
+        || file_name.starts_with("audio_cache")
+        || file_name.starts_with("extracted_audio")
+        || file_name.starts_with("subaka_")
+        || file_name.starts_with("subaka-")
+        || file_name.contains("grammardb")
+        || file_name.contains("verbum");
+
+    if is_cache_file {
+        format!("<CACHE_DIR>/{}", file_name)
+    } else {
+        if !ext.is_empty() {
+            format!("<USER_DIR>/[REDACTED_FILENAME].{}", ext)
+        } else if !file_name.is_empty() {
+            "<USER_DIR>/[REDACTED_FILENAME]".to_string()
+        } else {
+            "<USER_DIR>".to_string()
+        }
+    }
+}
+
+pub fn sanitize_sensitive_info(text: &str) -> String {
+    let mut result = text.to_string();
+
+    // 1. Redact key=... in query parameters
+    while let Some(start_idx) = result.find("key=") {
+        let val_start = start_idx + 4;
+        let bytes = result.as_bytes();
+        let mut val_end = val_start;
+        while val_end < bytes.len() && !matches!(bytes[val_end], b'&' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b'\\' | b'>') {
+            val_end += 1;
+        }
+        if val_end > val_start {
+            result.replace_range(val_start..val_end, "[REDACTED_API_KEY]");
+        } else {
+            break;
+        }
+    }
+
+    // 2. Redact x-goog-api-key or X-Goog-Api-Key headers
+    let lower = result.to_lowercase();
+    if let Some(start_idx) = lower.find("x-goog-api-key") {
+        let val_start = start_idx + 14;
+        let bytes = result.as_bytes();
+        let mut val_begin = val_start;
+        while val_begin < bytes.len() && matches!(bytes[val_begin], b':' | b'=' | b' ') {
+            val_begin += 1;
+        }
+        let mut val_end = val_begin;
+        while val_end < bytes.len() && !matches!(bytes[val_end], b'&' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b',' | b';') {
+            val_end += 1;
+        }
+        if val_end > val_begin {
+            result.replace_range(val_begin..val_end, "[REDACTED_API_KEY]");
+        }
+    }
+
+    // 3. Redact Windows user directory names: Users\<username>\ or Users/<username>/
+    let lower_res = result.to_lowercase();
+    let mut search_offset = 0;
+    while let Some(rel_pos) = lower_res[search_offset..].find("users") {
+        let pos = search_offset + rel_pos;
+        let bytes = result.as_bytes();
+        let has_sep_before = pos == 0 || matches!(bytes[pos - 1], b'\\' | b'/');
+        let sep_after_pos = pos + 5;
+        if has_sep_before && sep_after_pos < bytes.len() && matches!(bytes[sep_after_pos], b'\\' | b'/') {
+            let u_start = sep_after_pos + 1;
+            let mut u_end = u_start;
+            while u_end < bytes.len() && !matches!(bytes[u_end], b'\\' | b'/' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'') {
+                u_end += 1;
+            }
+            if u_end > u_start {
+                let user_name = &result[u_start..u_end];
+                if user_name != "[REDACTED_USER]" {
+                    result = result.replace(user_name, "[REDACTED_USER]");
+                }
+            }
+        }
+        search_offset = pos + 5;
+    }
+
+    // 4. Redact Linux home directory names: /home/<username>/
+    let lower_res = result.to_lowercase();
+    let mut search_offset = 0;
+    while let Some(rel_pos) = lower_res[search_offset..].find("/home/") {
+        let pos = search_offset + rel_pos;
+        let u_start = pos + 6;
+        let bytes = result.as_bytes();
+        let mut u_end = u_start;
+        while u_end < bytes.len() && !matches!(bytes[u_end], b'/' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'') {
+            u_end += 1;
+        }
+        if u_end > u_start {
+            let user_name = &result[u_start..u_end];
+            if user_name != "[REDACTED_USER]" {
+                result = result.replace(user_name, "[REDACTED_USER]");
+            }
+        }
+        search_offset = pos + 6;
+    }
+
+    result
+}
+
+fn post_json_native_blocking(
+    url: String,
+    json_body: String,
+    headers: Option<HashMap<String, String>>,
+) -> Result<String, String> {
     use std::io::Write;
     use std::process::Stdio;
 
+    let clean_url = sanitize_sensitive_info(&url);
+
     // 1. Primary: In-process pure Rust HTTP client with Keep-Alive connection pool (ureq Agent).
-    // The TCP socket is opened directly by subaka.exe itself, ensuring 100% compatibility
-    // with Windows VPN Split Tunneling (where only subaka.exe is routed through VPN).
-    let ureq_res = get_http_client().post(&url)
-        .set("Content-Type", "application/json; charset=utf-8")
-        .send_bytes(json_body.as_bytes());
+    let mut req = get_http_client()
+        .post(&url)
+        .set("Content-Type", "application/json; charset=utf-8");
+
+    if let Some(ref hdrs) = headers {
+        for (k, v) in hdrs {
+            req = req.set(k, v);
+        }
+    }
+
+    let ureq_res = req.send_bytes(json_body.as_bytes());
 
     match ureq_res {
         Ok(resp) => {
@@ -562,21 +686,36 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
             }
         }
         Err(e) => {
-            log::warn!("[Native Network] ureq post failed, trying curl fallback: {}", e);
+            log::warn!("[Native Network] ureq post failed for {}, trying curl fallback: {}", clean_url, e);
         }
     }
 
-    // 2. Secondary fallback: CLI curl (avoids Windows cmd line quote corruption via STDIN)
+    // 2. Secondary fallback: CLI curl
+    let mut curl_args = vec![
+        "-s".to_string(),
+        "-X".to_string(),
+        "POST".to_string(),
+        url.clone(),
+        "-H".to_string(),
+        "Content-Type: application/json; charset=utf-8".to_string(),
+        "-H".to_string(),
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string(),
+    ];
+
+    if let Some(ref hdrs) = headers {
+        for (k, v) in hdrs {
+            curl_args.push("-H".to_string());
+            curl_args.push(format!("{}: {}", k, v));
+        }
+    }
+
+    curl_args.push("--data-binary".to_string());
+    curl_args.push("@-".to_string());
+    curl_args.push("--max-time".to_string());
+    curl_args.push("180".to_string());
+
     let child = silent_command("curl")
-        .args([
-            "-s",
-            "-X", "POST",
-            url.as_str(),
-            "-H", "Content-Type: application/json; charset=utf-8",
-            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--data-binary", "@-",
-            "--max-time", "180",
-        ])
+        .args(&curl_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -600,9 +739,17 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
     {
         let temp_json_path = std::env::temp_dir().join(format!("subaka_req_{}.json", std::process::id()));
         if std::fs::write(&temp_json_path, json_body.as_bytes()).is_ok() {
+            let mut ps_headers = String::from("$wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); $wc.Headers.Add('Content-Type', 'application/json; charset=utf-8');");
+            if let Some(ref hdrs) = headers {
+                for (k, v) in hdrs {
+                    ps_headers.push_str(&format!(" $wc.Headers.Add('{}', '{}');", k.replace("'", "''"), v.replace("'", "''")));
+                }
+            }
+
             let ps_cmd = format!(
-                "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $body = Get-Content -Raw -Encoding UTF8 '{}'; $res = Invoke-RestMethod -Uri '{}' -Method POST -ContentType 'application/json; charset=utf-8' -Body $body -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'; if ($res -is [string]) {{ $res }} else {{ $res | ConvertTo-Json -Compress }}",
+                "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $body = Get-Content -Raw -Encoding UTF8 '{}'; $wc = New-Object System.Net.WebClient; $wc.Encoding = [System.Text.Encoding]::UTF8; {} $res = $wc.UploadString('{}', 'POST', $body); $res",
                 temp_json_path.to_string_lossy().replace("'", "''"),
+                ps_headers,
                 url.replace("'", "''")
             );
             let ps_res = silent_command("powershell")
@@ -625,22 +772,33 @@ fn post_json_native_blocking(url: String, json_body: String) -> Result<String, S
 }
 
 #[tauri::command]
-pub async fn post_json_native(url: String, json_body: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || post_json_native_blocking(url, json_body))
+pub async fn post_json_native(
+    url: String,
+    json_body: String,
+    headers: Option<HashMap<String, String>>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || post_json_native_blocking(url, json_body, headers))
         .await
         .map_err(|e| format!("Памылка фонавага патоку сеткі: {}", e))?
 }
 
-fn fetch_verbum_online_native_blocking(url: String) -> Result<String, String> {
+fn fetch_verbum_online_native_blocking(
+    url: String,
+    headers: Option<HashMap<String, String>>,
+) -> Result<String, String> {
     let is_verbum = url.contains("verbum.by");
 
     // 1. Primary: In-process pure Rust HTTP client with Keep-Alive connection pool (ureq Agent).
-    // The TCP socket is opened directly by subaka.exe for Split Tunneling VPN support.
-    let mut req = get_http_client().get(&url)
-        .set("Accept", "application/json");
+    let mut req = get_http_client().get(&url).set("Accept", "application/json");
 
     if is_verbum {
         req = req.set("Referer", "https://verbum.by/");
+    }
+
+    if let Some(ref hdrs) = headers {
+        for (k, v) in hdrs {
+            req = req.set(k, v);
+        }
     }
 
     match req.call() {
@@ -659,27 +817,35 @@ fn fetch_verbum_online_native_blocking(url: String) -> Result<String, String> {
             }
         }
         Err(e) => {
-            log::warn!("[Native Network] ureq get failed, trying curl fallback: {}", e);
+            let clean_url = sanitize_sensitive_info(&url);
+            log::warn!("[Native Network] ureq get failed for {}, trying curl fallback: {}", clean_url, e);
         }
     }
 
     // 2. Secondary fallback: CLI curl
     let mut args = vec![
-        "-s",
-        "-L",
-        "--max-time", "20",
-        "-H", "Accept: application/json",
-        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "-s".to_string(),
+        "-L".to_string(),
+        "--max-time".to_string(),
+        "20".to_string(),
+        "-H".to_string(),
+        "Accept: application/json".to_string(),
+        "-H".to_string(),
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string(),
     ];
     if is_verbum {
-        args.push("-H");
-        args.push("Referer: https://verbum.by/");
+        args.push("-H".to_string());
+        args.push("Referer: https://verbum.by/".to_string());
     }
-    args.push(url.as_str());
+    if let Some(ref hdrs) = headers {
+        for (k, v) in hdrs {
+            args.push("-H".to_string());
+            args.push(format!("{}: {}", k, v));
+        }
+    }
+    args.push(url.clone());
 
-    let curl_res = silent_command("curl")
-        .args(&args)
-        .output();
+    let curl_res = silent_command("curl").args(&args).output();
 
     if let Ok(output) = curl_res {
         if output.status.success() && !output.stdout.is_empty() {
@@ -692,10 +858,17 @@ fn fetch_verbum_online_native_blocking(url: String) -> Result<String, String> {
     #[cfg(windows)]
     {
         let referer_part = if is_verbum { "$wc.Headers.Add('Referer', 'https://verbum.by/');" } else { "" };
+        let mut ps_headers = String::from(referer_part);
+        if let Some(ref hdrs) = headers {
+            for (k, v) in hdrs {
+                ps_headers.push_str(&format!(" $wc.Headers.Add('{}', '{}');", k.replace("'", "''"), v.replace("'", "''")));
+            }
+        }
+
         let ps_cmd = format!(
-            "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Encoding = [System.Text.Encoding]::UTF8; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); {} $wc.Headers.Add('Accept', 'application/json'); $wc.DownloadString($u)",
+            "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $u = '{}'; $wc = New-Object System.Net.WebClient; $wc.Encoding = [System.Text.Encoding]::UTF8; $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'); $wc.Headers.Add('Accept', 'application/json'); {} $wc.DownloadString($u)",
             url.replace("'", "''"),
-            referer_part
+            ps_headers
         );
         let ps_res = silent_command("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd.as_str()])
@@ -715,8 +888,11 @@ fn fetch_verbum_online_native_blocking(url: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn fetch_verbum_online_native(url: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || fetch_verbum_online_native_blocking(url))
+pub async fn fetch_verbum_online_native(
+    url: String,
+    headers: Option<HashMap<String, String>>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_verbum_online_native_blocking(url, headers))
         .await
         .map_err(|e| format!("Памылка фонавага патоку Verbum: {}", e))?
 }
@@ -756,7 +932,8 @@ pub fn restore_post_fullscreen_bounds(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn log_desktop_event(level: String, category: String, message: String, details: Option<String>) {
     let details_str = details.map(|d| format!(" | {}", d)).unwrap_or_default();
-    let entry = format!("[{}] {}{}", category, message, details_str);
+    let raw_entry = format!("[{}] {}{}", category, message, details_str);
+    let entry = sanitize_sensitive_info(&raw_entry);
     match level.to_lowercase().as_str() {
         "warn" => log::warn!("{}", entry),
         "info" => log::info!("{}", entry),

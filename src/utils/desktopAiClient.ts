@@ -190,18 +190,19 @@ async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
   lastModelFetchTime = now;
   (async () => {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models`;
+      const authHeaders = { 'x-goog-api-key': apiKey };
       let data: any = null;
 
       if (isTauriDesktop()) {
-        const res = await fetchVerbumOnlineNative(url);
+        const res = await fetchVerbumOnlineNative(url, authHeaders);
         if (typeof res === 'string') {
           try { data = JSON.parse(res); } catch { data = null; }
         } else if (res && typeof res === 'object') {
           data = res;
         }
       } else {
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: authHeaders });
         if (res.ok) {
           data = await res.json();
         }
@@ -338,7 +339,11 @@ async function callGenerativeLanguageApi(
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const authHeaders = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': cleanKey,
+      };
       try {
         let isSuccess = false;
         let statusCode = 200;
@@ -348,7 +353,7 @@ async function callGenerativeLanguageApi(
         // In Desktop mode: execute directly through native subaka.exe process (postJsonNative).
         if (isTauriDesktop()) {
           try {
-            const nativeResp = await postJsonNative(url, JSON.stringify(bodyObj));
+            const nativeResp = await postJsonNative(url, JSON.stringify(bodyObj), { 'x-goog-api-key': cleanKey });
             if (isCanceled()) {
               throw new DOMException('Aborted', 'AbortError');
             }
@@ -378,7 +383,7 @@ async function callGenerativeLanguageApi(
           }
           const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders,
             body: JSON.stringify(bodyObj),
             signal: options?.signal,
           });

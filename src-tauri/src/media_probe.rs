@@ -1,3 +1,4 @@
+use crate::commands::{sanitize_path_str, sanitize_sensitive_info};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
@@ -309,7 +310,7 @@ impl MediaProbeService {
         if out_p.exists() {
             if let Ok(meta) = std::fs::metadata(out_p) {
                 if meta.len() > 64 * 1024 {
-                    log::info!("[MediaProbe] Reusing existing extracted audio file: {}", output_path);
+                    log::info!("[MediaProbe] Reusing existing extracted audio file: {}", sanitize_path_str(output_path));
                     let _ = app.emit(
                         "media-extraction-progress",
                         ExtractionProgressPayload {
@@ -665,7 +666,7 @@ impl MediaProbeService {
         if out_p.exists() {
             if let Ok(meta) = std::fs::metadata(out_p) {
                 if meta.len() > 64 * 1024 {
-                    log::info!("[MediaProbe] Reusing existing clean video (MP4): {}", target_out_path);
+                    log::info!("[MediaProbe] Reusing existing clean video (MP4): {}", sanitize_path_str(&target_out_path));
                     return Ok(target_out_path);
                 }
             }
@@ -675,7 +676,7 @@ impl MediaProbeService {
         if mkv_p.exists() {
             if let Ok(meta) = std::fs::metadata(mkv_p) {
                 if meta.len() > 64 * 1024 {
-                    log::info!("[MediaProbe] Reusing existing clean video (MKV): {}", mkv_out_path);
+                    log::info!("[MediaProbe] Reusing existing clean video (MKV): {}", sanitize_path_str(&mkv_out_path));
                     return Ok(mkv_out_path);
                 }
             }
@@ -695,7 +696,7 @@ impl MediaProbeService {
         };
 
         if !acquired {
-            log::info!("[MediaProbe] Another thread is preparing clean video for {}, waiting...", input_path);
+            log::info!("[MediaProbe] Another thread is preparing clean video for {}, waiting...", sanitize_path_str(input_path));
             for _ in 0..120 {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 if Path::new(&target_out_path).exists() {
@@ -812,12 +813,12 @@ impl MediaProbeService {
         match run_cmd(&args_copy_mp4, &temp_mp4_path) {
             Ok(()) => {
                 let _ = std::fs::rename(&temp_mp4_path, &target_out_path);
-                log::info!("[MediaProbe] Clean compatible video stream created (bitstream copy): {}", target_out_path);
+                log::info!("[MediaProbe] Clean compatible video stream created (bitstream copy): {}", sanitize_path_str(&target_out_path));
                 return Ok(target_out_path);
             }
             Err(e1) => {
                 let _ = std::fs::remove_file(&temp_mp4_path);
-                log::warn!("[MediaProbe] Direct stream copy to MP4 failed, trying MKV copy fallback: {}", e1);
+                log::warn!("[MediaProbe] Direct stream copy to MP4 failed, trying MKV copy fallback: {}", sanitize_sensitive_info(&e1));
             }
         }
 
@@ -841,12 +842,12 @@ impl MediaProbeService {
         match run_cmd(&args_copy_mkv, &temp_mkv_path) {
             Ok(()) => {
                 let _ = std::fs::rename(&temp_mkv_path, &mkv_out_path);
-                log::info!("[MediaProbe] Clean compatible video stream created (MKV copy): {}", mkv_out_path);
+                log::info!("[MediaProbe] Clean compatible video stream created (MKV copy): {}", sanitize_path_str(&mkv_out_path));
                 return Ok(mkv_out_path);
             }
             Err(e2) => {
                 let _ = std::fs::remove_file(&temp_mkv_path);
-                log::warn!("[MediaProbe] Stream copy to MKV failed, trying fast H.264 re-encode: {}", e2);
+                log::warn!("[MediaProbe] Stream copy to MKV failed, trying fast H.264 re-encode: {}", sanitize_sensitive_info(&e2));
             }
         }
 
@@ -877,12 +878,12 @@ impl MediaProbeService {
         match run_cmd(&args_reencode, &temp_mp4_path) {
             Ok(()) => {
                 let _ = std::fs::rename(&temp_mp4_path, &target_out_path);
-                log::info!("[MediaProbe] Clean compatible video stream created (H.264 transcode): {}", target_out_path);
+                log::info!("[MediaProbe] Clean compatible video stream created (H.264 transcode): {}", sanitize_path_str(&target_out_path));
                 Ok(target_out_path)
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&temp_mp4_path);
-                log::error!("[MediaProbe] All video conversion attempts failed: {}", e);
+                log::error!("[MediaProbe] All video conversion attempts failed: {}", sanitize_sensitive_info(&e));
                 Err(e)
             }
         }

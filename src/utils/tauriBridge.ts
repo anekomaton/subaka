@@ -519,23 +519,27 @@ export async function fetchAudioBufferNative(url: string): Promise<string> {
   throw new Error('fetchAudioBufferNative is only available on desktop');
 }
 
-/**
- * Native POST JSON request via curl in Tauri
- */
-export async function postJsonNative(url: string, jsonBody: string): Promise<string> {
+export async function postJsonNative(
+  url: string,
+  jsonBody: string,
+  headers?: Record<string, string>
+): Promise<string> {
   if (isTauriDesktop()) {
-    return await invoke<string>('post_json_native', { url, jsonBody });
+    return await invoke<string>('post_json_native', { url, jsonBody, headers: headers || null });
   }
   throw new Error('postJsonNative is only available on desktop');
 }
 
 /**
- * Native GET request for verbum.by in Tauri (bypasses CORS in desktop WebView)
+ * Native GET request for verbum.by or external APIs in Tauri (bypasses CORS in desktop WebView)
  */
-export async function fetchVerbumOnlineNative(url: string): Promise<any | null> {
+export async function fetchVerbumOnlineNative(
+  url: string,
+  headers?: Record<string, string>
+): Promise<any | null> {
   if (isTauriDesktop()) {
     try {
-      const res = await invoke<string>('fetch_verbum_online_native', { url });
+      const res = await invoke<string>('fetch_verbum_online_native', { url, headers: headers || null });
       if (res) {
         return JSON.parse(res);
       }

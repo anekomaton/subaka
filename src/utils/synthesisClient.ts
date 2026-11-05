@@ -212,7 +212,11 @@ export async function synthesizeSubtitleAudioUniversal(
 
     try {
       const promptText = `Speak naturally in Belarusian: ${cleanText}`;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent`;
+      const authHeaders = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      };
       const reqBody = JSON.stringify({
         contents: [{ parts: [{ text: promptText }] }],
         generationConfig: {
@@ -229,10 +233,9 @@ export async function synthesizeSubtitleAudioUniversal(
 
       let rawResponse = '';
       // In Desktop mode: execute via subaka.exe native process memory space (postJsonNative).
-      // This ensures Split Tunneling VPN routes the traffic through subaka.exe without needing msedgewebview2.exe!
       if (isTauriDesktop()) {
         try {
-          rawResponse = await postJsonNative(url, reqBody);
+          rawResponse = await postJsonNative(url, reqBody, { 'x-goog-api-key': apiKey });
         } catch (nativeErr: any) {
           console.warn('[Gemini Voice Desktop] Native post failed:', nativeErr);
           throw nativeErr;
@@ -240,7 +243,7 @@ export async function synthesizeSubtitleAudioUniversal(
       } else {
         const resp = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders,
           body: reqBody,
         });
         if (!resp.ok) {
