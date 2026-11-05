@@ -335,12 +335,13 @@ impl MediaProbeService {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        let args = [
+        // Attempt 1: Fast stream copy to MP4 (-map 0:v:0? -c:v copy -an)
+        let args_copy_mp4 = [
             "-y",
             "-i",
             input_path,
             "-map",
-            "0:v:0",
+            "0:v:0?",
             "-c:v",
             "copy",
             "-an",
@@ -351,29 +352,86 @@ impl MediaProbeService {
             &target_out_path,
         ];
 
-        let output = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
-            let res = tauri::async_runtime::block_on(sidecar.args(&args).output());
-            match res {
-                Ok(out) => {
-                    if out.status.success() {
-                        Ok(target_out_path.clone())
-                    } else {
-                        Err(String::from_utf8_lossy(&out.stderr).to_string())
+        let run_cmd = |args: &[&str]| -> Result<String, String> {
+            if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
+                let res = tauri::async_runtime::block_on(sidecar.args(args).output());
+                match res {
+                    Ok(out) => {
+                        if out.status.success() {
+                            Ok(target_out_path.clone())
+                        } else {
+                            Err(String::from_utf8_lossy(&out.stderr).to_string())
+                        }
                     }
+                    Err(_) => Self::run_system_extract(args, &target_out_path),
                 }
-                Err(_) => Self::run_system_extract(&args, &target_out_path),
+            } else {
+                Self::run_system_extract(args, &target_out_path)
             }
-        } else {
-            Self::run_system_extract(&args, &target_out_path)
         };
 
-        match output {
+        match run_cmd(&args_copy_mp4) {
             Ok(path) => {
-                log::info!("[MediaProbe] Clean compatible video stream created: {}", path);
+                log::info!("[MediaProbe] Clean compatible video stream created (bitstream copy): {}", path);
+                return Ok(path);
+            }
+            Err(e1) => {
+                log::warn!("[MediaProbe] Direct stream copy to MP4 failed, trying MKV copy fallback: {}", e1);
+            }
+        }
+
+        // Attempt 2: Stream copy to MKV container if MP4 muxing rejected the codec
+        let mkv_out_path = target_out_path.replace(".mp4", ".mkv");
+        let args_copy_mkv = [
+            "-y",
+            "-i",
+            input_path,
+            "-map",
+            "0:v:0?",
+            "-c:v",
+            "copy",
+            "-an",
+            "-sn",
+            "-dn",
+            &mkv_out_path,
+        ];
+
+        if let Ok(_) = run_cmd(&args_copy_mkv) {
+            if Path::new(&mkv_out_path).exists() {
+                log::info!("[MediaProbe] Clean compatible video stream created (MKV copy): {}", mkv_out_path);
+                return Ok(mkv_out_path);
+            }
+        }
+
+        // Attempt 3: Fast re-encode to H.264 MP4 with ultrafast preset if bitstream copy is impossible
+        log::info!("[MediaProbe] Stream copy impossible, re-encoding video to fast H.264...");
+        let args_reencode = [
+            "-y",
+            "-i",
+            input_path,
+            "-map",
+            "0:v:0?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "22",
+            "-an",
+            "-sn",
+            "-dn",
+            "-movflags",
+            "+faststart",
+            &target_out_path,
+        ];
+
+        match run_cmd(&args_reencode) {
+            Ok(path) => {
+                log::info!("[MediaProbe] Clean compatible video stream created (H.264 transcode): {}", path);
                 Ok(path)
             }
             Err(e) => {
-                log::error!("[MediaProbe] Failed to create clean compatible video stream: {}", e);
+                log::error!("[MediaProbe] All video conversion attempts failed: {}", e);
                 Err(e)
             }
         }

@@ -1,4 +1,5 @@
 import { extractAudioWithFFmpeg, transcodeRawAudioLocallyWithWasm, transcodeRawAudioOnServer } from './ffmpegExtractor';
+import { isTauriDesktop, extractAudioTrackNative, getDesktopAssetUrl, getDesktopStorageInfo } from './tauriBridge';
 
 /**
  * Pure JavaScript Matroska/MKV Audio Demuxer & Extractor
@@ -2447,6 +2448,51 @@ export async function extractAudioFromMkv(
     } catch {}
 
     if (actualSignal?.aborted) return null;
+
+    // Step 0: On Desktop, use native FFmpeg sidecar directly for maximum speed and 100% codec compatibility
+    const rawDesktopPath = (fileObj as any)?.desktopPath || (fileObj as any)?.path;
+    if (isTauriDesktop() && rawDesktopPath) {
+      try {
+        if (actualOnProgress) actualOnProgress(10, `Апрацоўка аўдыя натыўным FFmpeg (${codecName})...`);
+        const trackIndex = (audioTrackNumber && audioTrackNumber > 0) ? audioTrackNumber - 1 : 0;
+        const tempInfo = await getDesktopStorageInfo().catch(() => null);
+        const tempDir = tempInfo?.temp_dir || '';
+        const outName = `extracted_audio_${Date.now()}_tr${trackIndex + 1}.m4a`;
+        const targetOutPath = tempDir ? `${tempDir}/${outName}` : outName;
+
+        const nativeResultPath = await extractAudioTrackNative(
+          rawDesktopPath,
+          trackIndex,
+          targetOutPath,
+          (payload) => {
+            if (actualOnProgress && payload.progress >= 0) {
+              const pct = Math.min(99, Math.max(10, Math.round(payload.progress * 100)));
+              actualOnProgress(pct, payload.message || `апрацоўка аўдыя ${pct}%`);
+            }
+          }
+        );
+
+        if (nativeResultPath) {
+          const assetUrl = getDesktopAssetUrl(nativeResultPath);
+          const res = await fetch(assetUrl);
+          if (res.ok) {
+            const audioBlob = await res.blob();
+            if (audioBlob && audioBlob.size > 512) {
+              if (actualOnProgress) actualOnProgress(100, 'Аўдыя апрацавана 100%');
+              return {
+                blob: audioBlob,
+                mimeType: 'audio/mp4',
+                codecId: codecName,
+                channels: 2,
+                sampleRate: 44100
+              };
+            }
+          }
+        }
+      } catch (nativeErr) {
+        console.warn('[mkvAudioExtractor] Native extractAudioTrackNative failed, falling back to JS/WASM:', nativeErr);
+      }
+    }
 
     // Step 1: Extract ONLY raw audio track frames using chunked demuxers for all media containers (MKV, MP4, MOV, AVI, TS, M4V, etc.)
     const fileExt = fileObj.name ? fileObj.name.toLowerCase().split('.').pop() || '' : '';

@@ -426,6 +426,17 @@ function TimelinePlayerComponent({
       setExtAudioUrl(URL.createObjectURL(cached.audioFile));
       const isUnsupported = availableAudioTracks.find(t => t.trackNumber === trackNumKey)?.isUnsupportedCodec ?? false;
       setRequiresTranscode(isUnsupported);
+
+      const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path || (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+      if (isTauriDesktop() && rawPath) {
+        prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+          if (cleanPath) {
+            const streamUrl = getDesktopAssetUrl(cleanPath);
+            if (streamUrl) setMediaUrl(streamUrl);
+          }
+        }).catch(() => {});
+      }
+
       addToast?.(`Пераключана на раней апрацаваную дарожку #${trackNumKey} (${cached.label})`, 'success');
       return;
     }
@@ -607,10 +618,10 @@ function TimelinePlayerComponent({
           const isUnsupported = trackInfo?.isUnsupportedCodec ?? false;
           setRequiresTranscode(isUnsupported);
 
-          // On desktop: if the video has an unsupported audio codec (AC3, DTS, etc.), prepare clean video stream
+          // On desktop: whenever an audio track is transcoded / extracted, prepare clean video stream
           // so Chromium WebView2 will not crash with DECODER_ERROR_NOT_SUPPORTED on the video element.
-          const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path;
-          if (isTauriDesktop() && rawPath && (isUnsupported || requiresTranscodeNeeded)) {
+          const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path || (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+          if (isTauriDesktop() && rawPath) {
             prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
               if (cleanPath) {
                 const streamUrl = getDesktopAssetUrl(cleanPath);
@@ -943,6 +954,17 @@ function TimelinePlayerComponent({
       setExtAudioUrl(url);
       setExtAudioFileName(extAudioFile.name);
 
+      // On desktop: when external/transcoded audio is active, ensure mediaUrl uses clean audio-less video
+      const rawPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+      if (isTauriDesktop() && rawPath) {
+        prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+          if (cleanPath) {
+            const streamUrl = getDesktopAssetUrl(cleanPath);
+            if (streamUrl) setMediaUrl(streamUrl);
+          }
+        }).catch(() => {});
+      }
+
       return () => {
         URL.revokeObjectURL(url);
       };
@@ -950,7 +972,7 @@ function TimelinePlayerComponent({
       setExtAudioUrl('');
       setExtAudioFileName('');
     }
-  }, [extAudioFile]);
+  }, [extAudioFile, mediaFile]);
 
   // Auto-synchronize processedTracks when extAudioFile is present (e.g. restored on refresh)
   useEffect(() => {
@@ -1725,8 +1747,12 @@ function TimelinePlayerComponent({
                     const cleanVideoPath = await prepareCompatibleVideoDesktop(rawPath);
                     if (cleanVideoPath) {
                       const streamUrl = getDesktopAssetUrl(cleanVideoPath);
-                      if (streamUrl && streamUrl !== mediaUrl) {
-                        setMediaUrl(streamUrl);
+                      if (streamUrl) {
+                        if (streamUrl !== mediaUrl) {
+                          setMediaUrl(streamUrl);
+                        } else if (videoRef.current) {
+                          videoRef.current.load();
+                        }
                         addToast?.('Відэапаток паспяхова адаптаваны!', 'success');
                         return;
                       }
@@ -1736,7 +1762,8 @@ function TimelinePlayerComponent({
                   }
                 }
 
-                if (mediaFile && mediaFile.size > 0 && mediaUrl && !mediaUrl.startsWith('blob:')) {
+                // Fallback to Blob URL ONLY in non-desktop web browser mode
+                if (!isTauriDesktop() && mediaFile && mediaFile.size > 0 && mediaUrl && !mediaUrl.startsWith('blob:')) {
                   try {
                     const fallbackUrl = URL.createObjectURL(mediaFile);
                     setMediaUrl(fallbackUrl);
