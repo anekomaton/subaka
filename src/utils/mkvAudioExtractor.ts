@@ -2517,7 +2517,7 @@ export async function extractAudioFromMkv(
         if (actualOnProgress) actualOnProgress(5, 'ffmpeg.exe 5% 00:00:00');
         const trackIndex = (audioTrackNumber && audioTrackNumber > 0) ? audioTrackNumber - 1 : 0;
         const tempInfo = await getDesktopStorageInfo().catch(() => null);
-        const tempDir = (tempInfo?.temp_dir || '').replace(/[/\\]+$/, '');
+        const cacheDir = (tempInfo?.cache_dir || tempInfo?.temp_dir || '').replace(/[/\\]+$/, '');
 
         let pathHash = 0;
         const hashInput = `${rawDesktopPath}_${(fileObj as any).size || 0}`;
@@ -2527,7 +2527,7 @@ export async function extractAudioFromMkv(
         }
         const hashHex = (pathHash >>> 0).toString(16);
         const outName = `audio_cache_${hashHex}_tr${trackIndex + 1}.m4a`;
-        const targetOutPath = tempDir ? `${tempDir}/${outName}` : outName;
+        const targetOutPath = cacheDir ? `${cacheDir}/${outName}` : outName;
 
         const nativeResultPath = await extractAudioTrackNative(
           rawDesktopPath,

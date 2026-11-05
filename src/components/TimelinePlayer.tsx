@@ -1278,7 +1278,9 @@ function TimelinePlayerComponent({
 
     const syncPlay = () => {
       if (audio) {
-        audio.currentTime = video.currentTime;
+        if (Math.abs(audio.currentTime - video.currentTime) > 0.15) {
+          audio.currentTime = video.currentTime;
+        }
         audio.playbackRate = video.playbackRate;
         if (audio.paused) {
           audio.play().catch(() => {});
@@ -1299,9 +1301,16 @@ function TimelinePlayerComponent({
       }
     };
 
-    const syncSeek = () => {
+    const syncSeeking = () => {
+      onPlaybackStateChange({ currentTime: video.currentTime });
+    };
+
+    const syncSeeked = () => {
       if (audio) {
         audio.currentTime = video.currentTime;
+        if (!video.paused && audio.paused) {
+          audio.play().catch(() => {});
+        }
       }
       onPlaybackStateChange({ currentTime: video.currentTime });
     };
@@ -1320,8 +1329,8 @@ function TimelinePlayerComponent({
     };
 
     const syncTime = () => {
-      // Keep audio tightly locked to video (100ms max allowed drift for perfect lip sync)
-      if (audio && Math.abs(audio.currentTime - video.currentTime) > 0.1) {
+      // Keep audio tightly locked to video (250ms max allowed drift for smooth playback without audio decoder buffer restarts)
+      if (audio && !video.seeking && Math.abs(audio.currentTime - video.currentTime) > 0.25) {
         audio.currentTime = video.currentTime;
       }
       if (video.paused) {
@@ -1333,8 +1342,8 @@ function TimelinePlayerComponent({
     video.addEventListener('playing', syncPlay);
     video.addEventListener('pause', syncPause);
     video.addEventListener('ended', syncEnded);
-    video.addEventListener('seeking', syncSeek);
-    video.addEventListener('seeked', syncSeek);
+    video.addEventListener('seeking', syncSeeking);
+    video.addEventListener('seeked', syncSeeked);
     video.addEventListener('ratechange', syncRate);
     video.addEventListener('timeupdate', syncTime);
 
@@ -1354,8 +1363,8 @@ function TimelinePlayerComponent({
       video.removeEventListener('playing', syncPlay);
       video.removeEventListener('pause', syncPause);
       video.removeEventListener('ended', syncEnded);
-      video.removeEventListener('seeking', syncSeek);
-      video.removeEventListener('seeked', syncSeek);
+      video.removeEventListener('seeking', syncSeeking);
+      video.removeEventListener('seeked', syncSeeked);
       video.removeEventListener('ratechange', syncRate);
       video.removeEventListener('timeupdate', syncTime);
     };

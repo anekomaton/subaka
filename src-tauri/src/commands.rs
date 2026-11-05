@@ -314,7 +314,14 @@ pub fn get_desktop_storage_info(
 ) -> DesktopStorageInfo {
     use tauri::Manager;
     let app_data = app.path().app_data_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let cache = app.path().app_cache_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    
+    let base_cache = app.path().app_cache_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let cache_dir = base_cache.join("cache");
+    if !cache_dir.exists() {
+        let _ = std::fs::create_dir_all(&cache_dir);
+    }
+    let cache = cache_dir.to_string_lossy().to_string();
+
     let temp = std::env::temp_dir().to_string_lossy().to_string();
 
     let mut resources_dir = String::new();
@@ -363,10 +370,9 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
             || name.contains("waveform")
     };
 
-    // 1. App cache directory
-    if let Ok(cache_dir) = app.path().app_cache_dir() {
-        if cache_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&cache_dir) {
+    let mut clean_folder = |dir: &Path| {
+        if dir.exists() {
+            if let Ok(entries) = fs::read_dir(dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -379,22 +385,17 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
                 }
             }
         }
+    };
+
+    // 1. App cache directory root AND app cache directory /cache subfolder
+    if let Ok(base_cache) = app.path().app_cache_dir() {
+        clean_folder(&base_cache);
+        clean_folder(&base_cache.join("cache"));
     }
 
     // 2. Temp directory subaka & media cache files
     let temp_dir = std::env::temp_dir();
-    if let Ok(entries) = fs::read_dir(&temp_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if is_temp_media_file(name) {
-                if path.is_file() {
-                    let _ = fs::remove_file(path);
-                    deleted_count += 1;
-                }
-            }
-        }
-    }
+    clean_folder(&temp_dir);
 
     log::info!("Cleaned {} temporary media cache files", deleted_count);
     Ok(true)

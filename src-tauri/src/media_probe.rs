@@ -898,10 +898,15 @@ impl MediaProbeService {
         let hash = hasher.finish();
 
         let base_dir = app.path().app_cache_dir()
-            .or_else(|_| app.path().app_local_data_dir().map(|d| d.join("cache")))
+            .or_else(|_| app.path().app_local_data_dir())
             .unwrap_or_else(|_| std::env::temp_dir());
 
-        let out_file = base_dir.join(format!("clean_video_{:x}.mp4", hash));
+        let cache_dir = base_dir.join("cache");
+        if !cache_dir.exists() {
+            let _ = std::fs::create_dir_all(&cache_dir);
+        }
+
+        let out_file = cache_dir.join(format!("clean_video_{:x}.mp4", hash));
         out_file.to_string_lossy().to_string()
     }
 }
