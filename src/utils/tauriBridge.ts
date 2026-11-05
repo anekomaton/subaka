@@ -624,7 +624,20 @@ export async function loadDesktopFileFromPath(filePath: string): Promise<{
 
     const assetUrl = getDesktopAssetUrl(cleanPath);
 
-    // 1. Primary: convertFileSrc + fetch asset protocol (for files <= 150MB)
+    const isVideo = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'ts', 'm2ts', '3gp', 'm4v', 'flv', 'ogv'].includes(ext);
+
+    // 1. Primary for videos: instantly return streaming File shell with desktopPath and streaming asset URL.
+    // Avoids loading 2GB-10GB movies into JavaScript heap as Blobs, which caused startup OOM crashes.
+    if (isVideo && assetUrl) {
+      const emptyBlob = new Blob([], { type: mimeType });
+      const file = new File([emptyBlob], fileName, { type: mimeType });
+      (file as any).desktopPath = cleanPath;
+      (file as any).streamUrl = assetUrl;
+      (file as any).assetUrl = assetUrl;
+      return { file, fileName, isSubtitle: false, isMedia: true };
+    }
+
+    // 2. For audio files (<= 150MB): fetch asset protocol to create Blob
     try {
       if (assetUrl) {
         const res = await fetch(assetUrl);

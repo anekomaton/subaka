@@ -320,20 +320,129 @@ impl MediaProbeService {
             Self::compute_cache_video_path(app, input_path)
         };
 
-        let out_p = Path::new(&target_out_path);
+        let mkv_out_path = target_out_path.replace(".mp4", ".mkv");
 
+        // If either clean MP4 or clean MKV already exists and is non-empty, reuse it immediately
+        let out_p = Path::new(&target_out_path);
         if out_p.exists() {
             if let Ok(meta) = std::fs::metadata(out_p) {
-                if meta.len() > 1024 * 1024 {
-                    log::info!("[MediaProbe] Reusing existing clean video: {}", target_out_path);
+                if meta.len() > 64 * 1024 {
+                    log::info!("[MediaProbe] Reusing existing clean video (MP4): {}", target_out_path);
                     return Ok(target_out_path);
                 }
             }
         }
 
+        let mkv_p = Path::new(&mkv_out_path);
+        if mkv_p.exists() {
+            if let Ok(meta) = std::fs::metadata(mkv_p) {
+                if meta.len() > 64 * 1024 {
+                    log::info!("[MediaProbe] Reusing existing clean video (MKV): {}", mkv_out_path);
+                    return Ok(mkv_out_path);
+                }
+            }
+        }
+
+        // Concurrency guard: avoid launching multiple FFmpeg jobs for the exact same input file
+        static ACTIVE_JOBS: std::sync::Mutex<Option<std::collections::HashSet<String>>> = std::sync::Mutex::new(None);
+        let acquired = {
+            let mut guard = ACTIVE_JOBS.lock().unwrap_or_else(|e| e.into_inner());
+            let set = guard.get_or_insert_with(std::collections::HashSet::new);
+            if set.contains(input_path) {
+                false
+            } else {
+                set.insert(input_path.to_string());
+                true
+            }
+        };
+
+        if !acquired {
+            log::info!("[MediaProbe] Another thread is preparing clean video for {}, waiting...", input_path);
+            for _ in 0..120 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if Path::new(&target_out_path).exists() {
+                    if let Ok(m) = std::fs::metadata(&target_out_path) {
+                        if m.len() > 64 * 1024 {
+                            return Ok(target_out_path);
+                        }
+                    }
+                }
+                if Path::new(&mkv_out_path).exists() {
+                    if let Ok(m) = std::fs::metadata(&mkv_out_path) {
+                        if m.len() > 64 * 1024 {
+                            return Ok(mkv_out_path);
+                        }
+                    }
+                }
+                let still_active = {
+                    let guard = ACTIVE_JOBS.lock().unwrap_or_else(|e| e.into_inner());
+                    guard.as_ref().map(|s| s.contains(input_path)).unwrap_or(false)
+                };
+                if !still_active {
+                    break;
+                }
+            }
+            if Path::new(&target_out_path).exists() {
+                return Ok(target_out_path);
+            }
+            if Path::new(&mkv_out_path).exists() {
+                return Ok(mkv_out_path);
+            }
+        }
+
+        struct JobGuard<'a>(&'a str);
+        impl<'a> Drop for JobGuard<'a> {
+            fn drop(&mut self) {
+                if let Ok(mut guard) = ACTIVE_JOBS.lock() {
+                    if let Some(set) = guard.as_mut() {
+                        set.remove(self.0);
+                    }
+                }
+            }
+        }
+        let _guard = JobGuard(input_path);
+
         if let Some(parent) = out_p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+
+        let pid = std::process::id();
+        let temp_mp4_path = format!("{}.part_{}", target_out_path, pid);
+        let temp_mkv_path = format!("{}.part_{}", mkv_out_path, pid);
+
+        // Helper to run FFmpeg and return Ok(true) if the output file was successfully written and non-empty
+        let run_cmd = |args: &[&str], out_file: &str| -> Result<(), String> {
+            let status = if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
+                let res = tauri::async_runtime::block_on(sidecar.args(args).output());
+                match res {
+                    Ok(out) => {
+                        if out.status.success() {
+                            Ok(())
+                        } else {
+                            Err(String::from_utf8_lossy(&out.stderr).to_string())
+                        }
+                    }
+                    Err(_) => Self::run_system_extract(args, out_file).map(|_| ()),
+                }
+            } else {
+                Self::run_system_extract(args, out_file).map(|_| ())
+            };
+
+            if status.is_ok() {
+                if Path::new(out_file).exists() {
+                    if let Ok(meta) = std::fs::metadata(out_file) {
+                        if meta.len() > 32 * 1024 {
+                            return Ok(());
+                        }
+                    }
+                }
+                let _ = std::fs::remove_file(out_file);
+                Err("FFmpeg completed but output file is missing or zero-sized".into())
+            } else {
+                let _ = std::fs::remove_file(out_file);
+                status
+            }
+        };
 
         // Attempt 1: Fast stream copy to MP4 (-map 0:v:0? -c:v copy -an)
         let args_copy_mp4 = [
@@ -349,39 +458,22 @@ impl MediaProbeService {
             "-dn",
             "-movflags",
             "+faststart",
-            &target_out_path,
+            &temp_mp4_path,
         ];
 
-        let run_cmd = |args: &[&str]| -> Result<String, String> {
-            if let Ok(sidecar) = app.shell().sidecar("ffmpeg") {
-                let res = tauri::async_runtime::block_on(sidecar.args(args).output());
-                match res {
-                    Ok(out) => {
-                        if out.status.success() {
-                            Ok(target_out_path.clone())
-                        } else {
-                            Err(String::from_utf8_lossy(&out.stderr).to_string())
-                        }
-                    }
-                    Err(_) => Self::run_system_extract(args, &target_out_path),
-                }
-            } else {
-                Self::run_system_extract(args, &target_out_path)
-            }
-        };
-
-        match run_cmd(&args_copy_mp4) {
-            Ok(path) => {
-                log::info!("[MediaProbe] Clean compatible video stream created (bitstream copy): {}", path);
-                return Ok(path);
+        match run_cmd(&args_copy_mp4, &temp_mp4_path) {
+            Ok(()) => {
+                let _ = std::fs::rename(&temp_mp4_path, &target_out_path);
+                log::info!("[MediaProbe] Clean compatible video stream created (bitstream copy): {}", target_out_path);
+                return Ok(target_out_path);
             }
             Err(e1) => {
+                let _ = std::fs::remove_file(&temp_mp4_path);
                 log::warn!("[MediaProbe] Direct stream copy to MP4 failed, trying MKV copy fallback: {}", e1);
             }
         }
 
         // Attempt 2: Stream copy to MKV container if MP4 muxing rejected the codec
-        let mkv_out_path = target_out_path.replace(".mp4", ".mkv");
         let args_copy_mkv = [
             "-y",
             "-i",
@@ -393,13 +485,18 @@ impl MediaProbeService {
             "-an",
             "-sn",
             "-dn",
-            &mkv_out_path,
+            &temp_mkv_path,
         ];
 
-        if let Ok(_) = run_cmd(&args_copy_mkv) {
-            if Path::new(&mkv_out_path).exists() {
+        match run_cmd(&args_copy_mkv, &temp_mkv_path) {
+            Ok(()) => {
+                let _ = std::fs::rename(&temp_mkv_path, &mkv_out_path);
                 log::info!("[MediaProbe] Clean compatible video stream created (MKV copy): {}", mkv_out_path);
                 return Ok(mkv_out_path);
+            }
+            Err(e2) => {
+                let _ = std::fs::remove_file(&temp_mkv_path);
+                log::warn!("[MediaProbe] Stream copy to MKV failed, trying fast H.264 re-encode: {}", e2);
             }
         }
 
@@ -422,15 +519,17 @@ impl MediaProbeService {
             "-dn",
             "-movflags",
             "+faststart",
-            &target_out_path,
+            &temp_mp4_path,
         ];
 
-        match run_cmd(&args_reencode) {
-            Ok(path) => {
-                log::info!("[MediaProbe] Clean compatible video stream created (H.264 transcode): {}", path);
-                Ok(path)
+        match run_cmd(&args_reencode, &temp_mp4_path) {
+            Ok(()) => {
+                let _ = std::fs::rename(&temp_mp4_path, &target_out_path);
+                log::info!("[MediaProbe] Clean compatible video stream created (H.264 transcode): {}", target_out_path);
+                Ok(target_out_path)
             }
             Err(e) => {
+                let _ = std::fs::remove_file(&temp_mp4_path);
                 log::error!("[MediaProbe] All video conversion attempts failed: {}", e);
                 Err(e)
             }

@@ -1,5 +1,5 @@
 import { SubtitleEntry } from '../types';
-import { isTauriDesktop, loadDesktopFileFromPath } from './tauriBridge';
+import { isTauriDesktop, loadDesktopFileFromPath, getDesktopAssetUrl } from './tauriBridge';
 
 const DB_NAME = 'SubakaWorkspaceDB';
 const DB_VERSION = 1;
@@ -237,8 +237,9 @@ export async function saveWorkspaceToStorage(
     }
 
     const desktopPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+    const cleanVideoPath = (mediaFile as any)?.cleanVideoPath;
     const currentMediaSig = mediaFile
-      ? `${mediaFile.name}:${mediaFile.size}:${mediaFile.lastModified || 0}:${desktopPath || ''}`
+      ? `${mediaFile.name}:${mediaFile.size}:${mediaFile.lastModified || 0}:${desktopPath || ''}:${cleanVideoPath || ''}`
       : (mediaFileName || '');
 
     if (currentMediaSig !== lastSavedMediaFileSig) {
@@ -251,6 +252,7 @@ export async function saveWorkspaceToStorage(
             type: mediaFile?.type || '',
             blob: canSaveBlob ? mediaFile : undefined,
             desktopPath: desktopPath || undefined,
+            cleanVideoPath: cleanVideoPath || undefined,
             fileHandle: fileHandle || undefined,
           }, 'mediaFileData');
         } catch (err) {
@@ -260,6 +262,7 @@ export async function saveWorkspaceToStorage(
             name: mediaFile?.name || mediaFileName || 'media',
             type: mediaFile?.type || '',
             desktopPath: desktopPath || undefined,
+            cleanVideoPath: cleanVideoPath || undefined,
             fileHandle: fileHandle || undefined,
           }, 'mediaFileData');
         }
@@ -416,12 +419,20 @@ export async function loadWorkspaceFromStorage(): Promise<SavedWorkspace | null>
         if (mediaFileData.desktopPath) {
           (restoredMediaFile as any).desktopPath = mediaFileData.desktopPath;
         }
+        if (mediaFileData.cleanVideoPath) {
+          (restoredMediaFile as any).cleanVideoPath = mediaFileData.cleanVideoPath;
+          (restoredMediaFile as any).cleanStreamUrl = getDesktopAssetUrl(mediaFileData.cleanVideoPath);
+        }
       } else if (mediaFileData.desktopPath && isTauriDesktop()) {
         try {
           const loaded = await loadDesktopFileFromPath(mediaFileData.desktopPath);
           if (loaded.isMedia && loaded.file) {
             restoredMediaFile = loaded.file;
             (restoredMediaFile as any).desktopPath = mediaFileData.desktopPath;
+            if (mediaFileData.cleanVideoPath) {
+              (restoredMediaFile as any).cleanVideoPath = mediaFileData.cleanVideoPath;
+              (restoredMediaFile as any).cleanStreamUrl = getDesktopAssetUrl(mediaFileData.cleanVideoPath);
+            }
           }
         } catch (e) {
           console.warn('[Persistence] Could not reload desktop media from path:', e);

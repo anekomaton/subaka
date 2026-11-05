@@ -10,7 +10,7 @@ import { srtTimeToSeconds, secondsToSrtTime, sanitizeSrtHtml, parseSrt } from '.
 import { extractAudioFromMkv, probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
 import { extractAudioWithFFmpeg, terminateFFmpegWorker } from '../utils/ffmpegExtractor';
 import { extractSrtSubtitles, probeSubtitles, SubtitleTrackInfo, isSupportedSubtitleCodec, downloadRawSubtitleTrack } from '../utils/srtSubtitleExtractor';
-import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop, getDesktopAssetUrl, logDesktopError, prepareCompatibleVideoDesktop } from '../utils/tauriBridge';
+import { saveFileUniversal, isTauriDesktop, restorePostFullscreenBoundsDesktop, getDesktopAssetUrl, logDesktopError, prepareCompatibleVideoDesktop, openMediaOrSubtitleDialog, loadDesktopFileFromPath } from '../utils/tauriBridge';
 
 interface TimelinePlayerProps {
   subtitles: SubtitleEntry[];
@@ -112,6 +112,7 @@ function TimelinePlayerComponent({
   }, [audioProcessingStatus.isProcessing, onAudioProcessingChange]);
   const extAudioRef = useRef<HTMLAudioElement>(null);
   const audioAbortControllerRef = useRef<AbortController | null>(null);
+  const restoreMediaInputRef = useRef<HTMLInputElement>(null);
 
   const [availableAudioTracks, setAvailableAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [showAudioTrackSelectModal, setShowAudioTrackSelectModal] = useState<boolean>(false);
@@ -429,12 +430,25 @@ function TimelinePlayerComponent({
 
       const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path || (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
       if (isTauriDesktop() && rawPath) {
-        prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
-          if (cleanPath) {
-            const streamUrl = getDesktopAssetUrl(cleanPath);
-            if (streamUrl) setMediaUrl(streamUrl);
-          }
-        }).catch(() => {});
+        const existingCleanUrl = (targetFile as any)?.cleanStreamUrl || (mediaFile as any)?.cleanStreamUrl;
+        if (existingCleanUrl) {
+          setMediaUrl(existingCleanUrl);
+        } else {
+          prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+            if (cleanPath) {
+              const streamUrl = getDesktopAssetUrl(cleanPath);
+              if (streamUrl) {
+                (targetFile as any).cleanVideoPath = cleanPath;
+                (targetFile as any).cleanStreamUrl = streamUrl;
+                if (mediaFile) {
+                  (mediaFile as any).cleanVideoPath = cleanPath;
+                  (mediaFile as any).cleanStreamUrl = streamUrl;
+                }
+                setMediaUrl(streamUrl);
+              }
+            }
+          }).catch(() => {});
+        }
       }
 
       addToast?.(`Пераключана на раней апрацаваную дарожку #${trackNumKey} (${cached.label})`, 'success');
@@ -602,6 +616,34 @@ function TimelinePlayerComponent({
           [trackNumKey]: { blob: blobToUse!, audioFile, label: codecTagToUse }
         }));
 
+        // On desktop: whenever an audio track is transcoded / extracted, prepare clean video stream
+        // so Chromium WebView2 will not crash with DECODER_ERROR_NOT_SUPPORTED on the video element.
+        const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path || (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+        if (isTauriDesktop() && rawPath) {
+          setAudioProcessingStatus({
+            isProcessing: true,
+            message: 'падрыхтоўка відэапатоку...',
+            progress: 95
+          });
+          try {
+            const cleanPath = await prepareCompatibleVideoDesktop(rawPath);
+            if (cleanPath) {
+              const streamUrl = getDesktopAssetUrl(cleanPath);
+              if (streamUrl) {
+                (targetFile as any).cleanVideoPath = cleanPath;
+                (targetFile as any).cleanStreamUrl = streamUrl;
+                if (mediaFile) {
+                  (mediaFile as any).cleanVideoPath = cleanPath;
+                  (mediaFile as any).cleanStreamUrl = streamUrl;
+                }
+                setMediaUrl(streamUrl);
+              }
+            }
+          } catch (cleanErr) {
+            console.warn('[TimelinePlayer] prepareCompatibleVideoDesktop error:', cleanErr);
+          }
+        }
+
         setAudioProcessingStatus({ isProcessing: false, message: '', progress: null });
         addToast?.(`Аўдыя: Паспяхова апрацавана дарожка #${trackNumKey} (${codecTagToUse}).`, 'success');
 
@@ -617,20 +659,6 @@ function TimelinePlayerComponent({
 
           const isUnsupported = trackInfo?.isUnsupportedCodec ?? false;
           setRequiresTranscode(isUnsupported);
-
-          // On desktop: whenever an audio track is transcoded / extracted, prepare clean video stream
-          // so Chromium WebView2 will not crash with DECODER_ERROR_NOT_SUPPORTED on the video element.
-          const rawPath = (targetFile as any)?.desktopPath || (targetFile as any)?.path || (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
-          if (isTauriDesktop() && rawPath) {
-            prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
-              if (cleanPath) {
-                const streamUrl = getDesktopAssetUrl(cleanPath);
-                if (streamUrl) {
-                  setMediaUrl(streamUrl);
-                }
-              }
-            }).catch(() => {});
-          }
         }
       } else {
         setAudioProcessingStatus({ isProcessing: false, message: '', progress: null });
@@ -777,7 +805,13 @@ function TimelinePlayerComponent({
       const isVideo = isExplicitVideoType && !isExplicitAudioType;
 
       const rawPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
-      let url = (mediaFile as any)?.streamUrl || (mediaFile as any)?.assetUrl || '';
+      let url = (mediaFile as any)?.cleanStreamUrl || '';
+      if (!url && (mediaFile as any)?.cleanVideoPath && isTauriDesktop()) {
+        url = getDesktopAssetUrl((mediaFile as any).cleanVideoPath);
+      }
+      if (!url) {
+        url = (mediaFile as any)?.streamUrl || (mediaFile as any)?.assetUrl || '';
+      }
       if (!url && rawPath && isTauriDesktop()) {
         url = getDesktopAssetUrl(rawPath);
       }
@@ -886,12 +920,21 @@ function TimelinePlayerComponent({
               setRequiresTranscode(needsTc);
 
               if (isTauriDesktop() && rawPath && needsTc) {
-                prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
-                  if (cleanPath) {
-                    const streamUrl = getDesktopAssetUrl(cleanPath);
-                    if (streamUrl) setMediaUrl(streamUrl);
-                  }
-                }).catch(() => {});
+                const existingCleanUrl = (mediaFile as any)?.cleanStreamUrl;
+                if (existingCleanUrl) {
+                  setMediaUrl(existingCleanUrl);
+                } else {
+                  prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+                    if (cleanPath) {
+                      const streamUrl = getDesktopAssetUrl(cleanPath);
+                      if (streamUrl) {
+                        (mediaFile as any).cleanVideoPath = cleanPath;
+                        (mediaFile as any).cleanStreamUrl = streamUrl;
+                        setMediaUrl(streamUrl);
+                      }
+                    }
+                  }).catch(() => {});
+                }
               }
 
               if (processedTracks[activeTr.trackNumber]) {
@@ -957,12 +1000,25 @@ function TimelinePlayerComponent({
       // On desktop: when external/transcoded audio is active, ensure mediaUrl uses clean audio-less video
       const rawPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
       if (isTauriDesktop() && rawPath) {
-        prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
-          if (cleanPath) {
-            const streamUrl = getDesktopAssetUrl(cleanPath);
-            if (streamUrl) setMediaUrl(streamUrl);
+        const existingCleanUrl = (mediaFile as any)?.cleanStreamUrl;
+        if (existingCleanUrl) {
+          if (mediaUrl !== existingCleanUrl) {
+            setMediaUrl(existingCleanUrl);
           }
-        }).catch(() => {});
+        } else {
+          prepareCompatibleVideoDesktop(rawPath).then((cleanPath) => {
+            if (cleanPath) {
+              const streamUrl = getDesktopAssetUrl(cleanPath);
+              if (streamUrl) {
+                if (mediaFile) {
+                  (mediaFile as any).cleanVideoPath = cleanPath;
+                  (mediaFile as any).cleanStreamUrl = streamUrl;
+                }
+                setMediaUrl(streamUrl);
+              }
+            }
+          }).catch(() => {});
+        }
       }
 
       return () => {
@@ -1748,10 +1804,16 @@ function TimelinePlayerComponent({
                     if (cleanVideoPath) {
                       const streamUrl = getDesktopAssetUrl(cleanVideoPath);
                       if (streamUrl) {
+                        (mediaFile as any).cleanVideoPath = cleanVideoPath;
+                        (mediaFile as any).cleanStreamUrl = streamUrl;
+                        const savedTime = videoRef.current?.currentTime || currentTime;
                         if (streamUrl !== mediaUrl) {
                           setMediaUrl(streamUrl);
                         } else if (videoRef.current) {
                           videoRef.current.load();
+                        }
+                        if (videoRef.current && savedTime > 0) {
+                          videoRef.current.currentTime = savedTime;
                         }
                         addToast?.('Відэапаток паспяхова адаптаваны!', 'success');
                         return;
@@ -1861,22 +1923,47 @@ function TimelinePlayerComponent({
                 <p className="text-xs text-slate-400 mb-4 leading-relaxed">
                   Усе субцітры і таймкоды захаваны. Патрабуецца аднавіць доступ да лакальнага медыяфайла.
                 </p>
-                <label className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg cursor-pointer text-xs font-semibold shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-95">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isTauriDesktop()) {
+                      const selectedPath = await openMediaOrSubtitleDialog('media');
+                      if (selectedPath) {
+                        try {
+                          const loaded = await loadDesktopFileFromPath(selectedPath);
+                          if (loaded.isMedia && loaded.file) {
+                            setMediaFile(loaded.file);
+                            setMediaFileName(loaded.fileName);
+                            return;
+                          }
+                        } catch (err) {
+                          console.warn('Failed to restore desktop media file:', err);
+                        }
+                      }
+                    }
+                    restoreMediaInputRef.current?.click();
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg cursor-pointer text-xs font-semibold shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-95"
+                >
                   <RefreshCw className="h-4 w-4 animate-spin-slow" />
                   Аднавіць медыяфайл
                   <input
+                    ref={restoreMediaInputRef}
                     type="file"
                     accept="video/*,audio/*,.mkv,.mp4,.webm,.avi,.mov,.mp3,.wav,.m4a"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) {
+                        if (isTauriDesktop() && (file as any).path) {
+                          (file as any).desktopPath = (file as any).path;
+                        }
                         setMediaFile(file);
                         setMediaFileName(file.name);
                       }
                     }}
                   />
-                </label>
+                </button>
               </div>
             ) : (
               <div className={`relative z-10 flex items-center justify-center w-[35%] h-[35%] ${

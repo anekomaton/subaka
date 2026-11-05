@@ -51,7 +51,9 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const portArgIdx = process.argv.indexOf("--port");
+const portFromArg = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? Number(process.argv[portArgIdx + 1]) : null;
+const PORT = portFromArg || (process.env.NODE_ENV === "production" ? Number(process.env.PORT) || 3000 : 3000);
 
 // Set up JSON parsers
 app.use(express.json({ limit: "100mb" }));
@@ -2821,7 +2823,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // ==========================================
 async function startServer() {
   const distPath = path.join(process.cwd(), "dist");
-  const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(path.join(distPath, "index.html"));
+  const isProduction = process.env.NODE_ENV === "production";
 
   if (!isProduction) {
     const vite = await createViteServer({

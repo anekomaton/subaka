@@ -30,7 +30,7 @@ import {
 import { SubtitleEntry } from '../types';
 import { parseSubtitleContent } from '../utils/assParser';
 import { SubakaLogo } from './SubakaLogo';
-import { isTauriDesktop } from '../utils/tauriBridge';
+import { isTauriDesktop, openMediaOrSubtitleDialog, loadDesktopFileFromPath } from '../utils/tauriBridge';
 
 interface HeaderProps {
   geminiApiKey?: string;
@@ -258,6 +258,9 @@ export default function Header({
   const handleMediaFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      if (isTauriDesktop() && (file as any).path) {
+        (file as any).desktopPath = (file as any).path;
+      }
       onMediaFileLoaded?.(file);
     }
     if (mediaFileInputRef.current) {
@@ -946,8 +949,22 @@ export default function Header({
 
                   {/* Purple Option: медыяфайл */}
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       setIsUploadDropdownOpen(false);
+                      if (isTauriDesktop()) {
+                        const selected = await openMediaOrSubtitleDialog('media');
+                        if (selected) {
+                          try {
+                            const loaded = await loadDesktopFileFromPath(selected);
+                            if (loaded.isMedia && loaded.file) {
+                              onMediaFileLoaded?.(loaded.file);
+                              return;
+                            }
+                          } catch (err) {
+                            console.warn('Native open media failed:', err);
+                          }
+                        }
+                      }
                       mediaFileInputRef.current?.click();
                     }}
                     className={`px-3 py-2 text-left flex items-center gap-2 transition-colors cursor-pointer border-t ${
