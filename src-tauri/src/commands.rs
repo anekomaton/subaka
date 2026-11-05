@@ -348,8 +348,20 @@ pub fn get_desktop_storage_info(
 #[tauri::command]
 pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
     use tauri::Manager;
-    // Cleans temporary cache files, keeping resources (grammardb, verbum, dictionaries) intact!
+    // Cleans temporary media & cache files, keeping resources (grammardb, verbum, dictionaries) intact!
     let mut deleted_count = 0;
+
+    let is_temp_media_file = |name: &str| -> bool {
+        if name.contains("grammardb") || name.contains("verbum") || name.ends_with(".sqlite3") {
+            return false;
+        }
+        name.starts_with("clean_video")
+            || name.starts_with("audio_cache")
+            || name.starts_with("extracted_audio")
+            || name.starts_with("subaka_")
+            || name.starts_with("subaka-")
+            || name.contains("waveform")
+    };
 
     // 1. App cache directory
     if let Ok(cache_dir) = app.path().app_cache_dir() {
@@ -358,29 +370,24 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    // NEVER delete grammardb, verbum or dictionaries
-                    if name.contains("grammardb") || name.contains("verbum") || name.ends_with(".sqlite3") {
-                        continue;
-                    }
-                    if path.is_file() {
-                        let _ = fs::remove_file(path);
-                        deleted_count += 1;
+                    if is_temp_media_file(name) {
+                        if path.is_file() {
+                            let _ = fs::remove_file(path);
+                            deleted_count += 1;
+                        }
                     }
                 }
             }
         }
     }
 
-    // 2. Temp directory subaka files
+    // 2. Temp directory subaka & media cache files
     let temp_dir = std::env::temp_dir();
     if let Ok(entries) = fs::read_dir(&temp_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if (name.starts_with("subaka_") || name.starts_with("subaka-") || name.contains("waveform"))
-                && !name.contains("grammardb")
-                && !name.contains("verbum")
-            {
+            if is_temp_media_file(name) {
                 if path.is_file() {
                     let _ = fs::remove_file(path);
                     deleted_count += 1;
@@ -389,7 +396,7 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
         }
     }
 
-    log::info!("Cleaned {} temporary cache files", deleted_count);
+    log::info!("Cleaned {} temporary media cache files", deleted_count);
     Ok(true)
 }
 

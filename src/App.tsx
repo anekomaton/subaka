@@ -3476,8 +3476,11 @@ export default function App() {
       localStorage.removeItem('subaka_playback_current_time');
     } catch {}
 
+    if (isTauriDesktop()) {
+      await clearDesktopTempCache().catch(() => {});
+    }
     await clearMediaFromStorage();
-    addToast("Медыяфайл ачышчаны", "info");
+    addToast("Медыяфайл і часовы кэш ачышчаны", "info");
   };
 
   const handleMediaFileLoaded = (file: File) => {

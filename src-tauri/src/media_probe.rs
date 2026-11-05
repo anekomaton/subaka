@@ -306,6 +306,24 @@ impl MediaProbeService {
         let map_arg = format!("0:a:{}", track_index);
 
         let out_p = Path::new(output_path);
+        if out_p.exists() {
+            if let Ok(meta) = std::fs::metadata(out_p) {
+                if meta.len() > 64 * 1024 {
+                    log::info!("[MediaProbe] Reusing existing extracted audio file: {}", output_path);
+                    let _ = app.emit(
+                        "media-extraction-progress",
+                        ExtractionProgressPayload {
+                            progress: 1.0,
+                            message: "ffmpeg.exe 100% 00:00:00".into(),
+                            finished: true,
+                            error: None,
+                        },
+                    );
+                    return Ok(output_path.to_string());
+                }
+            }
+        }
+
         if let Some(parent) = out_p.parent() {
             if !parent.exists() {
                 let _ = std::fs::create_dir_all(parent);

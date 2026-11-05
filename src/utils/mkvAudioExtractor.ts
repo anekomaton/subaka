@@ -2518,7 +2518,15 @@ export async function extractAudioFromMkv(
         const trackIndex = (audioTrackNumber && audioTrackNumber > 0) ? audioTrackNumber - 1 : 0;
         const tempInfo = await getDesktopStorageInfo().catch(() => null);
         const tempDir = (tempInfo?.temp_dir || '').replace(/[/\\]+$/, '');
-        const outName = `extracted_audio_${Date.now()}_tr${trackIndex + 1}.m4a`;
+
+        let pathHash = 0;
+        const hashInput = `${rawDesktopPath}_${(fileObj as any).size || 0}`;
+        for (let i = 0; i < hashInput.length; i++) {
+          pathHash = ((pathHash << 5) - pathHash) + hashInput.charCodeAt(i);
+          pathHash |= 0;
+        }
+        const hashHex = (pathHash >>> 0).toString(16);
+        const outName = `audio_cache_${hashHex}_tr${trackIndex + 1}.m4a`;
         const targetOutPath = tempDir ? `${tempDir}/${outName}` : outName;
 
         const nativeResultPath = await extractAudioTrackNative(
