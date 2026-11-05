@@ -283,7 +283,7 @@ export default function ControlsPanel({
                           ? 'hover:bg-red-950/50 text-red-400 hover:text-red-300 cursor-pointer'
                           : 'hover:bg-red-50 text-red-600 hover:text-red-700 cursor-pointer'
                     }`}
-                    title="Ачысціць медыяфайл і аўдыядарожкі"
+                    title="Ачысціць плэер і часовыя медыяфайлы"
                   >
                     <span>ачысціць медыя</span>
                   </button>
@@ -320,7 +320,7 @@ export default function ControlsPanel({
                         ? 'hover:bg-red-950/50 text-red-400 hover:text-red-300 cursor-pointer'
                         : 'hover:bg-red-50 text-red-600 hover:text-red-700 cursor-pointer'
                     }`}
-                    title="Ачысціць усе лакальныя даныя, медыя і субцітры"
+                    title="Ачысціць усе часовыя даныя, медыя і субцітры"
                   >
                     <span>ачысціць усё</span>
                   </button>
