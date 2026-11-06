@@ -194,7 +194,7 @@ export const FormatHelpModal: React.FC<FormatHelpModalProps> = ({
                       : 'bg-white border-amber-200 text-slate-900 shadow-2xs'
                   }`}>
                     <div>
-                      <span className="text-sky-950 dark:text-sky-300 font-bold">Папка resources (слоўнікі і граматычная база):</span>{' '}
+                      <span className="text-sky-950 dark:text-sky-300 font-bold">Папка resources (слоўнікі, граматычная база і інш.):</span>{' '}
                       <span className="text-slate-950 dark:text-slate-100 font-bold select-all bg-slate-100 dark:bg-slate-900/90 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-800 inline-block">{desktopStorage?.resources_dir || '<Папка_Праграмы>\\resources\\'}</span>
                       <span className="text-slate-700 dark:text-slate-300 text-[10.5px] block font-sans mt-0.5 font-medium">
                         Загружаюцца пры ўсталёўцы праграмы.

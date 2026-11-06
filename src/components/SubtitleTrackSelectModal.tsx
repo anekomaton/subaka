@@ -204,7 +204,7 @@ export default function SubtitleTrackSelectModal({
                   />
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Whisper</span>
-                    <span className="text-[10px] text-slate-400">AppData (Офлайн)</span>
+                    <span className="text-[10px] text-slate-400">лакальна</span>
                   </div>
                 </div>
                 <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
