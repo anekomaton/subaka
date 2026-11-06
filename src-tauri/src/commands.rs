@@ -375,7 +375,8 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
             || lower.contains("waveform")
     };
 
-    let mut clean_folder = |dir: &Path| {
+    let clean_folder = |dir: &Path| -> usize {
+        let mut count = 0;
         if dir.exists() {
             if let Ok(entries) = fs::read_dir(dir) {
                 for entry in entries.flatten() {
@@ -384,20 +385,21 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
                     if is_temp_media_file(name) {
                         if path.is_file() {
                             let _ = fs::remove_file(&path);
-                            deleted_count += 1;
+                            count += 1;
                         } else if path.is_dir() {
                             let _ = fs::remove_dir_all(&path);
-                            deleted_count += 1;
+                            count += 1;
                         }
                     }
                 }
             }
         }
+        count
     };
 
     // 1. App cache directory root AND app cache directory /cache subfolder
     if let Ok(base_cache) = app.path().app_cache_dir() {
-        clean_folder(&base_cache);
+        deleted_count += clean_folder(&base_cache);
         
         let cache_dir = base_cache.join("cache");
         if cache_dir.exists() {
@@ -422,7 +424,7 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
 
     // 2. Temp directory subaka, whisper & transcribe cache files
     let temp_dir = std::env::temp_dir();
-    clean_folder(&temp_dir);
+    deleted_count += clean_folder(&temp_dir);
 
     // 3. Remove transcribe jobs and upload temp subdirs if any
     let transcribe_db_dir = temp_dir.join("transcribe_jobs_db");
