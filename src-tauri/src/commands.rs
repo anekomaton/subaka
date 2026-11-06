@@ -898,6 +898,7 @@ pub async fn fetch_verbum_online_native(
 }
 
 #[tauri::command]
+#[allow(deprecated)]
 pub fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
     app.shell().open(&url, None).map_err(|e| format!("Не ўдалося адкрыць спасылку: {}", e))
