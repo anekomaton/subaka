@@ -107,6 +107,17 @@ jobs:
             }
           }
 
+          # 3. Download Whisper sidecar binary and model into resources
+          $whisperScript = Join-Path (Get-Location) "src-tauri/binaries/download_whisper_sidecars.ps1"
+          if (Test-Path $whisperScript) {
+            Write-Host "Downloading Whisper sidecar binary (whisper.exe) & GGML model into resources..."
+            try {
+              powershell -ExecutionPolicy Bypass -File $whisperScript
+            } catch {
+              Write-Host "Warning: download_whisper_sidecars.ps1 caught error: $_"
+            }
+          }
+
           Write-Host "Prepared resources folder contents:"
           Get-ChildItem $resDir | ForEach-Object {
             Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1MB, 2)) MB"

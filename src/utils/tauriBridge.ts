@@ -863,7 +863,31 @@ export async function logDesktopInfo(
 }
 
 /**
- * Retrieves the local Whisper binary and ggml-small model paths in AppData\Local\SUBaka\resources
+ * Saves a Blob/File to a temporary file path on desktop disk
+ */
+export async function saveTempBinaryFileDesktop(content: Blob | File, filename: string): Promise<string> {
+  const storageInfo = await getDesktopStorageInfo().catch(() => null);
+  const tempDir = (storageInfo?.temp_dir || storageInfo?.cache_dir || '').replace(/[/\\]+$/, '');
+  const cleanName = filename.replace(/[^\w.-]/g, '_');
+  const targetPath = tempDir ? `${tempDir}/${cleanName}` : cleanName;
+
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const res = reader.result as string;
+      const base64 = res.split(',')[1] || '';
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Failed to encode audio for desktop temporary file'));
+    reader.readAsDataURL(content);
+  });
+
+  await invoke('save_binary_file_direct', { filePath: targetPath, dataBase64 });
+  return targetPath;
+}
+
+/**
+ * Retrieves the local Whisper binary and ggml-small model paths in AppData\Local\SUBaka\resources or resources folder
  */
 export async function getWhisperResourcePath(): Promise<{ binaryPath: string; modelPath: string } | null> {
   if (!isTauriDesktop()) return null;
@@ -871,7 +895,7 @@ export async function getWhisperResourcePath(): Promise<{ binaryPath: string; mo
     const res = await invoke<{ binaryPath: string; modelPath: string }>('get_whisper_resource_paths');
     return res;
   } catch (_) {
-    // Return expected AppData\Local\SUBaka\resources layout paths
+    // Return expected resources layout paths
     return {
       binaryPath: 'resources/whisper.exe',
       modelPath: 'resources/ggml-small.bin',
@@ -883,23 +907,38 @@ export async function getWhisperResourcePath(): Promise<{ binaryPath: string; mo
  * Invokes native local whisper.cpp sidecar engine for desktop transcription
  */
 export async function runWhisperTranscribeDesktop(
-  wavAudioPath: string,
+  audioInput: string | Blob | File,
+  modelName = 'ggml-small.bin',
   language = 'auto'
 ): Promise<string | null> {
   if (!isTauriDesktop()) return null;
   try {
-    logDesktopInfo('WhisperEngine', 'Launching local whisper.cpp transcription', { wavAudioPath, language });
+    let wavPath = '';
+    if (typeof audioInput === 'string') {
+      wavPath = audioInput;
+    } else {
+      const rawDesktopPath = (audioInput as any)?.desktopPath || (audioInput as any)?.path;
+      if (rawDesktopPath && typeof rawDesktopPath === 'string') {
+        wavPath = rawDesktopPath;
+      } else {
+        const tempName = `whisper_input_${Date.now()}.wav`;
+        wavPath = await saveTempBinaryFileDesktop(audioInput, tempName);
+      }
+    }
+
+    logDesktopInfo('WhisperEngine', 'Launching local whisper.cpp transcription', { wavPath, modelName, language });
     const srtOutput = await invoke<string>('run_whisper_transcribe', {
-      audioPath: wavAudioPath,
-      modelName: 'ggml-small.bin',
-      language,
+      audioPath: wavPath,
+      modelName: modelName || 'ggml-small.bin',
+      language: language || 'auto',
     });
     logDesktopInfo('WhisperEngine', 'Local whisper.cpp transcription completed successfully');
     return srtOutput;
-  } catch (err) {
-    console.warn('[TauriBridge] run_whisper_transcribe failed:', err);
-    logDesktopError('WhisperEngine', 'Local whisper.cpp execution failed', { error: String(err) });
-    return null;
+  } catch (err: any) {
+    const errorMsg = typeof err === 'string' ? err : (err?.message || String(err));
+    console.warn('[TauriBridge] run_whisper_transcribe failed:', errorMsg);
+    logDesktopError('WhisperEngine', 'Local whisper.cpp execution failed', { error: errorMsg });
+    throw new Error(errorMsg);
   }
 }
 

@@ -947,13 +947,141 @@ pub struct WhisperResourcePaths {
     pub model_path: String,
 }
 
+pub fn resolve_whisper_executable_and_model(
+    app: &AppHandle,
+    requested_model: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    let mut candidate_dirs: Vec<PathBuf> = Vec::new();
+
+    // 1. Executable directory: <exe_dir>/resources and <exe_dir>
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            candidate_dirs.push(exe_dir.join("resources"));
+            candidate_dirs.push(exe_dir.to_path_buf());
+        }
+    }
+
+    // 2. Tauri resource_dir
+    if let Ok(res_dir) = app.path().resource_dir() {
+        candidate_dirs.push(res_dir.join("resources"));
+        candidate_dirs.push(res_dir);
+    }
+
+    // 3. App local data directory (%LOCALAPPDATA%/SUBaka)
+    if let Ok(app_dir) = app.path().app_local_data_dir() {
+        candidate_dirs.push(app_dir.join("resources"));
+        candidate_dirs.push(app_dir);
+    }
+
+    // 4. Fallback LOCALAPPDATA environment variable
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let base_dir = Path::new(&local_appdata).join("SUBaka");
+        candidate_dirs.push(base_dir.join("resources"));
+        candidate_dirs.push(base_dir);
+    }
+
+    // 5. Current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        candidate_dirs.push(cwd.join("resources"));
+        candidate_dirs.push(cwd);
+    }
+
+    // Binary candidates to search for
+    let binary_names = ["whisper.exe", "whisper-cli.exe", "main.exe", "whisper"];
+    let mut found_binary: Option<PathBuf> = None;
+
+    for dir in &candidate_dirs {
+        for b_name in &binary_names {
+            let candidate = dir.join(b_name);
+            if candidate.exists() && candidate.is_file() {
+                found_binary = Some(candidate);
+                break;
+            }
+        }
+        if found_binary.is_some() {
+            break;
+        }
+    }
+
+    // If binary not found in candidate folders, check if system PATH has whisper.exe
+    if found_binary.is_none() {
+        if let Ok(path_var) = std::env::var("PATH") {
+            for path_entry in std::env::split_paths(&path_var) {
+                for b_name in &binary_names {
+                    let candidate = path_entry.join(b_name);
+                    if candidate.exists() && candidate.is_file() {
+                        found_binary = Some(candidate);
+                        break;
+                    }
+                }
+                if found_binary.is_some() {
+                    break;
+                }
+            }
+        }
+    }
+
+    let binary_path = match found_binary {
+        Some(p) => p,
+        None => {
+            return Err(
+                "Не знойдзены бінарны файл Whisper (whisper.exe/whisper-cli.exe). Змесціце whisper.exe у тэчку resources/ праграмы або AppData/Local/SUBaka/resources."
+                    .to_string(),
+            );
+        }
+    };
+
+    // Model candidates to search for
+    let mut model_names = Vec::new();
+    if !requested_model.trim().is_empty() {
+        model_names.push(requested_model.trim().to_string());
+    }
+    model_names.push("ggml-small.bin".to_string());
+    model_names.push("ggml-base.bin".to_string());
+    model_names.push("ggml-medium.bin".to_string());
+    model_names.push("ggml-tiny.bin".to_string());
+
+    let mut found_model: Option<PathBuf> = None;
+
+    // Check if requested model is an absolute path that exists
+    if !requested_model.trim().is_empty() {
+        let direct_path = Path::new(requested_model);
+        if direct_path.is_absolute() && direct_path.exists() {
+            found_model = Some(direct_path.to_path_buf());
+        }
+    }
+
+    if found_model.is_none() {
+        for dir in &candidate_dirs {
+            for m_name in &model_names {
+                let candidate = dir.join(m_name);
+                if candidate.exists() && candidate.is_file() {
+                    found_model = Some(candidate);
+                    break;
+                }
+            }
+            if found_model.is_some() {
+                break;
+            }
+        }
+    }
+
+    let model_path = match found_model {
+        Some(p) => p,
+        None => {
+            return Err(
+                "Не знойдзена мадэль Whisper (ggml-small.bin / ggml-base.bin). Змесціце файл мадэлі ggml-small.bin у тэчку resources/ праграмы або AppData/Local/SUBaka/resources."
+                    .to_string(),
+            );
+        }
+    };
+
+    Ok((binary_path, model_path))
+}
+
 #[tauri::command]
-pub fn get_whisper_resource_paths() -> Result<WhisperResourcePaths, String> {
-    let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-    let base_dir = Path::new(&local_appdata).join("SUBaka").join("resources");
-    let binary = base_dir.join("whisper.exe");
-    let model = base_dir.join("ggml-small.bin");
-    
+pub fn get_whisper_resource_paths(app: AppHandle) -> Result<WhisperResourcePaths, String> {
+    let (binary, model) = resolve_whisper_executable_and_model(&app, "ggml-small.bin")?;
     Ok(WhisperResourcePaths {
         binary_path: binary.to_string_lossy().to_string(),
         model_path: model.to_string_lossy().to_string(),
@@ -962,29 +1090,35 @@ pub fn get_whisper_resource_paths() -> Result<WhisperResourcePaths, String> {
 
 #[tauri::command]
 pub async fn run_whisper_transcribe(
+    app: AppHandle,
     audio_path: String,
     model_name: String,
     language: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-        let resources_dir = Path::new(&local_appdata).join("SUBaka").join("resources");
-        let whisper_exe = resources_dir.join("whisper.exe");
-        let model_file = resources_dir.join(if model_name.is_empty() { "ggml-small.bin" } else { &model_name });
+        let (whisper_exe, model_file) = resolve_whisper_executable_and_model(&app, &model_name)?;
 
-        if !whisper_exe.exists() {
-            return Err(format!("Не знойдзены бінарны файл whisper.exe у {}", resources_dir.display()));
-        }
+        log::info!(
+            "Running whisper transcription via {:?} with model {:?}, audio: {}, lang: {}",
+            whisper_exe,
+            model_file,
+            audio_path,
+            if language.is_empty() { "auto" } else { &language }
+        );
 
         let output_srt_path = std::env::temp_dir().join(format!("subaka_whisper_{}", std::process::id()));
 
         let mut cmd = silent_command(whisper_exe.to_str().unwrap_or("whisper.exe"));
         cmd.args([
-            "-m", model_file.to_str().unwrap_or("ggml-small.bin"),
-            "-f", &audio_path,
+            "-m",
+            model_file.to_str().unwrap_or("ggml-small.bin"),
+            "-f",
+            &audio_path,
             "-osrt",
-            "-of", output_srt_path.to_str().unwrap_or("subaka_whisper_output"),
-            "-l", if language.is_empty() { "auto" } else { &language },
+            "-of",
+            output_srt_path.to_str().unwrap_or("subaka_whisper_output"),
+            "-l",
+            if language.is_empty() { "auto" } else { &language },
         ]);
 
         let output = cmd.output().map_err(|e| format!("Памылка запуску Whisper: {}", e))?;

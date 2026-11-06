@@ -76,7 +76,8 @@ import {
   loadDesktopFileFromPath,
   logDesktopError,
   logDesktopWarn,
-  logDesktopInfo
+  logDesktopInfo,
+  runWhisperTranscribeDesktop
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
@@ -2535,7 +2536,7 @@ export default function App() {
     isExternalTrack?: boolean,
     customAudioFile?: File
   ) => {
-    if (isTauriDesktop()) {
+    if (isTauriDesktop() && engineChoice === 'gemini') {
       const apiKey = geminiApiKey || getDesktopGeminiApiKey();
       if (!apiKey) {
         setIsGeminiKeyModalOpen(true);
@@ -2722,8 +2723,34 @@ export default function App() {
         } catch (_) {}
       }
 
-      // In Desktop standalone mode (Tauri): execute direct transcription via desktopTranscribeAudio.
+      // In Desktop standalone mode (Tauri): execute direct transcription via Whisper or Gemini.
       if (isTauriDesktop()) {
+        if (engineChoice === 'whisper') {
+          addStatusMessage(`Запуск лакальнага афлайн-распазнавання праз Whisper...`, "info");
+          setTranscribeProgress("Распазнаванне маўлення праз лакальны Whisper engine...");
+
+          const rawSrtResult = await runWhisperTranscribeDesktop(
+            targetFile,
+            'ggml-small.bin',
+            'auto'
+          );
+
+          if (!rawSrtResult) {
+            throw new Error("Лакальны рухавік Whisper не вярнуў субцітры.");
+          }
+
+          const parsed = parseSrt(rawSrtResult, mediaDurationSec);
+          if (parsed.length === 0) {
+            throw new Error("Не ўдалося распазнаць фармат SRT у адказе Whisper");
+          }
+
+          setAutoSubtitles(parsed);
+          const successMsg = `Аўтасубцітры паспяхова сфарміраваны праз лакальны Whisper (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
+          addStatusMessage(successMsg, "success");
+          addToast(`Сфармавана ${parsed.length} субцітраў праз лакальны Whisper!`, "success");
+          return;
+        }
+
         const apiKey = geminiApiKey || getDesktopGeminiApiKey();
         if (!apiKey) {
           setIsGeminiKeyModalOpen(true);
@@ -4468,7 +4495,7 @@ export default function App() {
         processedForGenTracks={processedForGenTracks}
         processedTracks={processedTracks}
         onStartTranscribe={(engine, model, trackNum, isExternal, customAudioFile) => {
-          if (isTauriDesktop()) {
+          if (isTauriDesktop() && engine === 'gemini') {
             const apiKey = geminiApiKey || getDesktopGeminiApiKey();
             if (!apiKey) {
               setIsSubtitleTrackModalOpen(false);
