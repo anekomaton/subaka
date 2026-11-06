@@ -234,7 +234,7 @@ export default function SubtitleTrackSelectModal({
                   />
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Gemini</span>
-                    <span className="text-[10px] text-slate-400">Cloud AI (Аўтаматычна)</span>
+                    <span className="text-[10px] text-slate-400">анлайн</span>
                   </div>
                 </div>
                 <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
