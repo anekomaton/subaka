@@ -440,8 +440,8 @@ export async function segmentAudioBySilence(
     return [{ filePath: masterWavPath, startSec: 0, endSec: Math.min(totalDurationSec, 7200) }];
   }
 
-  // Any media longer than 45s is intelligently split into chunks to guarantee frame-accurate sync
-  if (totalDurationSec <= Math.min(45, targetChunkDurationSec)) {
+  // Any media within target chunk duration is processed directly as 1 complete chunk
+  if (totalDurationSec <= targetChunkDurationSec) {
     return [{ filePath: masterWavPath, startSec: 0, endSec: totalDurationSec }];
   }
 

@@ -216,10 +216,18 @@ let cachedModels: string[] | null = null;
 let lastModelFetchTime = 0;
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
+const DEFAULT_TRANSLATION_MODELS = [
+  "gemini-flash-lite-latest",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
+  "gemini-3.8-flash",
+  "gemini-3.5-flash",
+];
+
 const DEFAULT_FALLBACK_MODELS = [
   "gemini-flash-latest",
-  "gemini-flash-lite-latest",
   "gemini-3.8-flash",
+  "gemini-flash-lite-latest",
   "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
 ];
@@ -287,10 +295,30 @@ function filterAndPrioritizeModels(modelsList: string[]): string[] {
   return [...active, ...deprioritized];
 }
 
-async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
+function getModelScore(id: string, isTranslation = false): number {
+  if (isTranslation) {
+    // For translation: prioritize fast lightweight models
+    if (id === "gemini-flash-lite-latest") return 210;
+    if (id === "gemini-3.1-flash-lite" || id.includes("3.1-flash-lite") || id.includes("flash-lite")) return 205;
+    if (id === "gemini-flash-latest") return 190;
+    if (id === "gemini-3.8-flash" || id.includes("3.8")) return 180;
+    if (id === "gemini-3.5-flash" || id.includes("3.5")) return 170;
+    return 10;
+  }
+  // Standard / proofreading score
+  if (id === "gemini-flash-latest") return 200;
+  if (id === "gemini-3.8-flash" || id.includes("3.8")) return 195;
+  if (id === "gemini-flash-lite-latest") return 180;
+  if (id === "gemini-3.5-flash" || id.includes("3.5")) return 170;
+  if (id === "gemini-3.1-flash-lite" || id.includes("3.1")) return 160;
+  return 10;
+}
+
+async function getDynamicModels(client: GoogleGenAI, isTranslation = false): Promise<string[]> {
   const now = Date.now();
   if (cachedModels && cachedModels.length > 0 && (now - lastModelFetchTime < MODEL_CACHE_TTL_MS)) {
-    return filterAndPrioritizeModels(cachedModels);
+    const list = [...cachedModels].sort((a, b) => getModelScore(b, isTranslation) - getModelScore(a, isTranslation));
+    return filterAndPrioritizeModels(list);
   }
 
   try {
@@ -311,40 +339,30 @@ async function getDynamicModels(client: GoogleGenAI): Promise<string[]> {
       }
     }
 
-    const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...modelsList])).filter((m) => !isModelDeprecated(m));
+    const basePool = isTranslation ? DEFAULT_TRANSLATION_MODELS : DEFAULT_FALLBACK_MODELS;
+    const pool = Array.from(new Set([...basePool, ...modelsList])).filter((m) => !isModelDeprecated(m));
     if (pool.length > 0) {
-      const sorted = pool.sort((a, b) => {
-        const getScore = (id: string) => {
-          // Ordered strictly with gemini-flash-latest first for instant success
-          if (id === "gemini-flash-latest") return 200;
-          if (id === "gemini-flash-lite-latest") return 195;
-          if (id === "gemini-3.8-flash" || id.includes("3.8")) return 180;
-          if (id === "gemini-3.7-flash" || id.includes("3.7")) return 175;
-          if (id === "gemini-3.5-flash" || id.includes("3.5")) return 170;
-          if (id === "gemini-3.1-flash-lite" || id.includes("3.1")) return 160;
-          return 10;
-        };
-        return getScore(b) - getScore(a);
-      });
-
-      console.log("[Gemini Models] Discovered available active models from API:", sorted);
-      cachedModels = sorted;
+      cachedModels = pool;
       lastModelFetchTime = now;
-      return filterAndPrioritizeModels(cachedModels);
+      const sorted = [...pool].sort((a, b) => getModelScore(b, isTranslation) - getModelScore(a, isTranslation));
+      console.log("[Gemini Models] Discovered available active models from API (isTranslation=" + isTranslation + "):", sorted);
+      return filterAndPrioritizeModels(sorted);
     }
   } catch (err: any) {
     console.warn("[Gemini Models] Could not query models list, using default fallback models:", err?.message || err);
     lastModelFetchTime = now;
   }
 
+  const fallbackList = isTranslation ? DEFAULT_TRANSLATION_MODELS : DEFAULT_FALLBACK_MODELS;
   if (!cachedModels || cachedModels.length === 0) {
-    cachedModels = [...DEFAULT_FALLBACK_MODELS];
+    cachedModels = [...fallbackList];
   }
-  return filterAndPrioritizeModels(cachedModels);
+  const sorted = [...(cachedModels || fallbackList)].sort((a, b) => getModelScore(b, isTranslation) - getModelScore(a, isTranslation));
+  return filterAndPrioritizeModels(sorted);
 }
 
-async function generateContentWithRetryAndFallback(client: GoogleGenAI, prompt: string, schema: any, preferredModel?: string) {
-  const dynamicModels = await getDynamicModels(client);
+async function generateContentWithRetryAndFallback(client: GoogleGenAI, prompt: string, schema: any, preferredModel?: string, isTranslation = false) {
+  const dynamicModels = await getDynamicModels(client, isTranslation);
   const modelsToTry = preferredModel
     ? Array.from(new Set([preferredModel, ...dynamicModels])).filter((m) => !isModelDeprecated(m))
     : dynamicModels;
@@ -468,7 +486,8 @@ ${JSON.stringify(entries)}`;
     };
 
     const client = getAiClientForRequest(req);
-    const response = await generateContentWithRetryAndFallback(client, prompt, schema, requestedModel);
+    const translationModel = requestedModel || "gemini-flash-lite-latest";
+    const response = await generateContentWithRetryAndFallback(client, prompt, schema, translationModel, true);
     const resultText = response.text;
     if (!resultText) {
       throw new Error("Empty translation returned from model");
@@ -1380,7 +1399,8 @@ async function transcribeSingleFileWithGemini(
   endPercent: number = 90,
   onProgress?: (msg: string, pct: number) => void,
   targetLang?: string,
-  segDurationSec?: number
+  segDurationSec?: number,
+  preferredModel?: string
 ): Promise<string> {
   let uploadPath = filePath;
   let uploadMime = "audio/wav";
@@ -1544,17 +1564,15 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
     let transcribeResponse: any = null;
     const allModels = await getDynamicModels(client);
 
-    // Prioritize gemini-3.5-transcribe as the dedicated Google Gemini speech transcription model
+    const baseList: string[] = [];
+    if (preferredModel && !isModelDeprecated(preferredModel)) {
+      baseList.push(preferredModel);
+    }
+    baseList.push("gemini-3.5-transcribe", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite");
     const filteredDynamic = allModels.filter(m =>
-      m !== "gemini-3.5-transcribe" &&
       !m.includes("image") && !m.includes("tts") && !m.includes("live") && !m.includes("pro")
     );
-    const transcribeModels = [
-      "gemini-3.5-transcribe",
-      "gemini-flash-latest",
-      "gemini-3.8-flash",
-      ...filteredDynamic.filter(m => m !== "gemini-flash-latest" && m !== "gemini-3.8-flash")
-    ];
+    const transcribeModels = Array.from(new Set([...baseList, ...filteredDynamic]));
 
     const audioContentPart = isInline
       ? { inlineData: { mimeType: uploadMime, data: inlineBase64 } }
@@ -1580,8 +1598,7 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
             : userPromptText;
 
           const modelConfig: any = {
-            temperature: 0.0,
-            maxOutputTokens: 16384
+            maxOutputTokens: 32768
           };
           if (!isTranscribeModel) {
             modelConfig.systemInstruction = systemInstruction;
@@ -1596,9 +1613,10 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
             config: modelConfig
           });
 
-          // 75s timeout per call so long hangs fail over promptly
+          // Dynamic timeout based on audio duration (min 120s, up to 360s for full-file passes)
+          const timeoutMs = Math.max(120000, Math.min(360000, Math.ceil((segDurationSec || 60) * 1500)));
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Час чакання адказу ад мадэлі ${model} выйшаў (75с)`)), 75000)
+            setTimeout(() => reject(new Error(`Час чакання адказу ад мадэлі ${model} выйшаў (${Math.round(timeoutMs / 1000)}с)`)), timeoutMs)
           );
 
           // Progress ticker to incrementally advance percent while model is processing
@@ -1880,6 +1898,7 @@ interface TranscribeJob {
   fileName?: string;
   mimeType?: string;
   engine?: string;
+  model?: string;
   language?: string;
   trackNumber?: number;
   trackLanguage?: string;
@@ -1956,7 +1975,12 @@ function initJobsDb() {
                   job.mimeType || "audio/wav",
                   client,
                   job.engine || "gemini",
-                  job.language
+                  job.language,
+                  job.trackNumber,
+                  job.trackLanguage,
+                  job.trackTitle,
+                  job.mkvTrackNumber,
+                  job.model
                 ).catch((err) => {
                   console.error(`[Resumed Job ${job.id}] Error:`, err);
                 });
@@ -2004,7 +2028,8 @@ async function runTranscribeTask(
   trackNumber?: number,
   trackLanguage?: string,
   trackTitle?: string,
-  mkvTrackNumber?: number
+  mkvTrackNumber?: number,
+  preferredModel?: string
 ) {
   const job = getJobState(jobId);
   if (!job) return;
@@ -2052,7 +2077,7 @@ async function runTranscribeTask(
     }
 
     const fileSizeMb = (fs.statSync(finalFilePath).size / (1024 * 1024)).toFixed(1);
-    console.log(`[Transcribe Job ${jobId}] File size: ${fileSizeMb} MB, engine: ${engine}, trackNumber: ${trackNumber || 1}${trackLanguage ? ` (lang: ${trackLanguage})` : ''}`);
+    console.log(`[Transcribe Job ${jobId}] File size: ${fileSizeMb} MB, engine: ${engine}, model: ${preferredModel || job.model || 'default'}, trackNumber: ${trackNumber || 1}${trackLanguage ? ` (lang: ${trackLanguage})` : ''}`);
 
     if (job.status === "error") return;
 
@@ -2130,29 +2155,56 @@ async function runTranscribeTask(
     const totalAudioDurationSec = extractedDurationSec > 0 ? extractedDurationSec : durationSec;
     console.log(`[Transcribe Job ${jobId}] Extracted audio exact duration: ${totalAudioDurationSec.toFixed(1)}s (${(totalAudioDurationSec / 60).toFixed(1)} min)`);
 
-    // Strategy C: Stream via Gemini Live API (gemini-3.5-transcribe-live) if engine requested or as primary pass
-    if (engine === "gemini-live" || engine === "live") {
-      updateProgress("Патокавае распазнаванне праз Gemini Live API...", 20);
-      const liveSrt = await transcribeLiveStreamWithGemini(client, sourceAudioPath, totalAudioDurationSec, updateProgress);
-      if (liveSrt && liveSrt.trim()) {
-        finalSrtText = liveSrt;
-        job.percent = 100;
-        job.progressMessage = "Завяршэнне распазнавання!";
-        job.srt = finalSrtText;
-        job.status = "completed";
-        saveJobToDisk(job);
-        console.log(`[Transcribe Job ${jobId}] Successfully completed via Gemini Live API streaming.`);
-        return;
+    const jobModel = preferredModel || job.model || "gemini-3.5-transcribe";
+
+    // Strategy 1: COHESIVE FULL-FILE PASS (Files up to 25 minutes, e.g. 23 min episodes)
+    // Avoids chopping into dozens of tiny pieces, eliminates 15 RPM rate limiting,
+    // starts cleanly at 00:00:00,000, and ensures complete narrative subtitle coverage.
+    if (totalAudioDurationSec <= 1500) {
+      updateProgress(`Генерацыя поўных субцітраў [${jobModel}]...`, 25);
+      console.log(`[Transcribe Job ${jobId}] Duration <= 25 min (${totalAudioDurationSec.toFixed(1)}s). Attempting cohesive full-file transcription pass with ${jobModel}...`);
+
+      const fullSrt = await transcribeSingleFileWithGemini(
+        client,
+        sourceAudioPath,
+        "audio/wav",
+        false,
+        25,
+        92,
+        updateProgress,
+        language,
+        totalAudioDurationSec,
+        jobModel
+      );
+
+      if (fullSrt && fullSrt.trim()) {
+        const parsed = parseSrtString(fullSrt);
+        const lastBlockEnd = parsed.length > 0 ? parsed[parsed.length - 1].endTimeSec : 0;
+        console.log(`[Transcribe Job ${jobId}] Full-pass returned ${parsed.length} blocks, coverage up to ${lastBlockEnd.toFixed(1)}s / ${totalAudioDurationSec.toFixed(1)}s`);
+
+        if (parsed.length >= 8 && (lastBlockEnd >= totalAudioDurationSec * 0.65 || totalAudioDurationSec < 120)) {
+          finalSrtText = fullSrt;
+          job.percent = 100;
+          job.progressMessage = "Завяршэнне распазнавання!";
+          job.srt = finalSrtText;
+          job.status = "completed";
+          saveJobToDisk(job);
+          console.log(`[Transcribe Job ${jobId}] Successfully completed via cohesive full-file pass!`);
+          return;
+        }
+        console.log(`[Transcribe Job ${jobId}] Full pass was incomplete (${parsed.length} blocks, last end: ${lastBlockEnd.toFixed(1)}s). Falling back to chunked silence pass...`);
+      } else {
+        console.log(`[Transcribe Job ${jobId}] Full pass returned empty. Falling back to chunked silence pass...`);
       }
-      console.log(`[Transcribe Job ${jobId}] Live streaming pass returned empty, falling back to batch chunking pass...`);
     }
 
-    // Intelligent silence chunking target: 50 seconds for 100% complete subtitle coverage and frame-accurate synchronization.
-    // Audio files <= 45s are processed in 1 chunk; longer files are split at natural silence points.
+    // Strategy 2: ROBUST SILENCE CHUNKING (for movies/media > 25 minutes, or fallback)
+    // Uses 300s (5-minute) chunks instead of 50s micro-chunks.
+    // Exponential backoff and retry (never silently drop chunks on 429).
     const chunksDir = path.join(uploadDir, "audio_chunks");
-    const targetChunkSec = totalAudioDurationSec <= 45 ? Math.ceil(totalAudioDurationSec) : 50;
+    const targetChunkSec = 300; // 5-minute chunks
     
-    updateProgress("Аналіз аўдыя і нарэзка па цішыні...", 18);
+    updateProgress("Аналіз аўдыя і нарэзка па цішыні...", 20);
     const segments = await segmentAudioBySilence(sourceAudioPath, chunksDir, totalAudioDurationSec, targetChunkSec, trackNumber);
     console.log(`[Transcribe Job ${jobId}] Created ${segments.length} segment(s) for transcription.`);
 
@@ -2175,24 +2227,44 @@ async function runTranscribeTask(
 
       updateProgress(segmentMsg, startPct);
 
-      let segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
+      let segSrt = "";
+      let chunkAttempts = 0;
+      const maxChunkAttempts = 5;
 
-      // If segment returned empty (e.g. temporary API timeout/rate limit), retry once after a short 3s pause before assuming silence
-      if (!segSrt || !segSrt.trim()) {
-        console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} returned empty; retrying segment once after 3s delay...`);
-        await new Promise((r) => setTimeout(r, 3000));
-        segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
+      while (chunkAttempts < maxChunkAttempts && !segSrt) {
+        chunkAttempts++;
+        segSrt = await transcribeSingleFileWithGemini(
+          client,
+          seg.filePath,
+          "audio/wav",
+          segments.length > 1,
+          startPct,
+          endPct,
+          updateProgress,
+          language,
+          segDur,
+          jobModel
+        );
+
+        if (!segSrt || !segSrt.trim()) {
+          if (chunkAttempts < maxChunkAttempts) {
+            const waitTime = chunkAttempts * 6; // 6s, 12s, 18s, 24s backoff for 15 RPM
+            updateProgress(`Чаканне квоты API (${waitTime}с, спроба ${chunkAttempts + 1}/${maxChunkAttempts})...`, startPct);
+            console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} empty. Backoff ${waitTime}s before retry...`);
+            await new Promise((r) => setTimeout(r, waitTime * 1000));
+          }
+        }
       }
 
       if (segSrt && segSrt.trim()) {
         segmentResults.push({ srt: segSrt, offsetSec: seg.startSec, durationSec: segDur });
       } else {
-        console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} (${minStart}–${minEnd}хв) returned no speech (silence/music).`);
+        console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} (${minStart}–${minEnd}хв) verified as silence after ${maxChunkAttempts} attempts.`);
       }
 
       // Pacing delay between segments to respect 15 RPM rate limits
       if (segments.length > 1 && i < segments.length - 1) {
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 3500));
       }
 
       // Clean up segment WAV file immediately to save disk/RAM
@@ -2238,11 +2310,13 @@ async function runTranscribeTask(
   }
 }
 
-// Return available transcription models (Gemini Flash API)
+// Return available transcription models (Gemini Flash API & Speech-to-Text)
 app.get("/api/transcribe/models", async (_req, res) => {
   try {
     const models = [
-      { id: "gemini", label: "Gemini 2.5 Flash API (ШІ ад Google)" }
+      { id: "gemini-3.5-transcribe", label: "Gemini 3.5 Transcribe (Google Speech-to-Text)" },
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash (Мультымадальная мадэль Google)" },
+      { id: "gemini-3.1-flash-lite", label: "Gemini Flash Lite (Хуткая мадэль)" }
     ];
     res.json({ models });
   } catch (err: any) {
@@ -2253,7 +2327,7 @@ app.get("/api/transcribe/models", async (_req, res) => {
 // Finalize chunked upload, start async transcription job
 app.post("/api/transcribe/finish", async (req, res) => {
   try {
-    const { uploadId, fileName, mimeType, language, engine, trackNumber, trackLanguage, trackTitle, mkvTrackNumber } = req.body;
+    const { uploadId, fileName, mimeType, language, engine, model, trackNumber, trackLanguage, trackTitle, mkvTrackNumber } = req.body;
     if (!uploadId || !fileName) {
       return res.status(400).json({ error: "Missing uploadId or fileName" });
     }
@@ -2275,6 +2349,7 @@ app.post("/api/transcribe/finish", async (req, res) => {
       fileName,
       mimeType,
       engine: engine || "gemini",
+      model: model || "gemini-3.5-transcribe",
       language,
       trackNumber: jobTrackNum,
       trackLanguage: trackLanguage ? String(trackLanguage) : undefined,
@@ -2298,7 +2373,8 @@ app.post("/api/transcribe/finish", async (req, res) => {
       jobTrackNum,
       job.trackLanguage,
       job.trackTitle,
-      job.mkvTrackNumber
+      job.mkvTrackNumber,
+      job.model
     ).catch((err) => {
       console.error(`[Transcribe Job ${jobId}] Unhandled error:`, err);
       const existing = getJobState(jobId);

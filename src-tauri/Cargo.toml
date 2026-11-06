@@ -1,6 +1,6 @@
 [package]
 name = "subaka"
-version = "1.0.0"
+version = "1.0.1"
 description = "Subaka - Belarusian Subtitle Editor & Workstation"
 authors = ["anekomaton"]
 license = "GPL-3.0-or-later"

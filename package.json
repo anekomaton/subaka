@@ -1,21 +1,22 @@
 {
   "name": "subaka",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "anekomaton",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/copy-assets.js",
-    "build:client": "vite build",
+    "sync:version": "node scripts/sync-version.js",
+    "dev": "node scripts/sync-version.js && tsx server.ts",
+    "build": "node scripts/sync-version.js && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/copy-assets.js",
+    "build:client": "node scripts/sync-version.js && vite build",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri": "node scripts/sync-version.js && tauri",
+    "tauri:dev": "node scripts/sync-version.js && tauri dev",
+    "tauri:build": "node scripts/sync-version.js && tauri build"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",

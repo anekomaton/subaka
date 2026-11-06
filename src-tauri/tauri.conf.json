@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "SUBaka",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.subaka.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "SUBaka 1.0.0",
+        "title": "SUBaka 1.0.1",
         "width": 1280,
         "height": 720,
         "minWidth": 1024,
@@ -27,7 +27,9 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
@@ -35,7 +37,9 @@
     "active": true,
     "publisher": "anekomaton",
     "copyright": "Copyright © 2026 anekomaton",
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,12 +49,29 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["srt", "ass", "vtt", "sub", "ssa"],
+        "ext": [
+          "srt",
+          "ass",
+          "vtt",
+          "sub",
+          "ssa"
+        ],
         "name": "Subtitle File",
         "role": "Editor"
       },
       {
-        "ext": ["mp4", "mkv", "webm", "avi", "mov", "mp3", "wav", "m4a", "aac", "flac"],
+        "ext": [
+          "mp4",
+          "mkv",
+          "webm",
+          "avi",
+          "mov",
+          "mp3",
+          "wav",
+          "m4a",
+          "aac",
+          "flac"
+        ],
         "name": "Media File",
         "role": "Viewer"
       }

@@ -80,10 +80,18 @@ export const ACTIVE_GEMINI_MODELS: readonly GeminiModelInfo[] = [
   },
 ] as const;
 
+export const DEFAULT_TRANSLATION_MODELS: string[] = [
+  'gemini-flash-lite-latest',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest',
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+];
+
 export const DEFAULT_FALLBACK_MODELS: string[] = [
   'gemini-flash-latest',
-  'gemini-flash-lite-latest',
   'gemini-3.8-flash',
+  'gemini-flash-lite-latest',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
 ];
@@ -125,11 +133,20 @@ export function markDesktopModelTemporaryUnavailable(modelName: string, reason =
   quotaExhaustedModels.set(modelName, Date.now());
 }
 
-function getModelScore(id: string): number {
-  // Score ordered strictly with gemini-flash-latest first for instant 0ms preflight success
+function getModelScore(id: string, isTranslation = false): number {
+  if (isTranslation) {
+    // For translation: start with ultra-fast lite models
+    if (id === 'gemini-flash-lite-latest') return 210;
+    if (id === 'gemini-3.1-flash-lite' || id.includes('3.1-flash-lite') || id.includes('flash-lite')) return 205;
+    if (id === 'gemini-flash-latest') return 190;
+    if (id === 'gemini-3.8-flash' || id.includes('3.8')) return 180;
+    if (id === 'gemini-3.5-flash' || id.includes('3.5')) return 170;
+    return 10;
+  }
+  // Standard / proofreading score
   if (id === 'gemini-flash-latest') return 200;
-  if (id === 'gemini-flash-lite-latest') return 195;
-  if (id === 'gemini-3.8-flash' || id.includes('3.8')) return 180;
+  if (id === 'gemini-3.8-flash' || id.includes('3.8')) return 195;
+  if (id === 'gemini-flash-lite-latest') return 180;
   if (id === 'gemini-3.5-flash' || id.includes('3.5')) return 170;
   if (id === 'gemini-3.1-flash-lite' || id.includes('3.1')) return 160;
   return 10;
@@ -175,15 +192,17 @@ function filterAndPrioritizeModels(modelsList: string[]): string[] {
   return [...active, ...deprioritized];
 }
 
-async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
+async function getDesktopDynamicModels(apiKey: string, isTranslation = false): Promise<string[]> {
   const now = Date.now();
+  const baseFallback = isTranslation ? DEFAULT_TRANSLATION_MODELS : DEFAULT_FALLBACK_MODELS;
   if (!cachedDesktopModels || cachedDesktopModels.length === 0) {
-    cachedDesktopModels = [...DEFAULT_FALLBACK_MODELS];
+    cachedDesktopModels = [...baseFallback];
   }
 
-  // If cache is fresh, return immediately
+  // If cache is fresh, return immediately sorted for task
   if (now - lastModelFetchTime < MODEL_CACHE_TTL_MS) {
-    return filterAndPrioritizeModels(cachedDesktopModels);
+    const list = [...cachedDesktopModels].sort((a, b) => getModelScore(b, isTranslation) - getModelScore(a, isTranslation));
+    return filterAndPrioritizeModels(list);
   }
 
   // Trigger non-blocking background fetch so user's translation or proofreading starts with 0ms pre-flight delay
@@ -222,9 +241,9 @@ async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
           }
         }
 
-        const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...modelsList])).filter((m) => !isModelDeprecated(m));
+        const pool = Array.from(new Set([...DEFAULT_FALLBACK_MODELS, ...DEFAULT_TRANSLATION_MODELS, ...modelsList])).filter((m) => !isModelDeprecated(m));
         if (pool.length > 0) {
-          cachedDesktopModels = pool.sort((a, b) => getModelScore(b) - getModelScore(a));
+          cachedDesktopModels = pool;
         }
       }
     } catch (err) {
@@ -232,7 +251,8 @@ async function getDesktopDynamicModels(apiKey: string): Promise<string[]> {
     }
   })();
 
-  return filterAndPrioritizeModels(cachedDesktopModels);
+  const sorted = [...cachedDesktopModels].sort((a, b) => getModelScore(b, isTranslation) - getModelScore(a, isTranslation));
+  return filterAndPrioritizeModels(sorted);
 }
 
 export function cancellableSleep(
@@ -281,7 +301,7 @@ async function callGenerativeLanguageApi(
   bodyObj: any,
   preferredModel?: string,
   returnRawText?: boolean,
-  options?: { signal?: AbortSignal; cancelRef?: { current: boolean } }
+  options?: { signal?: AbortSignal; cancelRef?: { current: boolean }; isTranslation?: boolean }
 ): Promise<any> {
   const isCanceled = () => Boolean(options?.signal?.aborted || options?.cancelRef?.current);
 
@@ -294,8 +314,10 @@ async function callGenerativeLanguageApi(
     throw new Error('MISSING_GEMINI_API_KEY');
   }
 
-  const chosenModel = preferredModel || getDesktopGeminiModel();
-  const dynamicModels = await getDesktopDynamicModels(cleanKey);
+  const isTranslation = Boolean(options?.isTranslation);
+  const defaultModel = isTranslation ? 'gemini-flash-lite-latest' : getDesktopGeminiModel();
+  const chosenModel = preferredModel || defaultModel;
+  const dynamicModels = await getDesktopDynamicModels(cleanKey, isTranslation);
   if (isCanceled()) {
     throw new DOMException('Aborted', 'AbortError');
   }
@@ -497,7 +519,7 @@ export async function desktopTranslateBatch(
   // Support flexible argument positions (whether targetLanguage or apiKey is passed first)
   let targetLanguage = 'Belarusian';
   let apiKey = explicitApiKey || '';
-  let modelName = preferredModel;
+  let modelName = preferredModel || 'gemini-flash-lite-latest';
 
   if (targetLanguageOrApiKey) {
     if (targetLanguageOrApiKey.startsWith('AIza') || targetLanguageOrApiKey.length > 25) {
@@ -549,7 +571,10 @@ ${JSON.stringify(entries)}`;
     },
   };
 
-  const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, modelName, false, options);
+  const parsed = await callGenerativeLanguageApi(apiKey, bodyObj, modelName, false, {
+    ...options,
+    isTranslation: true,
+  });
   return Array.isArray(parsed) ? parsed : [];
 }
 

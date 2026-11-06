@@ -94,6 +94,7 @@ import {
   getDesktopGeminiApiKey,
   cancellableSleep,
 } from './utils/desktopAiClient';
+import packageJson from '../package.json';
 
 export const SUPPORTED_VOICES: readonly string[] = ['Ales', 'BelG2P', 'Zephyr', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const isSupportedVoice = (v: any): boolean => typeof v === 'string' && SUPPORTED_VOICES.includes(v);
@@ -844,6 +845,10 @@ export default function App() {
       (mediaQuery as any).addListener(handleSystemThemeChange);
       return () => (mediaQuery as any).removeListener(handleSystemThemeChange);
     }
+  }, []);
+
+  useEffect(() => {
+    document.title = `SUBaka ${packageJson.version}`;
   }, []);
 
   const handleToggleTheme = () => {
@@ -2224,7 +2229,7 @@ export default function App() {
         return;
       }
       try {
-        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }], 'Belarusian', apiKey);
+        const translations = await desktopTranslateBatch([{ id: target.id, text: target.text }], 'Belarusian', apiKey, 'gemini-flash-lite-latest');
         if (translations && translations.length > 0) {
           handleUpdateSubtitle(id, {
             translatedText: translations[0].translatedText,
@@ -2245,6 +2250,7 @@ export default function App() {
         body: JSON.stringify({
           entries: [{ id: target.id, text: target.text }],
           autoSpellCheck,
+          model: "gemini-flash-lite-latest",
         }),
       });
 
@@ -2364,7 +2370,7 @@ export default function App() {
                 packets,
                 'Belarusian',
                 apiKey,
-                undefined,
+                'gemini-flash-lite-latest',
                 { signal: controller.signal, cancelRef: cancelTranslatingRef }
               );
               break;
@@ -2449,7 +2455,11 @@ export default function App() {
         const response = await fetch("/api/translate", {
           method: "POST",
           headers: getApiHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ entries: packets, autoSpellCheck }),
+          body: JSON.stringify({
+            entries: packets,
+            autoSpellCheck,
+            model: "gemini-flash-lite-latest",
+          }),
           signal: controller.signal
         });
 
@@ -2520,7 +2530,7 @@ export default function App() {
   // TRANSCRIBE MEDIA FILE
   const handleTranscribe = async (
     engineChoice: string = 'gemini',
-    _modelChoice: string = 'gemini',
+    modelChoice: string = 'auto',
     targetTrackNum?: number,
     isExternalTrack?: boolean,
     customAudioFile?: File
@@ -2593,15 +2603,62 @@ export default function App() {
         );
 
         if (speechFile && speechFile.size > 512) {
-          targetFile = speechFile;
-          setProcessedForGenTracks((prev) => ({
-            ...prev,
-            [currentTrackNum]: {
-              blob: speechFile,
-              audioFile: speechFile,
-              label: `Аўдыя для генерацыі (дарожка #${currentTrackNum})`,
-            },
-          }));
+          // Probe speech file duration to verify browser demuxer didn't truncate audio
+          let speechDurationSec: number | null = null;
+          try {
+            const tempAudio = document.createElement('audio');
+            tempAudio.preload = 'metadata';
+            const url = URL.createObjectURL(speechFile);
+            await new Promise<void>((res) => {
+              tempAudio.onloadedmetadata = () => {
+                if (tempAudio.duration && !isNaN(tempAudio.duration) && tempAudio.duration > 0) {
+                  speechDurationSec = tempAudio.duration;
+                }
+                res();
+              };
+              tempAudio.onerror = () => res();
+              setTimeout(res, 800);
+              tempAudio.src = url;
+            });
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+
+          // Also probe mediaFile duration if available
+          let sourceMediaDurationSec: number | null = null;
+          try {
+            const tempMedia = document.createElement(mediaFile.type.startsWith('audio') ? 'audio' : 'video');
+            tempMedia.preload = 'metadata';
+            const url = URL.createObjectURL(mediaFile);
+            await new Promise<void>((res) => {
+              tempMedia.onloadedmetadata = () => {
+                if (tempMedia.duration && !isNaN(tempMedia.duration) && tempMedia.duration > 0) {
+                  sourceMediaDurationSec = tempMedia.duration;
+                }
+                res();
+              };
+              tempMedia.onerror = () => res();
+              setTimeout(res, 800);
+              tempMedia.src = url;
+            });
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+
+          // If browser extraction produced truncated audio (<75% of full media duration for files > 60s), use mediaFile directly for server FFmpeg extraction
+          if (sourceMediaDurationSec && sourceMediaDurationSec > 60 && speechDurationSec && speechDurationSec < sourceMediaDurationSec * 0.75) {
+            console.warn(`[Transcribe] Browser-extracted audio duration (${speechDurationSec.toFixed(1)}s) is significantly shorter than source media (${sourceMediaDurationSec.toFixed(1)}s). Using original media file for 100% server FFmpeg extraction.`);
+            addStatusMessage(`Выяўлена недакладнасць браўзернага дэмуксавання (${speechDurationSec.toFixed(0)}с супраць ${sourceMediaDurationSec.toFixed(0)}с). Адпраўка арыгінала для дакладнага выцягвання праз FFmpeg...`, 'info');
+            targetFile = mediaFile;
+          } else {
+            targetFile = speechFile;
+            setProcessedForGenTracks((prev) => ({
+              ...prev,
+              [currentTrackNum]: {
+                blob: speechFile,
+                audioFile: speechFile,
+                label: `Аўдыя для генерацыі (дарожка #${currentTrackNum})`,
+              },
+            }));
+          }
         } else if (cachedTrack) {
           targetFile = cachedTrack;
         } else {
@@ -2675,11 +2732,12 @@ export default function App() {
           return;
         }
 
-        addStatusMessage(`Запуск распазнавання праз ${GEMINI_TRANSCRIBE_MODEL}...`, "info");
+        const modelToUse = (!modelChoice || modelChoice === 'auto') ? GEMINI_TRANSCRIBE_MODEL : modelChoice;
+        addStatusMessage(`Запуск распазнавання праз Gemini (аўтаматычны выбар мадэлі)...`, "info");
 
         const rawSrtResult = await desktopTranscribeAudio(targetFile, {
           apiKey,
-          preferredModel: GEMINI_TRANSCRIBE_MODEL,
+          preferredModel: modelToUse,
           onProgress: (msg) => {
             setTranscribeProgress(msg);
             addStatusMessage(msg, "info");
@@ -2794,6 +2852,7 @@ export default function App() {
               fileName: targetFileName,
               mimeType: detectedMimeType,
               engine: engineChoice,
+              model: modelChoice,
               trackNumber: targetFile === mediaFile ? currentTrackNum : 1
             }),
             signal: controller.signal

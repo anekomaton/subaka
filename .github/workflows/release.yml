@@ -157,15 +157,15 @@ jobs:
 
           Write-Host "Staging installer: $($installer.FullName) ($($installer.Length) bytes)"
           New-Item -ItemType Directory -Force -Path "release_artifacts" | Out-Null
-          Copy-Item $installer.FullName "release_artifacts/SUBaka_1.0.0_x64-setup.exe" -Force
-          $staged = Get-Item "release_artifacts/SUBaka_1.0.0_x64-setup.exe"
+          Copy-Item $installer.FullName "release_artifacts/SUBaka_1.0.1_x64-setup.exe" -Force
+          $staged = Get-Item "release_artifacts/SUBaka_1.0.1_x64-setup.exe"
           Write-Host "Installer staged: $($staged.FullName) ($($staged.Length) bytes)"
 
       - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SUBaka_1.0.0_x64-setup
-          path: release_artifacts/SUBaka_1.0.0_x64-setup.exe
+          name: SUBaka_1.0.1_x64-setup
+          path: release_artifacts/SUBaka_1.0.1_x64-setup.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -173,14 +173,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0' }}
-          name: 'SUBaka v1.0.0 (Windows x64)'
-          files: release_artifacts/SUBaka_1.0.0_x64-setup.exe
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.1' }}
+          name: 'SUBaka v1.0.1 (Windows x64)'
+          files: release_artifacts/SUBaka_1.0.1_x64-setup.exe
           fail_on_unmatched_files: false
           body: |
             ## Праграма SUBaka пад Windows 10 (x64)
 
-            - **`SUBaka_1.0.0_x64-setup.exe`** — інсталятар для Windows (x64).
+            - **`SUBaka_1.0.1_x64-setup.exe`** — інсталятар для Windows (x64).
           draft: false
           prerelease: false
           make_latest: true

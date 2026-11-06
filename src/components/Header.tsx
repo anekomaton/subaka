@@ -31,6 +31,7 @@ import { SubtitleEntry } from '../types';
 import { parseSubtitleContent } from '../utils/assParser';
 import { SubakaLogo } from './SubakaLogo';
 import { isTauriDesktop, openMediaOrSubtitleDialog, loadDesktopFileFromPath } from '../utils/tauriBridge';
+import packageJson from '../../package.json';
 
 interface HeaderProps {
   geminiApiKey?: string;
@@ -337,7 +338,7 @@ export default function Header({
             <button
               onClick={onToggleTheme}
               className="flex items-center gap-1.5 shrink-0 p-0.5 rounded-xl transition-all hover:bg-amber-500/10 hover:ring-1 hover:ring-amber-500/20 cursor-pointer text-left active:scale-95 group"
-              title={theme === 'dark' ? 'Пераключыць на светлую тэму' : 'Пераключыць на цёмную тэму'}
+              title={`${theme === 'dark' ? 'Пераключыць на светлую тэму' : 'Пераключыць на цёмную тэму'}`}
             >
               <div className="w-9 h-9 rounded-xl border border-transparent bg-transparent flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:border-amber-500/50 transition-all p-1 overflow-hidden">
                 <SubakaLogo className="w-full h-full object-contain" id="header-dog-logo" aria-label="Лагатып SUBaka" />

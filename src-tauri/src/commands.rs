@@ -17,10 +17,10 @@ pub struct DesktopInfo {
 }
 
 #[tauri::command]
-pub fn get_desktop_info() -> DesktopInfo {
+pub fn get_desktop_info(app: AppHandle) -> DesktopInfo {
     DesktopInfo {
         app_name: "Subaka Desktop".to_string(),
-        version: "1.0.0".to_string(),
+        version: app.package_info().version.to_string(),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         grammar_driver: "Native SQLite (rusqlite)".to_string(),

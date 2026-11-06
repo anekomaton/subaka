@@ -48,6 +48,7 @@ export default function SubtitleTrackSelectModal({
   const [customGenAudioFile, setCustomGenAudioFile] = useState<File | null>(null);
   const [isDesktop, setIsDesktop] = useState<boolean>(() => isTauriDesktop());
   const [engineChoice, setEngineChoice] = useState<'whisper' | 'gemini'>(() => isTauriDesktop() ? 'whisper' : 'gemini');
+  const modelChoice = 'auto';
 
   // Determine if extAudioFile is an internal transcoded track from mediaFile or a genuine user-uploaded external track
   const isTranscodedTrack = (file: File | null) => {
@@ -137,14 +138,14 @@ export default function SubtitleTrackSelectModal({
 
   const handleConfirm = () => {
     if (selectedTrackKey === 'custom_gen' && customGenAudioFile) {
-      onStartTranscribe(engineChoice, 'gemini', 1, true, customGenAudioFile);
+      onStartTranscribe(engineChoice, modelChoice, 1, true, customGenAudioFile);
     } else if (selectedTrackKey === 'ext_active' && isGenuineExternalTrack && extAudioFile) {
-      onStartTranscribe(engineChoice, 'gemini', 1, true, extAudioFile);
+      onStartTranscribe(engineChoice, modelChoice, 1, true, extAudioFile);
     } else if (selectedTrackKey.startsWith('embedded_')) {
       const trackNum = parseInt(selectedTrackKey.split('_')[1], 10) || 1;
-      onStartTranscribe(engineChoice, 'gemini', trackNum, false, undefined);
+      onStartTranscribe(engineChoice, modelChoice, trackNum, false, undefined);
     } else {
-      onStartTranscribe(engineChoice, 'gemini', 1, false, undefined);
+      onStartTranscribe(engineChoice, modelChoice, 1, false, undefined);
     }
     onClose();
   };
@@ -233,11 +234,11 @@ export default function SubtitleTrackSelectModal({
                   />
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Gemini</span>
-                    <span className="text-[10px] text-slate-400">Cloud AI (API)</span>
+                    <span className="text-[10px] text-slate-400">Cloud AI (Аўтаматычна)</span>
                   </div>
                 </div>
                 <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
-                  API
+                  Auto
                 </span>
               </label>
             </div>
