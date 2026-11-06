@@ -74,12 +74,19 @@ import {
   openExternalUrl,
   takeLaunchFilePath,
   loadDesktopFileFromPath,
-  logDesktopError
+  logDesktopError,
+  logDesktopWarn,
+  logDesktopInfo
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
 import { DuplicateTabModal } from './components/DuplicateTabModal';
 import { extractUniversalAudioTrack } from './utils/mkvAudioExtractor';
+import {
+  extractAudioForSubtitleGen,
+  transcodeAudioForVoiceRecognition,
+  GEMINI_TRANSCRIBE_MODEL
+} from './utils/mkvAudioExtractorForGen';
 import {
   desktopTranslateBatch,
   desktopProofreadBatch,
@@ -883,6 +890,26 @@ export default function App() {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4500);
+  }, []);
+
+  // Dedicated helper to post messages to "Статус і гісторыя" and write to SUBaka.log in desktop mode
+  const addStatusMessage = useCallback((message: string, type: 'success' | 'info' | 'error' | 'warning' = 'info') => {
+    const id = Math.random().toString(36).substring(4);
+    const timestamp = new Date().toLocaleTimeString('be-BY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setMessagesHistory((prev) => {
+      if (prev.length > 0 && prev[0].message === message) return prev;
+      return [{ id, timestamp, message, type }, ...prev];
+    });
+    setLatestMessage({ message, type });
+    if (isTauriDesktop()) {
+      if (type === 'error') {
+        logDesktopError('Transcribe', message);
+      } else if (type === 'warning') {
+        logDesktopWarn('Transcribe', message);
+      } else {
+        logDesktopInfo('Transcribe', message);
+      }
+    }
   }, []);
 
   // Standard API headers helper: sends personal geminiApiKey if provided by user, otherwise server uses default shared key
@@ -2503,32 +2530,13 @@ export default function App() {
       if (!apiKey) {
         setIsGeminiKeyModalOpen(true);
         addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+        addStatusMessage("Патрабуецца ўвесці Gemini API ключ", "warning");
         return;
       }
     }
 
     let targetFile: File | Blob | null = customAudioFile || null;
     const currentTrackNum = targetTrackNum || activeTrackNumber || 1;
-
-    // Determine the source file to transcribe
-    if (customAudioFile) {
-      targetFile = customAudioFile;
-      console.log(`[App handleTranscribe] Using custom uploaded audio file for transcription: ${(customAudioFile as File).name}`);
-    } else if (isExternalTrack && extAudioFile) {
-      targetFile = extAudioFile;
-      console.log(`[App handleTranscribe] Using user-selected external audio track for transcription: ${extAudioFile.name}`);
-    } else if (mediaFile) {
-      // Native server FFmpeg extracts the exact requested audio track (track #${currentTrackNum}) directly from the container
-      targetFile = mediaFile;
-      console.log(`[App handleTranscribe] Using original mediaFile (${mediaFile.name}) for audio track #${currentTrackNum}.`);
-    } else if (extAudioFile) {
-      targetFile = extAudioFile;
-      console.log(`[App handleTranscribe] Using active audio file for transcription.`);
-    }
-
-    if (!targetFile) {
-      throw new Error("Медыяфайл не знойдзены.");
-    }
 
     setIsTranscribing(true);
     setTranscribeProgress("Падрыхтоўка...");
@@ -2537,18 +2545,74 @@ export default function App() {
     transcribeAbortControllerRef.current = controller;
 
     try {
-
       if (controller.signal.aborted) return;
-      if (!targetFile) return;
 
+      const trackLabel = isExternalTrack && extAudioFile
+        ? extAudioFile.name
+        : (customAudioFile ? customAudioFile.name : `Дарожка #${currentTrackNum}`);
+
+      addStatusMessage(`Пачатак генерацыі субцітраў з: ${trackLabel}...`, "info");
+
+      // 1. Transcode selected audio track specifically for speech recognition via mkvAudioExtractorForGen
       if (customAudioFile) {
-        addToast(`Генерацыя субцітраў з загружанага аўдыяфайла (${customAudioFile.name})...`, "info");
+        addStatusMessage(`Падрыхтоўка загружанага аўдыяфайла (${customAudioFile.name}) пад распазнаванне...`, "info");
+        setTranscribeProgress("Транскадаванне аўдыя пад распазнаванне голасу...");
+        targetFile = await transcodeAudioForVoiceRecognition(
+          customAudioFile,
+          (pct, msg) => {
+            setTranscribeProgress(msg || `падрыхтоўка аўдыя ${pct}%`);
+            if (pct === 100 || pct % 25 === 0) addStatusMessage(msg || `падрыхтоўка аўдыя ${pct}%`, "info");
+          },
+          controller.signal
+        );
       } else if (isExternalTrack && extAudioFile) {
-        addToast(`Генерацыя субцітраў з аўдыядарожкі (${extAudioFile.name})...`, "info");
-      } else if (currentTrackNum && currentTrackNum > 1) {
-        addToast(`Генерацыя субцітраў з дарожкі #${currentTrackNum}...`, "info");
-      } else {
-        addToast(`Генерацыя субцітраў з дапамогай Gemini...`, "info");
+        addStatusMessage(`Падрыхтоўка знешняй аўдыядарожкі (${extAudioFile.name}) пад распазнаванне...`, "info");
+        setTranscribeProgress("Транскадаванне аўдыя пад распазнаванне голасу...");
+        targetFile = await transcodeAudioForVoiceRecognition(
+          extAudioFile,
+          (pct, msg) => {
+            setTranscribeProgress(msg || `падрыхтоўка аўдыя ${pct}%`);
+            if (pct === 100 || pct % 25 === 0) addStatusMessage(msg || `падрыхтоўка аўдыя ${pct}%`, "info");
+          },
+          controller.signal
+        );
+      } else if (mediaFile) {
+        const cachedTrack = processedForGenTracks[currentTrackNum]?.audioFile || processedTracks[currentTrackNum]?.audioFile || null;
+        addStatusMessage(`Выцягванне аўдыядарожкі #${currentTrackNum} з ${mediaFile.name} і транскадаванне пад распазнаванне голасу...`, "info");
+        setTranscribeProgress(`Выцягванне дарожкі #${currentTrackNum}...`);
+
+        const speechFile = await extractAudioForSubtitleGen(
+          mediaFile,
+          currentTrackNum,
+          (pct, msg) => {
+            setTranscribeProgress(msg || `апрацоўка дарожкі #${currentTrackNum}: ${pct}%`);
+            if (pct === 100 || pct % 25 === 0) addStatusMessage(msg || `апрацоўка дарожкі #${currentTrackNum}: ${pct}%`, "info");
+          },
+          controller.signal,
+          cachedTrack
+        );
+
+        if (speechFile && speechFile.size > 512) {
+          targetFile = speechFile;
+          setProcessedForGenTracks((prev) => ({
+            ...prev,
+            [currentTrackNum]: {
+              blob: speechFile,
+              audioFile: speechFile,
+              label: `Аўдыя для генерацыі (дарожка #${currentTrackNum})`,
+            },
+          }));
+        } else if (cachedTrack) {
+          targetFile = cachedTrack;
+        } else {
+          targetFile = mediaFile;
+        }
+      } else if (extAudioFile) {
+        targetFile = extAudioFile;
+      }
+
+      if (!targetFile) {
+        throw new Error("Медыяфайл не знойдзены.");
       }
 
       if (targetFile.size > 28 * 1024 * 1024 * 1024) {
@@ -2602,47 +2666,24 @@ export default function App() {
       }
 
       // In Desktop standalone mode (Tauri): execute direct transcription via desktopTranscribeAudio.
-      // This bypasses non-existent Express server endpoints and routes all requests through subaka.exe
-      // using postJsonNative to ensure 100% compliance with Windows Split Tunneling VPN.
       if (isTauriDesktop()) {
         const apiKey = geminiApiKey || getDesktopGeminiApiKey();
         if (!apiKey) {
           setIsGeminiKeyModalOpen(true);
           addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+          addStatusMessage("Патрабуецца ўвесці Gemini API ключ", "warning");
           return;
         }
 
-        let audioInputForDesktop: Blob | File = targetFile;
-        const isVideo = !detectedMimeType.startsWith('audio') && (
-          detectedMimeType.startsWith('video') ||
-          /\.(mp4|mkv|webm|avi|mov|m4v|3gp|flv)$/i.test(targetFileName)
-        );
+        addStatusMessage(`Запуск распазнавання праз ${GEMINI_TRANSCRIBE_MODEL}...`, "info");
 
-        if (processedTracks[currentTrackNum]?.audioFile) {
-          audioInputForDesktop = processedTracks[currentTrackNum].audioFile;
-        } else if (isVideo) {
-          setTranscribeProgress("Выцягванне аўдыядарожкі з відэафайла...");
-          try {
-            const extracted = await extractUniversalAudioTrack(
-              targetFile,
-              currentTrackNum,
-              (pct, msg) => setTranscribeProgress(msg || `выцягванне аўдыя ${pct}%`),
-              controller.signal
-            );
-            if (extracted && extracted.blob) {
-              audioInputForDesktop = extracted.blob;
-            }
-          } catch (extErr: any) {
-            if (extErr.name === 'AbortError' || controller.signal.aborted) {
-              throw new DOMException("Aborted", "AbortError");
-            }
-            console.warn('[Desktop Transcribe] extractUniversalAudioTrack fallback:', extErr);
-          }
-        }
-
-        const rawSrtResult = await desktopTranscribeAudio(audioInputForDesktop, {
+        const rawSrtResult = await desktopTranscribeAudio(targetFile, {
           apiKey,
-          onProgress: (msg) => setTranscribeProgress(msg),
+          preferredModel: GEMINI_TRANSCRIBE_MODEL,
+          onProgress: (msg) => {
+            setTranscribeProgress(msg);
+            addStatusMessage(msg, "info");
+          },
           signal: controller.signal,
           mediaDurationSec,
         });
@@ -2657,14 +2698,18 @@ export default function App() {
         }
 
         setAutoSubtitles(parsed);
-        addToast(`Аўтасубцітры паспяхова сфарміраваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`, "success");
+        const successMsg = `Аўтасубцітры паспяхова сфарміраваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
+        addStatusMessage(successMsg, "success");
+        addToast(successMsg, "success");
         return;
       }
 
       // 1. Chunked Upload Configuration (Browser / Web Server mode)
-      const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for better stability and fast uploads
+      const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for fast uploads
       const totalChunks = Math.ceil(targetFile.size / CHUNK_SIZE);
       const uploadId = crypto.randomUUID();
+
+      addStatusMessage(`Загрузка падрыхтаванага аўдыя на сервер (${(targetFile.size / 1024 / 1024).toFixed(1)} MB)...`, "info");
 
       // Sequential Chunk Upload Loop with Automatic Retries
       for (let i = 0; i < totalChunks; i++) {
@@ -2672,11 +2717,9 @@ export default function App() {
         const end = Math.min(start + CHUNK_SIZE, targetFile.size);
         const chunkBlob = targetFile.slice(start, end);
 
-        // Update progress in percentage of uploading
         const uploadPercent = Math.round((i / totalChunks) * 100);
         setTranscribeProgress(`Загрузка ${uploadPercent}%`);
 
-        // Send chunk to backend with retry on network drops
         let response: Response | null = null;
         let lastChunkErr: any = null;
 
@@ -2730,8 +2773,9 @@ export default function App() {
 
       // Once all chunks are uploaded, update UI progress state
       setTranscribeProgress("Падрыхтоўка генерацыі...");
+      addStatusMessage("Аўдыя загружана. Запуск распазнавання праз Gemini...", "info");
 
-      // Final request to initiate async transcription job with retry
+      // Final request to initiate async transcription job
       let finalResponse: Response | null = null;
       let lastFinishErr: any = null;
 
@@ -2750,7 +2794,7 @@ export default function App() {
               fileName: targetFileName,
               mimeType: detectedMimeType,
               engine: engineChoice,
-              trackNumber: currentTrackNum
+              trackNumber: targetFile === mediaFile ? currentTrackNum : 1
             }),
             signal: controller.signal
           });
@@ -2791,9 +2835,7 @@ export default function App() {
       let startData: any = {};
       try {
         startData = JSON.parse(finalResText);
-      } catch {
-        // Fallback to uploadId if JSON parsing fails
-      }
+      } catch {}
       const jobId = startData?.jobId || uploadId;
 
       // Poll server for transcription progress and completion with retry tolerance
@@ -2801,8 +2843,8 @@ export default function App() {
       let rawSrtResult = "";
       let consecutiveErrors = 0;
       let consecutive404 = 0;
-      const MAX_CONSECUTIVE_ERRORS = 120; // ~5 minutes of network/proxy reconnection tolerance (120 * 2.5s = 300s)
-      const MAX_CONSECUTIVE_404 = 30; // ~75 seconds of 404 tolerance in case of server restart/recovery
+      const MAX_CONSECUTIVE_ERRORS = 120;
+      const MAX_CONSECUTIVE_404 = 30;
 
       while (!jobCompleted) {
         if (controller.signal.aborted) {
@@ -2834,7 +2876,9 @@ export default function App() {
           if (!statusResponse.ok) {
             if (statusResponse.status === 404) {
               consecutive404++;
-              console.warn(`[Transcribe Poll] Status 404 attempt ${consecutive404}/${MAX_CONSECUTIVE_404}`);
+              const warnMsg = `[Transcribe Poll] Статус 404 (спроба ${consecutive404}/${MAX_CONSECUTIVE_404})`;
+              console.warn(warnMsg);
+              addStatusMessage(warnMsg, "warning");
               if (consecutive404 >= MAX_CONSECUTIVE_404) {
                 throw new Error("Задача распазнавання страчана. Калі ласка, пачніце генерацыю субцітраў зноў.");
               }
@@ -2842,7 +2886,9 @@ export default function App() {
             }
 
             consecutiveErrors++;
-            console.warn(`[Transcribe Poll] Status check HTTP ${statusResponse.status} (attempt ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`);
+            const warnMsg = `[Transcribe Poll] Status HTTP ${statusResponse.status} (спроба ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`;
+            console.warn(warnMsg);
+            addStatusMessage(warnMsg, "warning");
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
               throw new Error(`Сервер часова недаступны (${statusResponse.status}). Паўтарыце спробу.`);
             }
@@ -2851,7 +2897,9 @@ export default function App() {
 
           if (!statusData) {
             consecutiveErrors++;
-            console.warn(`[Transcribe Poll] Transient non-JSON / gateway response received (attempt ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}). Retrying in 2.5s...`);
+            const warnMsg = `[Transcribe Poll] Нечаканы адказ сервера (спроба ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`;
+            console.warn(warnMsg);
+            addStatusMessage(warnMsg, "warning");
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
               throw new Error("Не ўдалося атрымаць статус ад сервера пасля некалькіх спроб.");
             }
@@ -2865,15 +2913,20 @@ export default function App() {
           if (statusData.status === "completed") {
             rawSrtResult = statusData.srt || "";
             jobCompleted = true;
+            addStatusMessage("Распазнаванне паспяхова завершана!", "success");
             break;
           } else if (statusData.status === "error") {
-            throw new Error(statusData.error || "Памылка на баку сервера пры апрацоўцы");
+            const fatalMsg = statusData.error || "Памылка на баку сервера пры апрацоўцы";
+            addStatusMessage(`Памылка генерацыі: ${fatalMsg}`, "error");
+            throw new Error(fatalMsg);
           } else {
             // Status: processing
             if (statusData.progressMessage) {
               const hasPercent = statusData.progressMessage.includes("%");
               const pctMsg = (!hasPercent && statusData.percent != null) ? ` (${statusData.percent}%)` : "";
-              setTranscribeProgress(`${statusData.progressMessage}${pctMsg}`);
+              const fullProgress = `${statusData.progressMessage}${pctMsg}`;
+              setTranscribeProgress(fullProgress);
+              addStatusMessage(fullProgress, "info");
             }
 
             // Store partial SRT in autoSubtitles buffer without auto-inserting into workspace
@@ -2883,23 +2936,29 @@ export default function App() {
                 if (partialParsed.length > 0) {
                   setAutoSubtitles(partialParsed);
                 }
-              } catch (_) {
-                // Ignore partial parse errors while chunks are streaming
-              }
+              } catch (_) {}
             }
           }
         } catch (err: any) {
           if (err.name === 'AbortError' || err instanceof DOMException) {
             throw err;
           }
-          if (err.message && (
-            err.message.includes("Памылка на баку сервера") || 
-            err.message.includes("страчана")
-          )) {
+          const errMsg = err?.message || String(err);
+          // If server explicitly returned job failure, terminate polling immediately
+          if (
+            errMsg.includes("Памылка на баку сервера") || 
+            errMsg.includes("страчана") ||
+            errMsg.includes("Не ўдалося выцягнуць аўдыядарожку") ||
+            errMsg.includes("не прайшоў апрацоўку") ||
+            errMsg.includes("Памылка генерацыі")
+          ) {
+            addStatusMessage(errMsg, "error");
             throw err;
           }
           consecutiveErrors++;
-          console.warn(`[Transcribe Poll] Poll error: ${err.message} (attempt ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`);
+          const pollErrText = `[Transcribe Poll] ${errMsg} (спроба ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`;
+          console.warn(pollErrText);
+          addStatusMessage(pollErrText, "warning");
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             throw err;
           }
@@ -2917,9 +2976,12 @@ export default function App() {
 
       // Store auto-generated subtitles in buffer only - inserted strictly via the "ужыць" button
       setAutoSubtitles(parsed);
-      addToast(`Аўтасубцітры згенераваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`, "success");
+      const successMsg = `Аўтасубцітры згенераваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
+      addStatusMessage(successMsg, "success");
+      addToast(successMsg, "success");
     } catch (err: any) {
       if (err.name === 'AbortError') {
+        addStatusMessage("Генерацыя субцітраў прыпынена карыстальнікам.", "info");
         addToast("Генерацыя субцітраў прыпынена карыстальнікам.", "info");
       } else {
         console.error("Transcribe error:", err);
@@ -2927,6 +2989,7 @@ export default function App() {
         if (userMsg.includes("Failed to fetch") || userMsg.includes("fetch")) {
           userMsg = "Страчана сувязь з серверам (Failed to fetch). Паўтарыце спробу.";
         }
+        addStatusMessage(`Памылка: ${userMsg}`, "error");
         addToast(userMsg, "error");
       }
     } finally {

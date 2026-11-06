@@ -837,6 +837,32 @@ export async function logDesktopWarn(
   }
 }
 
+/**
+ * Logs sanitized info information directly into AppData\Local\com.subaka.desktop\logs\SUBaka.log
+ */
+export async function logDesktopInfo(
+  category: string,
+  message: string,
+  details?: Record<string, any> | string
+): Promise<void> {
+  if (!isTauriDesktop()) return;
+  try {
+    const cleanMsg = sanitizeLogText(message);
+    const detailsStr = details
+      ? (typeof details === 'string' ? sanitizeLogText(details) : sanitizeLogText(JSON.stringify(details)))
+      : undefined;
+    await invoke('log_desktop_event', {
+      level: 'info',
+      category: sanitizeLogText(category),
+      message: cleanMsg,
+      details: detailsStr,
+    });
+  } catch (_) {
+    // Logging failure should never interrupt application flow
+  }
+}
+
+
 
 
 

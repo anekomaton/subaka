@@ -797,7 +797,8 @@ export async function desktopTranscribeAudio(
     throw new DOMException('Aborted', 'AbortError');
   }
 
-  options?.onProgress?.('Падрыхтоўка аўдыя для распазнавання...');
+  const transcribeModel = options?.preferredModel || 'gemini-3.5-transcribe';
+  options?.onProgress?.(`Падрыхтоўка аўдыя для распазнавання (${transcribeModel})...`);
 
   const systemInstruction = `You are an expert speech transcriber and audio timeline aligner.
 Your sole job is to transcribe all spoken dialogue from the provided audio segment into standard SubRip (.srt) subtitle format with precise frame-accurate timestamp alignment.
@@ -872,7 +873,12 @@ CRITICAL MANDATES:
       const wavBytes = encodeWav16BitMono(chunkSamples, sampleRate);
       const base64Audio = uint8ArrayToBase64(wavBytes);
 
-      const bodyObj = {
+      const isTranscribeModel = transcribeModel.includes('transcribe');
+      const effectivePrompt = isTranscribeModel
+        ? 'Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.'
+        : prompt;
+
+      const bodyObj: any = {
         contents: [
           {
             parts: [
@@ -883,21 +889,24 @@ CRITICAL MANDATES:
                 },
               },
               {
-                text: prompt,
+                text: effectivePrompt,
               },
             ],
           },
         ],
-        systemInstruction: {
-          parts: [{ text: systemInstruction }],
-        },
         generationConfig: {
           temperature: 0.0,
           maxOutputTokens: 16384,
         },
       };
 
-      const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true, { signal: options?.signal });
+      if (!isTranscribeModel) {
+        bodyObj.systemInstruction = {
+          parts: [{ text: systemInstruction }],
+        };
+      }
+
+      const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, transcribeModel, true, { signal: options?.signal });
 
       if (rawChunkSrt && typeof rawChunkSrt === 'string') {
         const { srt: shiftedSrt, count } = shiftSrtTimestamps(rawChunkSrt, startSec, currentSubtitleIndex);
@@ -924,7 +933,12 @@ CRITICAL MANDATES:
       mimeType = 'audio/mp3';
     }
 
-    const bodyObj = {
+    const isTranscribeModel = transcribeModel.includes('transcribe');
+    const effectivePrompt = isTranscribeModel
+      ? 'Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.'
+      : prompt;
+
+    const bodyObj: any = {
       contents: [
         {
           parts: [
@@ -935,22 +949,25 @@ CRITICAL MANDATES:
               },
             },
             {
-              text: prompt,
+              text: effectivePrompt,
             },
           ],
         },
       ],
-      systemInstruction: {
-        parts: [{ text: systemInstruction }],
-      },
       generationConfig: {
         temperature: 0.0,
         maxOutputTokens: 16384,
       },
     };
 
-    options?.onProgress?.('Генерацыя субцітраў і таймкодаў з Gemini...');
-    const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, options?.preferredModel, true, { signal: options?.signal });
+    if (!isTranscribeModel) {
+      bodyObj.systemInstruction = {
+        parts: [{ text: systemInstruction }],
+      };
+    }
+
+    options?.onProgress?.(`Генерацыя субцітраў і таймкодаў з Gemini (${transcribeModel})...`);
+    const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, transcribeModel, true, { signal: options?.signal });
 
     if (rawSrt && typeof rawSrt === 'string' && rawSrt.trim()) {
       return rawSrt.trim();

@@ -49,26 +49,46 @@ export function sanitizeSrtHtml(text: string): string {
  */
 export function srtTimeToSeconds(timeStr: string): number {
   if (!timeStr) return 0;
-  // Clean up format, replace comma with dot for easier splitting
   const clean = timeStr.trim().replace(/^[\[\(]+|[\]\)]+$/g, '').trim();
   const normalized = clean.replace(',', '.');
-  const parts = normalized.split(':');
+  const parts = normalized.split(/[:.]/);
+  const nums = parts.map((p) => parseFloat(p) || 0);
 
   if (parts.length === 1) {
-    const parsed = parseFloat(parts[0]);
-    return isNaN(parsed) ? 0 : Math.max(0, parsed);
+    return isNaN(nums[0]) ? 0 : Math.max(0, nums[0]);
   }
+
   if (parts.length === 2) {
-    const mins = parseFloat(parts[0]) || 0;
-    const secs = parseFloat(parts[1]) || 0;
+    const mins = nums[0];
+    const secs = nums[1];
+    if (secs > 59) return Math.max(0, mins + secs / 1000);
     return Math.max(0, mins * 60 + secs);
   }
 
-  const hours = parseFloat(parts[0]) || 0;
-  const minutes = parseFloat(parts[1]) || 0;
-  const seconds = parseFloat(parts[2]) || 0;
+  if (parts.length === 3) {
+    const p0 = nums[0];
+    const p1 = nums[1];
+    const p2 = nums[2];
 
-  return Math.max(0, hours * 3600 + minutes * 60 + seconds);
+    const isMillisecondThirdPart = p2 > 59 || (parts[2].length === 3 && p0 < 60 && p1 < 60);
+
+    if (isMillisecondThirdPart) {
+      const ms = p2 >= 100 ? p2 / 1000 : p2 >= 10 ? p2 / 100 : p2 / 10;
+      return Math.max(0, p0 * 60 + p1 + ms);
+    }
+
+    return Math.max(0, p0 * 3600 + p1 * 60 + p2);
+  }
+
+  if (parts.length === 4) {
+    const h = nums[0];
+    const m = nums[1];
+    const s = nums[2];
+    const ms = nums[3] >= 100 ? nums[3] / 1000 : nums[3] >= 10 ? nums[3] / 100 : nums[3] / 10;
+    return Math.max(0, h * 3600 + m * 60 + s + ms);
+  }
+
+  return 0;
 }
 
 /**
@@ -306,8 +326,8 @@ export function parseSrt(srtText: string, maxMediaDurationSec?: number): Subtitl
 
   const rawLines = srtText.replace(/\r\n/g, '\n').split('\n');
 
-  // Match any timestamp lines (HH:MM:SS,MS, MM:SS,MS, HH:MM:SS, etc. with or without brackets, with --> or -> or -)
-  const timestampRegex = /(?:^|\s)[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,2}(?:[,.]\d{1,3})?)\s*[\]\)]?\s*(?:-->|->|~|-)\s*[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,2}(?:[,.]\d{1,3})?)\s*[\]\)]?(?:$|\s)/;
+  // Match any timestamp lines (HH:MM:SS,MS, MM:SS,MS, MM:SS:MS, etc.)
+  const timestampRegex = /(?:^|\s)[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,3}(?:[,.:]\d{1,3})?)\s*[\]\)]?\s*(?:-->|->|~|-)\s*[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,3}(?:[,.:]\d{1,3})?)\s*[\]\)]?(?:$|\s)/;
 
   interface FoundTimestamp {
     lineIdx: number;

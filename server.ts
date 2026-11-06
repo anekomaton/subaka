@@ -21,6 +21,7 @@ import {
   mergeAndShiftSrtSegments,
   secondsToSrtTime,
   sanitizeAndFixSrtTimings,
+  transcribeLiveStreamWithGemini,
   execFilePromise
 } from "./server/transcribeHelper";
 import { convertTextBelG2P } from "./src/utils/belG2P";
@@ -1433,38 +1434,44 @@ async function transcribeSingleFileWithGemini(
 
   const fileName = path.basename(uploadPath);
   const fileSize = fs.existsSync(uploadPath) ? fs.statSync(uploadPath).size : 0;
-  console.log(`[Transcribe Gemini] Uploading file to Gemini Files API: ${fileName} (${fileSize} bytes, mime: ${uploadMime})`);
+  const isInline = fileSize > 0 && fileSize <= 15 * 1024 * 1024;
+  let activeFile: any = null;
+  let inlineBase64 = "";
 
-  onProgress?.("Загрузка аўдыя...", startPercent + 2);
+  if (isInline) {
+    inlineBase64 = fs.readFileSync(uploadPath).toString("base64");
+    console.log(`[Transcribe Gemini] Processing segment inline (${fileSize} bytes, mime: ${uploadMime})`);
+  } else {
+    console.log(`[Transcribe Gemini] Uploading large file to Gemini Files API: ${fileName} (${fileSize} bytes, mime: ${uploadMime})`);
+    onProgress?.("Загрузка аўдыя...", Math.min(startPercent + 2, endPercent - 1));
 
-  let uploadRes: any = null;
-  for (let uploadAttempt = 1; uploadAttempt <= 5; uploadAttempt++) {
-    try {
-      uploadRes = await client.files.upload({
-        file: uploadPath,
-        config: {
-          mimeType: uploadMime,
-          displayName: fileName
-        }
-      });
-      break;
-    } catch (uploadErr: any) {
-      console.warn(`[Transcribe Gemini] Upload attempt ${uploadAttempt}/5 failed for ${fileName}:`, uploadErr?.message || uploadErr);
-      if (uploadAttempt === 5) throw uploadErr;
-      const waitTime = uploadAttempt * 3;
-      onProgress?.(`503: паўтор праз ${waitTime}с (${uploadAttempt}/5)...`, startPercent + 2);
-      await new Promise(r => setTimeout(r, waitTime * 1000));
+    let uploadRes: any = null;
+    for (let uploadAttempt = 1; uploadAttempt <= 5; uploadAttempt++) {
+      try {
+        uploadRes = await client.files.upload({
+          file: uploadPath,
+          config: {
+            mimeType: uploadMime,
+            displayName: fileName
+          }
+        });
+        break;
+      } catch (uploadErr: any) {
+        console.warn(`[Transcribe Gemini] Upload attempt ${uploadAttempt}/5 failed for ${fileName}:`, uploadErr?.message || uploadErr);
+        if (uploadAttempt === 5) throw uploadErr;
+        const waitTime = uploadAttempt * 3;
+        onProgress?.(`503: паўтор праз ${waitTime}с (${uploadAttempt}/5)...`, Math.min(startPercent + 2, endPercent - 1));
+        await new Promise(r => setTimeout(r, waitTime * 1000));
+      }
     }
-  }
 
-  let activeFile = uploadRes;
-  let fileState = activeFile.state;
-  let attempts = 0;
+    activeFile = uploadRes;
+    let fileState = activeFile.state;
+    let attempts = 0;
 
-  try {
     while (fileState === FileState.PROCESSING && attempts < 120) {
       attempts++;
-      const currentWaitPct = Math.min(startPercent + 15, startPercent + 5 + Math.floor(attempts / 2));
+      const currentWaitPct = Math.min(startPercent + 5, endPercent - 2);
       onProgress?.(`Апрацоўка аўдыя (${attempts * 2}с)...`, currentWaitPct);
       console.log(`[Transcribe Gemini] ${fileName} is PROCESSING, waiting 2s...`);
       await new Promise(r => setTimeout(r, 2000));
@@ -1473,14 +1480,15 @@ async function transcribeSingleFileWithGemini(
         fileState = activeFile.state;
       } catch (pollErr: any) {
         console.warn(`[Transcribe Gemini] File polling attempt failed for ${fileName}:`, pollErr?.message || pollErr);
-        // Continue loop to retry polling
       }
     }
 
     if (fileState === FileState.FAILED) {
       throw new Error(`Файл ${fileName} не прайшоў апрацоўку Gemini API.`);
     }
+  }
 
+  try {
     const langInstruction = targetLang && targetLang !== "auto"
       ? `The audio spoken language is expected to be: "${targetLang}". Transcribe the spoken text verbatim in "${targetLang}" without any translation.`
       : `Detect the spoken audio language automatically and transcribe the spoken text verbatim in its ORIGINAL spoken language (e.g. Belarusian, Russian, English, Polish, etc.). ABSOLUTELY DO NOT TRANSLATE into any other language.`;
@@ -1536,15 +1544,23 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
     let transcribeResponse: any = null;
     const allModels = await getDynamicModels(client);
 
-    // Filter models to valid supported Gemini models ordered newest to oldest
-    let transcribeModels = allModels.filter(m =>
+    // Prioritize gemini-3.5-transcribe as the dedicated Google Gemini speech transcription model
+    const filteredDynamic = allModels.filter(m =>
+      m !== "gemini-3.5-transcribe" &&
       !m.includes("image") && !m.includes("tts") && !m.includes("live") && !m.includes("pro")
     );
-    if (transcribeModels.length === 0) {
-      transcribeModels = [...DEFAULT_FALLBACK_MODELS];
-    }
+    const transcribeModels = [
+      "gemini-3.5-transcribe",
+      "gemini-flash-latest",
+      "gemini-3.8-flash",
+      ...filteredDynamic.filter(m => m !== "gemini-flash-latest" && m !== "gemini-3.8-flash")
+    ];
 
-    let currentPercent = Math.max(startPercent + 15, Math.floor((startPercent + endPercent) / 2));
+    const audioContentPart = isInline
+      ? { inlineData: { mimeType: uploadMime, data: inlineBase64 } }
+      : { fileData: { fileUri: activeFile.uri!, mimeType: activeFile.mimeType! } };
+
+    let currentPercent = startPercent;
 
     const maxTimeStr = (segDurationSec && segDurationSec > 0) ? secondsToSrtTime(segDurationSec) : null;
     const userPromptText = (segDurationSec && segDurationSec > 0 && maxTimeStr)
@@ -1552,42 +1568,46 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
       : "Transcribe speech into SubRip (.srt) format. Ensure exact timestamp alignment with the audio playback clock as instructed.";
 
     for (const model of transcribeModels) {
-      let tries = 5;
+      let tries = 3;
       while (tries > 0) {
         try {
           console.log(`[Transcribe Gemini] Attempting ${fileName} with model ${model}, remaining tries: ${tries}`);
-          onProgress?.(`Аналіз ${model} (${currentPercent}%)...`, currentPercent);
+          onProgress?.(`Распазнаванне [${model}] (${currentPercent}%)...`, currentPercent);
+
+          const isTranscribeModel = model.includes("transcribe");
+          const effectivePrompt = isTranscribeModel
+            ? `Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.`
+            : userPromptText;
+
+          const modelConfig: any = {
+            temperature: 0.0,
+            maxOutputTokens: 16384
+          };
+          if (!isTranscribeModel) {
+            modelConfig.systemInstruction = systemInstruction;
+          }
 
           const callPromise = client.models.generateContent({
             model: model,
             contents: [
-              {
-                fileData: {
-                  fileUri: activeFile.uri!,
-                  mimeType: activeFile.mimeType!
-                }
-              },
-              userPromptText
+              audioContentPart,
+              effectivePrompt
             ],
-            config: {
-              systemInstruction: systemInstruction,
-              temperature: 0.0,
-              maxOutputTokens: 16384
-            }
+            config: modelConfig
           });
 
-          // 240s timeout per call so long generations complete reliably
+          // 75s timeout per call so long hangs fail over promptly
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Час чакання адказу ад мадэлі ${model} выйшаў (240с)`)), 240000)
+            setTimeout(() => reject(new Error(`Час чакання адказу ад мадэлі ${model} выйшаў (75с)`)), 75000)
           );
 
           // Progress ticker to incrementally advance percent while model is processing
           const tickInterval = setInterval(() => {
-            if (currentPercent < endPercent - 2) {
-              currentPercent += 2;
-              onProgress?.(`Запіс субцітраў (${currentPercent}%)...`, currentPercent);
+            if (currentPercent < endPercent - 1) {
+              currentPercent += 1;
+              onProgress?.(`Распазнаванне [${model}] (${currentPercent}%)...`, currentPercent);
             }
-          }, 3000);
+          }, 2000);
 
           let response: any = null;
           try {
@@ -1596,11 +1616,29 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
             clearInterval(tickInterval);
           }
 
-          if (response && response.text) {
-            transcribeResponse = response;
+          let responseText = "";
+          if (response) {
+            if (typeof response.text === "string" && response.text.trim()) {
+              responseText = response.text.trim();
+            } else if (response.candidates?.[0]?.content?.parts && Array.isArray(response.candidates[0].content.parts)) {
+              for (const part of response.candidates[0].content.parts) {
+                if (typeof part.text === "string" && part.text.trim()) {
+                  responseText += (responseText ? "\n" : "") + part.text.trim();
+                } else if (part.audioTranscription && typeof part.audioTranscription.text === "string" && part.audioTranscription.text.trim()) {
+                  responseText += (responseText ? "\n" : "") + part.audioTranscription.text.trim();
+                }
+              }
+            }
+          }
+
+          if (responseText) {
+            transcribeResponse = { text: responseText };
             break;
           }
-          throw new Error("Empty transcription returned from model");
+
+          // If model returned empty text (e.g. no speech detected or model did not transcribe), switch to fallback model
+          console.log(`[Transcribe Gemini] Model ${model} returned empty transcript on ${fileName}, trying next fallback model...`);
+          break;
         } catch (err: any) {
           const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : String(err);
 
@@ -1728,8 +1766,8 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
         console.error("[Transcribe Gemini] Error cleaning up temporary WAV file:", e);
       }
     }
-    // Guaranteed deletion of remote file from Gemini API
-    if (activeFile && activeFile.name) {
+    // Guaranteed deletion of remote file from Gemini API if uploaded
+    if (!isInline && activeFile && activeFile.name) {
       try {
         await client.files.delete({ name: activeFile.name });
       } catch (e) {
@@ -1788,6 +1826,20 @@ CRITICAL MANDATES:
 
   for (const model of transcribeModels) {
     try {
+      const isTranscribeModel = model.includes("transcribe");
+      const defaultChunkPrompt = "Транскрыбуй усе сказаныя фразы з гэтага аўдыясегменту ў фармат субцітраў SubRip (.srt) НА МОВЕ АРЫГІНАЛУ (без перакладу).";
+      const effectiveChunkPrompt = isTranscribeModel
+        ? "Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate."
+        : defaultChunkPrompt;
+
+      const chunkConfig: any = {
+        temperature: 0.0,
+        maxOutputTokens: 8192
+      };
+      if (!isTranscribeModel) {
+        chunkConfig.systemInstruction = systemInstruction;
+      }
+
       const response = await client.models.generateContent({
         model: model,
         contents: [
@@ -1797,16 +1849,25 @@ CRITICAL MANDATES:
               data: base64Audio
             }
           },
-          "Транскрыбуй усе сказаныя фразы з гэтага аўдыясегменту ў фармат субцітраў SubRip (.srt) НА МОВЕ АРЫГІНАЛУ (без перакладу)."
+          effectiveChunkPrompt
         ],
-        config: {
-          systemInstruction: systemInstruction,
-          temperature: 0.0,
-          maxOutputTokens: 8192
-        }
+        config: chunkConfig
       });
 
-      let srtText = response.text ? response.text.trim() : "";
+      let srtText = "";
+      if (response) {
+        if (typeof response.text === "string" && response.text.trim()) {
+          srtText = response.text.trim();
+        } else if (response.candidates?.[0]?.content?.parts && Array.isArray(response.candidates[0].content.parts)) {
+          for (const part of response.candidates[0].content.parts) {
+            if (typeof part.text === "string" && part.text.trim()) {
+              srtText += (srtText ? "\n" : "") + part.text.trim();
+            } else if (part.audioTranscription && typeof part.audioTranscription.text === "string") {
+              srtText += (srtText ? "\n" : "") + part.audioTranscription.text.trim();
+            }
+          }
+        }
+      }
       if (srtText.startsWith("```")) {
         srtText = srtText.replace(/^```[a-zA-Z]*\n?/, "").replace(/```$/, "").trim();
       }
@@ -2066,7 +2127,10 @@ async function runTranscribeTask(
       }
     }
 
-    if ((!audioExtracted || !fs.existsSync(extractedAudioPath) || fs.statSync(extractedAudioPath).size < 100) && trackNumber && trackNumber > 1) {
+    const fileNameLower = path.basename(finalFilePath).toLowerCase();
+    const isInputAlreadyAudio = ['.aac', '.m4a', '.wav', '.mp3', '.ogg', '.flac', '.opus', '.wma'].some(ext => fileNameLower.endsWith(ext)) || fileNameLower.includes('_subtitles_track') || fileNameLower.includes('_16k');
+
+    if ((!audioExtracted || !fs.existsSync(extractedAudioPath) || fs.statSync(extractedAudioPath).size < 100) && trackNumber && trackNumber > 1 && !isInputAlreadyAudio) {
       throw new Error(`Не ўдалося выцягнуць аўдыядарожку #${trackNumber}${trackLanguage ? ` (${trackLanguage.toUpperCase()})` : ''} з медыяфайла. Праверце файл або загрузіце дарожку асобна.`);
     }
 
@@ -2079,7 +2143,24 @@ async function runTranscribeTask(
     const totalAudioDurationSec = extractedDurationSec > 0 ? extractedDurationSec : durationSec;
     console.log(`[Transcribe Job ${jobId}] Extracted audio exact duration: ${totalAudioDurationSec.toFixed(1)}s (${(totalAudioDurationSec / 60).toFixed(1)} min)`);
 
-    // Intelligent silence chunking target: 45-55 seconds for frame-accurate subtitle synchronization.
+    // Strategy C: Stream via Gemini Live API (gemini-3.5-transcribe-live) if engine requested or as primary pass
+    if (engine === "gemini-live" || engine === "live") {
+      updateProgress("Патокавае распазнаванне праз Gemini Live API...", 20);
+      const liveSrt = await transcribeLiveStreamWithGemini(client, sourceAudioPath, totalAudioDurationSec, updateProgress);
+      if (liveSrt && liveSrt.trim()) {
+        finalSrtText = liveSrt;
+        job.percent = 100;
+        job.progressMessage = "Завяршэнне распазнавання!";
+        job.srt = finalSrtText;
+        job.status = "completed";
+        saveJobToDisk(job);
+        console.log(`[Transcribe Job ${jobId}] Successfully completed via Gemini Live API streaming.`);
+        return;
+      }
+      console.log(`[Transcribe Job ${jobId}] Live streaming pass returned empty, falling back to batch chunking pass...`);
+    }
+
+    // Intelligent silence chunking target: 50 seconds for 100% complete subtitle coverage and frame-accurate synchronization.
     // Audio files <= 45s are processed in 1 chunk; longer files are split at natural silence points.
     const chunksDir = path.join(uploadDir, "audio_chunks");
     const targetChunkSec = totalAudioDurationSec <= 45 ? Math.ceil(totalAudioDurationSec) : 50;
@@ -2102,22 +2183,18 @@ async function runTranscribeTask(
       const minEnd = Math.ceil(seg.endSec / 60);
 
       const segmentMsg = segments.length > 1
-        ? `Апрацоўка сегмента ${i + 1} з ${segments.length} (${minStart}хв–${minEnd}хв)...`
+        ? `Сегмент ${i + 1}/${segments.length} (${minStart}–${minEnd}хв)...`
         : "Аналіз аўдыя для субцітраў...";
 
       updateProgress(segmentMsg, startPct);
 
       let segSrt = "";
       segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
-      if (!segSrt || !segSrt.trim()) {
-        console.warn(`[Transcribe Job ${jobId}] Segment ${i + 1} returned empty result. Retrying segment in 3s...`);
-        updateProgress(`Паўторная апрацоўка сегмента ${i + 1}...`, startPct);
-        await new Promise((r) => setTimeout(r, 3000));
-        segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
-      }
 
       if (segSrt && segSrt.trim()) {
         segmentResults.push({ srt: segSrt, offsetSec: seg.startSec, durationSec: segDur });
+      } else {
+        console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} (${minStart}–${minEnd}хв) returned no speech (silence/music).`);
       }
 
       // Clean up segment WAV file immediately to save disk/RAM

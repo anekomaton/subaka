@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
 
 export const execFilePromise = promisify(execFile);
 
@@ -90,7 +91,11 @@ export async function extractAudioWithFfmpeg(
     targetStream = audioStreams[targetTrackIdx];
   }
 
-  if (isMultiTrackRequested) {
+  if (isStandaloneAudio) {
+    // If input file is already a standalone audio file or an already-extracted audio track, convert directly
+    mapAttempts.push([]);
+    mapAttempts.push(["-map", "0:a:0"]);
+  } else if (isMultiTrackRequested) {
     // STRICT MULTI-TRACK SELECTION:
     // When the user explicitly requested track > 1, NEVER fall back to track 1 or omit -map!
     console.log(`[Transcribe Helper] Strict track extraction active for track #${trackNumber} (0-based audioIndex: ${targetTrackIdx})`);
@@ -601,25 +606,46 @@ export async function segmentAudioFile(audioFilePath: string, outputDir: string,
 
 export function srtTimeToSeconds(timeStr: string): number {
   if (!timeStr) return 0;
-  const clean = timeStr.trim().replace(/^\[|\]$/g, '');
+  const clean = timeStr.trim().replace(/^[\[\(]+|[\]\)]+$/g, '').trim();
   const normalized = clean.replace(',', '.');
-  const parts = normalized.split(':');
+  const parts = normalized.split(/[:.]/);
+  const nums = parts.map((p) => parseFloat(p) || 0);
 
   if (parts.length === 1) {
-    const parsed = parseFloat(parts[0]);
-    return isNaN(parsed) ? 0 : Math.max(0, parsed);
+    return isNaN(nums[0]) ? 0 : Math.max(0, nums[0]);
   }
+
   if (parts.length === 2) {
-    const mins = parseFloat(parts[0]) || 0;
-    const secs = parseFloat(parts[1]) || 0;
+    const mins = nums[0];
+    const secs = nums[1];
+    if (secs > 59) return Math.max(0, mins + secs / 1000);
     return Math.max(0, mins * 60 + secs);
   }
 
-  const hours = parseFloat(parts[0]) || 0;
-  const minutes = parseFloat(parts[1]) || 0;
-  const seconds = parseFloat(parts[2]) || 0;
+  if (parts.length === 3) {
+    const p0 = nums[0];
+    const p1 = nums[1];
+    const p2 = nums[2];
 
-  return Math.max(0, hours * 3600 + minutes * 60 + seconds);
+    const isMillisecondThirdPart = p2 > 59 || (parts[2].length === 3 && p0 < 60 && p1 < 60);
+
+    if (isMillisecondThirdPart) {
+      const ms = p2 >= 100 ? p2 / 1000 : p2 >= 10 ? p2 / 100 : p2 / 10;
+      return Math.max(0, p0 * 60 + p1 + ms);
+    }
+
+    return Math.max(0, p0 * 3600 + p1 * 60 + p2);
+  }
+
+  if (parts.length === 4) {
+    const h = nums[0];
+    const m = nums[1];
+    const s = nums[2];
+    const ms = nums[3] >= 100 ? nums[3] / 1000 : nums[3] >= 10 ? nums[3] / 100 : nums[3] / 10;
+    return Math.max(0, h * 3600 + m * 60 + s + ms);
+  }
+
+  return 0;
 }
 
 export function secondsToSrtTime(totalSec: number): string {
@@ -647,7 +673,7 @@ export function parseSrtString(srtText: string): ParsedSrtItem[] {
   if (!srtText) return result;
 
   const rawLines = srtText.replace(/\r\n/g, '\n').split('\n');
-  const timestampRegex = /(?:^|\s)[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,2}(?:[,.]\d{1,3})?)\s*[\]\)]?\s*(?:-->|->|~|-)\s*[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,2}(?:[,.]\d{1,3})?)\s*[\]\)]?(?:$|\s)/;
+  const timestampRegex = /(?:^|\s)[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,3}(?:[,.:]\d{1,3})?)\s*[\]\)]?\s*(?:-->|->|~|-)\s*[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,3}(?:[,.:]\d{1,3})?)\s*[\]\)]?(?:$|\s)/;
 
   interface FoundTimestamp {
     lineIdx: number;
@@ -895,3 +921,114 @@ export function mergeAndShiftSrtSegments(
 
   return formattedBlocks.join('\n\n');
 }
+
+export async function transcribeLiveStreamWithGemini(
+  client: GoogleGenAI,
+  audioWavPath: string,
+  totalDurationSec: number,
+  onProgress?: (msg: string, pct: number) => void
+): Promise<string> {
+  if (!fs.existsSync(audioWavPath)) return "";
+
+  try {
+    const fileBuffer = fs.readFileSync(audioWavPath);
+    // WAV header is 44 bytes. Extract raw 16kHz 16-bit mono PCM payload
+    const pcmData = fileBuffer.subarray(fileBuffer.length > 44 ? 44 : 0);
+    if (pcmData.length < 1000) return "";
+
+    const collectedBlocks: { startSec: number; endSec: number; text: string }[] = [];
+    let currentText = "";
+    let blockStartSec = 0;
+
+    console.log(`[Transcribe Live API] Connecting to gemini-3.5-transcribe-live session for ${audioWavPath} (${(pcmData.length / 32000).toFixed(1)}s audio)...`);
+
+    const session = await client.live.connect({
+      model: "gemini-3.5-transcribe-live",
+      config: {
+        responseModalities: [Modality.TEXT],
+        inputAudioTranscription: {},
+      },
+      callbacks: {
+        onmessage: (message: LiveServerMessage) => {
+          const content = message.serverContent;
+          const transcriptText = content?.inputTranscription?.text || content?.interimInputTranscription?.text;
+          if (transcriptText && transcriptText.trim()) {
+            const clean = transcriptText.trim();
+            if (!currentText) {
+              currentText = clean;
+            } else if (!currentText.includes(clean)) {
+              currentText += " " + clean;
+            }
+          }
+
+          if (content?.turnComplete && currentText.trim()) {
+            const blockEndSec = Math.min(totalDurationSec, blockStartSec + 3.0);
+            collectedBlocks.push({
+              startSec: blockStartSec,
+              endSec: Math.max(blockStartSec + 1.0, blockEndSec),
+              text: currentText.trim(),
+            });
+            currentText = "";
+          }
+        },
+      },
+    });
+
+    // Stream PCM audio in 100ms frames (16000 samples/sec * 2 bytes/sample * 0.1s = 3200 bytes)
+    const chunkSize = 3200;
+    const totalChunks = Math.ceil(pcmData.length / chunkSize);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const offset = i * chunkSize;
+      const chunk = pcmData.subarray(offset, offset + chunkSize);
+      const currentTimeSec = offset / 32000;
+
+      if (!currentText) {
+        blockStartSec = currentTimeSec;
+      }
+
+      const base64Chunk = chunk.toString("base64");
+      session.sendRealtimeInput({
+        audio: { data: base64Chunk, mimeType: "audio/pcm;rate=16000" }
+      });
+
+      if (i % 25 === 0) {
+        const progressPct = Math.min(95, 20 + Math.floor((i / totalChunks) * 75));
+        onProgress?.(`Патокавае распазнаванне [Gemini Live] (${progressPct}%)...`, progressPct);
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    }
+
+    // Flush any remaining accumulated transcript text
+    if (currentText.trim()) {
+      const finalEnd = Math.min(totalDurationSec, blockStartSec + 3.5);
+      collectedBlocks.push({
+        startSec: blockStartSec,
+        endSec: Math.max(blockStartSec + 1.0, finalEnd),
+        text: currentText.trim(),
+      });
+    }
+
+    try {
+      session.close();
+    } catch (_) {}
+
+    if (collectedBlocks.length === 0) {
+      console.warn("[Transcribe Live API] Live session returned empty transcript.");
+      return "";
+    }
+
+    console.log(`[Transcribe Live API] Successfully transcribed ${collectedBlocks.length} subtitle block(s) via Live API.`);
+    return mergeAndShiftSrtSegments(
+      collectedBlocks.map((b) => ({
+        srt: `1\n${secondsToSrtTime(b.startSec)} --> ${secondsToSrtTime(b.endSec)}\n${b.text}`,
+        offsetSec: 0,
+      })),
+      totalDurationSec
+    );
+  } catch (liveErr: any) {
+    console.warn(`[Transcribe Live API] Live session error, falling back to batch pass:`, liveErr?.message || liveErr);
+    return "";
+  }
+}
+

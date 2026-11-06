@@ -46,12 +46,26 @@ export default function SubtitleTrackSelectModal({
   const [selectedTrackKey, setSelectedTrackKey] = useState<string>('embedded_1');
   const [customGenAudioFile, setCustomGenAudioFile] = useState<File | null>(null);
 
+  // Determine if extAudioFile is an internal transcoded track from mediaFile or a genuine user-uploaded external track
+  const isTranscodedTrack = (file: File | null) => {
+    if (!file) return false;
+    if ((file as any).isTranscodedTrack) return true;
+    if (mediaFile && !activeExternalTrackId) return true;
+    if (/_audio\d+\.(m4a|mp3|wav|aac|ogg|opus)$/i.test(file.name)) return true;
+    if (/_subtitles_track\d*\.(m4a|mp3|wav|aac|ogg|opus)$/i.test(file.name)) return true;
+    if (processedTracks && Object.values(processedTracks).some(p => p.audioFile === file || p.audioFile?.name === file.name)) return true;
+    if (processedForGenTracks && Object.values(processedForGenTracks).some(p => p.audioFile === file || p.audioFile?.name === file.name)) return true;
+    return false;
+  };
+
+  const isGenuineExternalTrack = Boolean(extAudioFile && !isTranscodedTrack(extAudioFile) && (!mediaFile || activeExternalTrackId));
+
   // Probe media file tracks when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
     if (!mediaFile) {
-      if (extAudioFile) {
+      if (isGenuineExternalTrack && extAudioFile) {
         setSelectedTrackKey('ext_active');
       }
       return;
@@ -77,8 +91,8 @@ export default function SubtitleTrackSelectModal({
         if (isMounted) setIsProbing(false);
       });
 
-    // Default track key selection (prefer active external track or active embedded track or track 1)
-    if (activeExternalTrackId && extAudioFile) {
+    // Default track key selection (prefer genuine active external track or active embedded track or track 1)
+    if (isGenuineExternalTrack && activeExternalTrackId) {
       setSelectedTrackKey('ext_active');
     } else if (activeTrackNumber) {
       setSelectedTrackKey(`embedded_${activeTrackNumber}`);
@@ -89,7 +103,7 @@ export default function SubtitleTrackSelectModal({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, mediaFile, extAudioFile, activeTrackNumber, activeExternalTrackId]);
+  }, [isOpen, mediaFile, extAudioFile, activeTrackNumber, activeExternalTrackId, isGenuineExternalTrack]);
 
   // Handle Escape key to close modal
   useEffect(() => {
@@ -108,6 +122,7 @@ export default function SubtitleTrackSelectModal({
   if (!isOpen) return null;
 
   const embeddedTracksList = probedTracks.length > 0 ? probedTracks : [{ trackNumber: 1, codecId: 'AAC', codecName: 'Аўдыя', channels: 2 }];
+  const totalAvailableTracks = embeddedTracksList.length + (isGenuineExternalTrack ? 1 : 0) + (customGenAudioFile ? 1 : 0);
 
   const handleCustomFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -120,7 +135,7 @@ export default function SubtitleTrackSelectModal({
   const handleConfirm = () => {
     if (selectedTrackKey === 'custom_gen' && customGenAudioFile) {
       onStartTranscribe('gemini', 'gemini', 1, true, customGenAudioFile);
-    } else if (selectedTrackKey === 'ext_active' && extAudioFile) {
+    } else if (selectedTrackKey === 'ext_active' && isGenuineExternalTrack && extAudioFile) {
       onStartTranscribe('gemini', 'gemini', 1, true, extAudioFile);
     } else if (selectedTrackKey.startsWith('embedded_')) {
       const trackNum = parseInt(selectedTrackKey.split('_')[1], 10) || 1;
@@ -157,7 +172,7 @@ export default function SubtitleTrackSelectModal({
         </div>
 
         <p className="text-xs text-slate-300">
-          Даступна дарожак: <strong className="text-indigo-400">{embeddedTracksList.length + (customGenAudioFile ? 1 : 0)}</strong>. Выберыце аўдыядарожку з медыяфайла для генерацыі субцітраў.
+          Даступна дарожак: <strong className="text-indigo-400">{totalAvailableTracks}</strong>. Выберыце аўдыядарожку з медыяфайла для генерацыі субцітраў.
         </p>
         {mediaFileName && (
           <p className={`font-semibold truncate max-w-full ${
@@ -176,8 +191,8 @@ export default function SubtitleTrackSelectModal({
 
         {/* Tracks List */}
         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-          {/* Active external audio track if present in project */}
-          {extAudioFile && (
+          {/* Active external audio track ONLY if genuine user-uploaded audio file */}
+          {isGenuineExternalTrack && extAudioFile && (
             <div
               onClick={() => setSelectedTrackKey('ext_active')}
               className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-all ${
@@ -212,6 +227,7 @@ export default function SubtitleTrackSelectModal({
               </div>
             </div>
           )}
+
 
           {embeddedTracksList.map((tr) => {
             const key = `embedded_${tr.trackNumber}`;

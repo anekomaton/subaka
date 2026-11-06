@@ -1,5 +1,9 @@
 import { transcodeRawAudioLocallyWithWasm, transcodeRawAudioOnServer } from './ffmpegExtractor';
 import { probeMkvAudioCodec, extractRawAudioTrackFromMp4, extractRawAudioTrackFromAvi } from './mkvAudioExtractor';
+import { isTauriDesktop, extractAudioTrackNative, getDesktopStorageInfo, getDesktopAssetUrl } from './tauriBridge';
+
+export const GEMINI_TRANSCRIBE_MODEL = 'gemini-3.5-transcribe';
+
 
 /**
  * Dedicated Pure JS Audio Demuxer & Extractor for Subtitle Generation (mkvAudioExtractorForGen.ts).
@@ -333,7 +337,7 @@ export async function extractRawAudioTrackFromMkvForGen(
       console.warn('[mkvAudioExtractorForGen] MKV Probe error:', err);
     }
 
-    const selectedTrackNum = targetMkvTrackNum || (audioTrackNumber && audioTrackNumber > 1 ? audioTrackNumber : 2);
+    const selectedTrackNum = targetMkvTrackNum ?? audioTrackNumber ?? 1;
     if (!selectedTrackNum) {
       console.warn('[mkvAudioExtractorForGen] Could not reliably resolve MKV audio track number; aborting JS demuxing for server FFmpeg fallback.');
       return null;
@@ -509,97 +513,229 @@ export async function extractRawAudioTrackFromMkvForGen(
 }
 
 /**
+ * Encodes Float32 PCM samples into a clean 16kHz 16-bit mono WAV buffer
+ */
+function encodeWav16BitMono(samples: Float32Array, sampleRate: number): Uint8Array {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // 1 channel (mono)
+  view.setUint32(24, sampleRate, true); // sampleRate (16000)
+  view.setUint32(28, sampleRate * 2, true); // byteRate (16000 * 1 * 2)
+  view.setUint16(32, 2, true); // blockAlign
+  view.setUint16(34, 16, true); // bitsPerSample
+  writeStr(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+
+  return new Uint8Array(buffer);
+}
+
+/**
+ * Transcodes any audio payload into a standardized 16kHz mono audio file specifically optimized
+ * for AI voice recognition and speech transcription models (e.g. Gemini 3.5 Transcribe).
+ */
+export async function transcodeAudioForVoiceRecognition(
+  audioInput: Blob | File,
+  onProgress?: (progress: number, message: string) => void,
+  signal?: AbortSignal
+): Promise<File> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  if (onProgress) onProgress(45, 'Транскадаванне аўдыя пад распазнаванне голасу (16kHz)...');
+
+  const baseName = (audioInput as File).name
+    ? (audioInput as File).name.replace(/\.[^/.]+$/, '').replace(/[^\x20-\x7E]/g, '_').replace(/_+/g, '_')
+    : 'audio';
+
+  // Strategy 1: Ultra-fast browser WebAudio decoding to 16kHz mono PCM WAV (<1 sec for full episodes)
+  try {
+    const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioCtxClass) {
+      const arrayBuf = await audioInput.arrayBuffer();
+      if (!signal?.aborted && arrayBuf.byteLength > 100) {
+        const ctx = new AudioCtxClass({ sampleRate: 16000 });
+        try {
+          const audioBuf = await ctx.decodeAudioData(arrayBuf);
+          if (audioBuf && audioBuf.length > 0) {
+            const length = audioBuf.length;
+            const numChannels = audioBuf.numberOfChannels;
+            const monoSamples = new Float32Array(length);
+            for (let c = 0; c < numChannels; c++) {
+              const ch = audioBuf.getChannelData(c);
+              for (let i = 0; i < length; i++) {
+                monoSamples[i] += ch[i] / numChannels;
+              }
+            }
+            await ctx.close().catch(() => {});
+
+            const wavBytes = encodeWav16BitMono(monoSamples, 16000);
+            const wavFile = new File([wavBytes], `${baseName || 'voice'}_16k.wav`, { type: 'audio/wav' });
+            if (onProgress) onProgress(95, 'Аўдыя падрыхтавана пад распазнаванне голасу (16kHz WAV)');
+            return wavFile;
+          }
+        } catch (decErr) {
+          console.warn('[mkvAudioExtractorForGen] WebAudio decodeAudioData fallback to FFmpeg:', decErr);
+        } finally {
+          await ctx.close().catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[mkvAudioExtractorForGen] WebAudio decode failed, falling back to WASM/Server transcode:', err);
+  }
+
+  // Strategy 2: Local FFmpeg WASM transcode to 16kHz mono
+  try {
+    if (onProgress) onProgress(60, 'Транскадаванне праз WASM FFmpeg пад 16kHz...');
+    let transcoded = await transcodeRawAudioLocallyWithWasm(audioInput, 'voice-rec', (p, msg) => {
+      if (onProgress) onProgress(Math.min(90, Math.max(50, p)), msg);
+    }, signal);
+
+    if (!transcoded) {
+      if (onProgress) onProgress(75, 'Транскадаванне на серверы пад 16kHz...');
+      transcoded = await transcodeRawAudioOnServer(audioInput, 'voice-rec', onProgress, signal);
+    }
+
+    if (transcoded && transcoded.size > 512) {
+      const cleanName = `${baseName || 'voice'}_16k.m4a`;
+      if (onProgress) onProgress(98, 'Аўдыя паспяхова транскадавана пад распазнаванне голасу');
+      return new File([transcoded], cleanName, { type: transcoded.type || 'audio/mp4' });
+    }
+  } catch (wasmErr) {
+    console.warn('[mkvAudioExtractorForGen] WASM / Server transcode fallback failed:', wasmErr);
+  }
+
+  // Strategy 3: Return audioInput as File if already an audio File
+  if (audioInput instanceof File) return audioInput;
+  return new File([audioInput], `${baseName || 'voice'}.mp3`, { type: audioInput.type || 'audio/mp3' });
+}
+
+/**
  * Main dedicated audio extractor entry point for Subtitle Generation.
- * Guaranteed to extract the complete audio track for multi-hour movies in <1s using streaming JS demuxing.
+ * Extracts the requested audio track from the media file and transcodes it specifically
+ * for voice recognition (16kHz mono audio).
  */
 export async function extractAudioForSubtitleGen(
   mediaFile: File,
   trackNumber: number = 1,
   onProgress?: (progress: number, message: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cachedAudio?: File | Blob
 ): Promise<File | null> {
   if (signal?.aborted) return null;
+
+  // 1. If we already have a pre-extracted/transcoded audio track cached from player or previous pass
+  if (cachedAudio && cachedAudio.size > 512) {
+    console.log(`[mkvAudioExtractorForGen] Using cached audio track #${trackNumber} (${Math.round(cachedAudio.size / 1024 / 1024)}MB)`);
+    if (onProgress) onProgress(20, 'Выкарыстанне выцягнутай дарожкі, транскадаванне пад распазнаванне голасу...');
+    try {
+      const speechReady = await transcodeAudioForVoiceRecognition(cachedAudio, onProgress, signal);
+      if (speechReady && speechReady.size > 512) {
+        return speechReady;
+      }
+    } catch (cacheErr) {
+      console.warn('[mkvAudioExtractorForGen] Failed transcoding cached audio, continuing with fresh demux:', cacheErr);
+    }
+  }
 
   const fileExt = mediaFile.name ? mediaFile.name.toLowerCase().split('.').pop() || '' : '';
   const isAudioType = mediaFile.type.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wma'].includes(fileExt);
 
-  // 1. If media file is already a standalone audio file <= 80MB, return it as-is
-  if (isAudioType && mediaFile.size <= 80 * 1024 * 1024) {
-    console.log('[mkvAudioExtractorForGen] Input is already a small standalone audio file.');
-    return mediaFile;
+  // 2. If media file is already a standalone audio file, transcode it directly for voice recognition
+  if (isAudioType) {
+    console.log('[mkvAudioExtractorForGen] Input is a standalone audio file, transcoding for voice recognition...');
+    if (onProgress) onProgress(20, 'Падрыхтоўка аўдыя пад распазнаванне голасу...');
+    return transcodeAudioForVoiceRecognition(mediaFile, onProgress, signal);
+  }
+
+  // 3. Desktop Tauri mode: Use fast native sidecar ffmpeg to extract and transcode the exact track
+  const rawDesktopPath = (mediaFile as any)?.desktopPath || (mediaFile as any)?.path;
+  if (isTauriDesktop() && rawDesktopPath) {
+    try {
+      console.log(`[mkvAudioExtractorForGen] Desktop native extraction for track #${trackNumber}...`);
+      if (onProgress) onProgress(15, `Здабыванне дарожкі #${trackNumber} праз ffmpeg.exe...`);
+      const tempInfo = await getDesktopStorageInfo().catch(() => null);
+      const cacheDir = (tempInfo?.cache_dir || tempInfo?.temp_dir || '').replace(/[/\\]+$/, '');
+      const outName = `transcribe_tr${trackNumber}_${Date.now()}.wav`;
+      const targetOutPath = cacheDir ? `${cacheDir}/${outName}` : outName;
+
+      const nativeResultPath = await extractAudioTrackNative(
+        rawDesktopPath,
+        Math.max(0, trackNumber - 1),
+        targetOutPath,
+        (payload) => {
+          if (onProgress && payload.progress >= 0) {
+            const pct = Math.min(85, Math.max(10, Math.round(payload.progress * 100)));
+            onProgress(pct, payload.message || `ffmpeg.exe ${pct}%`);
+          }
+        }
+      );
+
+      if (nativeResultPath) {
+        const assetUrl = getDesktopAssetUrl(nativeResultPath);
+        const res = await fetch(assetUrl);
+        if (res.ok) {
+          const audioBlob = await res.blob();
+          if (audioBlob && audioBlob.size > 512) {
+            const cleanSpeechFile = await transcodeAudioForVoiceRecognition(audioBlob, onProgress, signal);
+            if (cleanSpeechFile && cleanSpeechFile.size > 512) {
+              return cleanSpeechFile;
+            }
+          }
+        }
+      }
+    } catch (desktopNativeErr) {
+      console.warn('[mkvAudioExtractorForGen] Desktop native extraction fallback:', desktopNativeErr);
+    }
   }
 
   console.log(`[mkvAudioExtractorForGen] Starting streaming demuxing for subtitle generation: ${mediaFile.name} (${Math.round(mediaFile.size / 1024 / 1024)}MB), track #${trackNumber}...`);
   if (onProgress) onProgress(5, 'Пачатак выцягвання аўдыядарожкі для субцітраў 5%...');
 
   const isMkv = ['mkv', 'mka', 'webm'].includes(fileExt) || mediaFile.type.includes('matroska') || mediaFile.type.includes('webm');
+  const isMp4 = ['mp4', 'mov', 'm4v', '3gp', 'qt'].includes(fileExt) || mediaFile.type.includes('mp4') || mediaFile.type.includes('quicktime');
+  const isAvi = ['avi'].includes(fileExt) || mediaFile.type.includes('avi');
 
   let rawAudioBlob: Blob | null = null;
 
   if (isMkv) {
     if (onProgress) onProgress(10, 'Дэмуксінг MKV дарожкі ў браўзеры...');
     rawAudioBlob = await extractRawAudioTrackFromMkvForGen(mediaFile, trackNumber, onProgress, signal);
-  } else {
-    // For MP4, MOV, AVI, etc., do NOT demux into synthetic ADTS in JS.
-    // Delegating to server native FFmpeg preserves 100% frame-accurate timing.
-    console.log('[mkvAudioExtractorForGen] Non-MKV container delegated to native server FFmpeg for frame accuracy.');
-    return null;
+  } else if (isMp4) {
+    if (onProgress) onProgress(10, 'Дэмуксінг MP4 дарожкі ў браўзеры...');
+    rawAudioBlob = await extractRawAudioTrackFromMp4(mediaFile, trackNumber, (p, msg) => {
+      if (onProgress) onProgress(Math.min(35, Math.max(10, p)), msg);
+    }, signal);
+  } else if (isAvi) {
+    if (onProgress) onProgress(10, 'Дэмуксінг AVI дарожкі ў браўзеры...');
+    rawAudioBlob = await extractRawAudioTrackFromAvi(mediaFile, trackNumber, (p, msg) => {
+      if (onProgress) onProgress(Math.min(35, Math.max(10, p)), msg);
+    }, signal);
   }
 
   if (rawAudioBlob && rawAudioBlob.size > 512 && !signal?.aborted) {
     const totalMb = Math.round(rawAudioBlob.size / 1024 / 1024);
-    console.log(`[mkvAudioExtractorForGen] Successfully extracted complete raw audio track (${totalMb}MB, type: ${rawAudioBlob.type})`);
+    console.log(`[mkvAudioExtractorForGen] Successfully extracted raw audio track (${totalMb}MB, type: ${rawAudioBlob.type}). Transcoding for voice recognition...`);
 
-    const isAc3Dts = rawAudioBlob.type.includes('ac3') || rawAudioBlob.type.includes('dts') || rawAudioBlob.type.includes('eac3');
-
-    // If it's a native streamable codec (AAC/MP3/FLAC/WAV/PCM/Opus), return directly as File
-    if (!isAc3Dts) {
-      let ext = 'aac';
-      let mime = 'audio/aac';
-      if (rawAudioBlob.type.includes('mp3')) {
-        ext = 'mp3';
-        mime = 'audio/mp3';
-      } else if (rawAudioBlob.type.includes('wav')) {
-        ext = 'wav';
-        mime = 'audio/wav';
-      } else if (rawAudioBlob.type.includes('flac')) {
-        ext = 'flac';
-        mime = 'audio/flac';
-      } else if (rawAudioBlob.type.includes('aac')) {
-        ext = 'aac';
-        mime = 'audio/aac';
-      } else if (rawAudioBlob.type.includes('opus')) {
-        ext = 'opus';
-        mime = 'audio/opus';
-      } else if (rawAudioBlob.type.includes('ogg')) {
-        ext = 'ogg';
-        mime = 'audio/ogg';
-      }
-
-      const asciiBase = mediaFile.name.replace(/\.[^/.]+$/, '').replace(/[^\x20-\x7E]/g, '_').replace(/_+/g, '_');
-      const cleanName = `${asciiBase || 'media'}_subtitles_track${trackNumber}.${ext}`;
-      
-      if (onProgress) onProgress(100, 'Аўдыядарожка паспяхова падрыхтавана! 100%');
-      return new File([rawAudioBlob], cleanName, { type: mime });
-    }
-
-    // Non-native codec (AC3/DTS): transcode ONLY the extracted 40MB raw audio payload (small enough for WASM)
-    console.log('[mkvAudioExtractorForGen] AC3/DTS detected, transcoding small raw audio payload...');
-    if (onProgress) onProgress(40, 'Транскадаванне AC3/DTS у 16kHz аўдыя...');
-
-    let transcodedBlob: Blob | null = await transcodeRawAudioLocallyWithWasm(rawAudioBlob, 'AC3/DTS', (p, msg) => {
-      if (onProgress) onProgress(Math.min(90, Math.max(40, p)), msg);
-    }, signal);
-
-    if (!transcodedBlob) {
-      transcodedBlob = await transcodeRawAudioOnServer(rawAudioBlob, 'AC3/DTS', onProgress, signal);
-    }
-
-    if (transcodedBlob && transcodedBlob.size > 512 && !signal?.aborted) {
-      const asciiBase = mediaFile.name.replace(/\.[^/.]+$/, '').replace(/[^\x20-\x7E]/g, '_').replace(/_+/g, '_');
-      const cleanName = `${asciiBase || 'media'}_subtitles_track${trackNumber}.m4a`;
-      if (onProgress) onProgress(100, 'Аўдыядарожка паспяхова падрыхтавана! 100%');
-      return new File([transcodedBlob], cleanName, { type: transcodedBlob.type || 'audio/mp4' });
+    const speechReadyFile = await transcodeAudioForVoiceRecognition(rawAudioBlob, onProgress, signal);
+    if (speechReadyFile && speechReadyFile.size > 512) {
+      if (onProgress) onProgress(100, 'Аўдыядарожка паспяхова транскадавана пад распазнаванне голасу! 100%');
+      return speechReadyFile;
     }
   }
 
@@ -607,3 +743,4 @@ export async function extractAudioForSubtitleGen(
   console.log('[mkvAudioExtractorForGen] Streaming JS demuxing unfulfilled; returning null for native server FFmpeg fallback.');
   return null;
 }
+
