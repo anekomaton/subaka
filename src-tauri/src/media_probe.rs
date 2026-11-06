@@ -508,8 +508,6 @@ impl MediaProbeService {
         let mut child = cmd.spawn().map_err(|e| format!("System ffmpeg failed to spawn: {}", e))?;
         let mut last_emit = std::time::Instant::now();
         let mut last_pct = 5u32;
-        let mut last_time_display = "00:00:00".to_string();
-
         if let Some(stderr) = child.stderr.take() {
             use std::io::BufRead;
             let reader = std::io::BufReader::new(stderr);
@@ -523,7 +521,6 @@ impl MediaProbeService {
                             }
                         }
                         if let Some((secs, formatted)) = Self::parse_time_from_ffmpeg_output(line) {
-                            last_time_display = formatted;
                             let pct = if total_duration > 0.0 {
                                 ((secs / total_duration) * 100.0).clamp(1.0, 99.0).round() as u32
                             } else {
@@ -532,7 +529,7 @@ impl MediaProbeService {
                             if pct != last_pct || last_emit.elapsed() >= std::time::Duration::from_millis(200) {
                                 last_pct = pct;
                                 last_emit = std::time::Instant::now();
-                                let msg = format!("ffmpeg.exe {}% {}", pct, last_time_display);
+                                let msg = format!("ffmpeg.exe {}% {}", pct, formatted);
                                 let _ = app.emit(
                                     "media-extraction-progress",
                                     ExtractionProgressPayload {
