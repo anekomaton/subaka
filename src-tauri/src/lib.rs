@@ -280,6 +280,8 @@ pub fn run() {
             open_external_url,
             restore_post_fullscreen_bounds,
             log_desktop_event,
+            get_whisper_resource_paths,
+            run_whisper_transcribe,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SUBaka desktop application");

@@ -941,3 +941,67 @@ pub fn log_desktop_event(level: String, category: String, message: String, detai
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WhisperResourcePaths {
+    pub binary_path: String,
+    pub model_path: String,
+}
+
+#[tauri::command]
+pub fn get_whisper_resource_paths() -> Result<WhisperResourcePaths, String> {
+    let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
+    let base_dir = Path::new(&local_appdata).join("SUBaka").join("resources");
+    let binary = base_dir.join("whisper.exe");
+    let model = base_dir.join("ggml-small.bin");
+    
+    Ok(WhisperResourcePaths {
+        binary_path: binary.to_string_lossy().to_string(),
+        model_path: model.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn run_whisper_transcribe(
+    audio_path: String,
+    model_name: String,
+    language: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
+        let resources_dir = Path::new(&local_appdata).join("SUBaka").join("resources");
+        let whisper_exe = resources_dir.join("whisper.exe");
+        let model_file = resources_dir.join(if model_name.is_empty() { "ggml-small.bin" } else { &model_name });
+
+        if !whisper_exe.exists() {
+            return Err(format!("Не знойдзены бінарны файл whisper.exe у {}", resources_dir.display()));
+        }
+
+        let output_srt_path = std::env::temp_dir().join(format!("subaka_whisper_{}", std::process::id()));
+
+        let mut cmd = silent_command(whisper_exe.to_str().unwrap_or("whisper.exe"));
+        cmd.args([
+            "-m", model_file.to_str().unwrap_or("ggml-small.bin"),
+            "-f", &audio_path,
+            "-osrt",
+            "-of", output_srt_path.to_str().unwrap_or("subaka_whisper_output"),
+            "-l", if language.is_empty() { "auto" } else { &language },
+        ]);
+
+        let output = cmd.output().map_err(|e| format!("Памылка запуску Whisper: {}", e))?;
+        if output.status.success() {
+            let srt_file_with_ext = Path::new(&format!("{}.srt", output_srt_path.to_str().unwrap_or("")));
+            if srt_file_with_ext.exists() {
+                let content = fs::read(&srt_file_with_ext).map_err(|e| e.to_string())?;
+                let _ = fs::remove_file(srt_file_with_ext);
+                return Ok(decode_bytes_to_string(&content));
+            }
+        }
+
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Памылка генерацыі Whisper: {}", err_msg))
+    })
+    .await
+    .map_err(|e| format!("Памылка патоку Whisper: {}", e))?
+}
+
+

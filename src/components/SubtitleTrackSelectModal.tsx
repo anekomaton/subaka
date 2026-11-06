@@ -7,6 +7,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
+import { isTauriDesktop } from '../utils/tauriBridge';
 
 interface SubtitleTrackSelectModalProps {
   isOpen: boolean;
@@ -45,6 +46,8 @@ export default function SubtitleTrackSelectModal({
   const [isProbing, setIsProbing] = useState<boolean>(false);
   const [selectedTrackKey, setSelectedTrackKey] = useState<string>('embedded_1');
   const [customGenAudioFile, setCustomGenAudioFile] = useState<File | null>(null);
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => isTauriDesktop());
+  const [engineChoice, setEngineChoice] = useState<'whisper' | 'gemini'>(() => isTauriDesktop() ? 'whisper' : 'gemini');
 
   // Determine if extAudioFile is an internal transcoded track from mediaFile or a genuine user-uploaded external track
   const isTranscodedTrack = (file: File | null) => {
@@ -134,14 +137,14 @@ export default function SubtitleTrackSelectModal({
 
   const handleConfirm = () => {
     if (selectedTrackKey === 'custom_gen' && customGenAudioFile) {
-      onStartTranscribe('gemini', 'gemini', 1, true, customGenAudioFile);
+      onStartTranscribe(engineChoice, 'gemini', 1, true, customGenAudioFile);
     } else if (selectedTrackKey === 'ext_active' && isGenuineExternalTrack && extAudioFile) {
-      onStartTranscribe('gemini', 'gemini', 1, true, extAudioFile);
+      onStartTranscribe(engineChoice, 'gemini', 1, true, extAudioFile);
     } else if (selectedTrackKey.startsWith('embedded_')) {
       const trackNum = parseInt(selectedTrackKey.split('_')[1], 10) || 1;
-      onStartTranscribe('gemini', 'gemini', trackNum, false, undefined);
+      onStartTranscribe(engineChoice, 'gemini', trackNum, false, undefined);
     } else {
-      onStartTranscribe('gemini', 'gemini', 1, false, undefined);
+      onStartTranscribe(engineChoice, 'gemini', 1, false, undefined);
     }
     onClose();
   };
@@ -170,6 +173,76 @@ export default function SubtitleTrackSelectModal({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Engine Selection (Whisper / Gemini) - Only visible in desktop version */}
+        {isDesktop && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 block">
+              Рухавік генерацыі:
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label
+                onClick={() => setEngineChoice('whisper')}
+                className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  engineChoice === 'whisper'
+                    ? theme === 'dark'
+                      ? 'bg-indigo-950/60 border-indigo-500 text-indigo-100 ring-1 ring-indigo-500/30'
+                      : 'bg-indigo-50 border-indigo-500 text-indigo-950 ring-1 ring-indigo-500/30'
+                    : theme === 'dark'
+                      ? 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="engineChoice"
+                    checked={engineChoice === 'whisper'}
+                    onChange={() => setEngineChoice('whisper')}
+                    className="accent-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold">Whisper</span>
+                    <span className="text-[10px] text-slate-400">AppData (Офлайн)</span>
+                  </div>
+                </div>
+                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
+                  180MB
+                </span>
+              </label>
+
+              <label
+                onClick={() => setEngineChoice('gemini')}
+                className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  engineChoice === 'gemini'
+                    ? theme === 'dark'
+                      ? 'bg-indigo-950/60 border-indigo-500 text-indigo-100 ring-1 ring-indigo-500/30'
+                      : 'bg-indigo-50 border-indigo-500 text-indigo-950 ring-1 ring-indigo-500/30'
+                    : theme === 'dark'
+                      ? 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="engineChoice"
+                    checked={engineChoice === 'gemini'}
+                    onChange={() => setEngineChoice('gemini')}
+                    className="accent-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold">Gemini</span>
+                    <span className="text-[10px] text-slate-400">Cloud AI (API)</span>
+                  </div>
+                </div>
+                <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
+                  API
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
 
         <p className="text-xs text-slate-300">
           Даступна дарожак: <strong className="text-indigo-400">{totalAvailableTracks}</strong>. Выберыце аўдыядарожку з медыяфайла для генерацыі субцітраў.

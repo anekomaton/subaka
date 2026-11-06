@@ -1657,36 +1657,23 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
             err.statusCode === 429;
 
           if (isRateLimit) {
-            markModelQuotaExhausted(model);
-
             // Parse exact retry delay from Google API error message if available
-            let waitSec = 12;
+            let waitSec = 8;
             const retryMatch = errMsg.match(/retry in ([0-9.]+)\s*s/i) || errMsg.match(/retryDelay"?:\s*"?([0-9.]+)\s*s?/i);
             if (retryMatch && retryMatch[1]) {
               waitSec = Math.ceil(parseFloat(retryMatch[1])) + 2;
             }
+            waitSec = Math.min(15, Math.max(4, waitSec));
 
-            const isHardQuotaExceeded =
-              errMsg.includes("Quota exceeded") ||
-              errMsg.includes("RESOURCE_EXHAUSTED") ||
-              errMsg.includes("generate_content_free_tier_requests") ||
-              errMsg.includes("limit:") ||
-              waitSec > 15;
-
-            if (isHardQuotaExceeded) {
-              console.log(`[Transcribe Gemini] Model ${model} exceeded quota. Switching immediately to next fallback model...`);
-              onProgress?.(`Абмежаванне квоты для ${model}, пераключэнне на наступную мадэль...`, currentPercent);
-              break; // Break out of tries loop immediately to use next model
-            }
-
-            // Short rate limit wait
-            waitSec = Math.min(10, Math.max(3, waitSec));
-            console.log(`[Transcribe Gemini] Rate limit hit on ${model}. Waiting ${waitSec}s...`);
+            console.log(`[Transcribe Gemini] Rate limit hit on ${model}. Waiting ${waitSec}s before retry (tries left: ${tries - 1})...`);
             onProgress?.(`Абмежаванне квоты API, чаканне ${waitSec}с...`, currentPercent);
             await new Promise((r) => setTimeout(r, waitSec * 1000));
 
-            tries = Math.min(tries - 1, 2);
-            if (tries <= 0) break;
+            tries--;
+            if (tries <= 0) {
+              markModelQuotaExhausted(model);
+              break; // Switch to fallback model
+            }
             continue;
           }
 
@@ -2188,13 +2175,24 @@ async function runTranscribeTask(
 
       updateProgress(segmentMsg, startPct);
 
-      let segSrt = "";
-      segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
+      let segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
+
+      // If segment returned empty (e.g. temporary API timeout/rate limit), retry once after a short 3s pause before assuming silence
+      if (!segSrt || !segSrt.trim()) {
+        console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} returned empty; retrying segment once after 3s delay...`);
+        await new Promise((r) => setTimeout(r, 3000));
+        segSrt = await transcribeSingleFileWithGemini(client, seg.filePath, "audio/wav", segments.length > 1, startPct, endPct, updateProgress, language, segDur);
+      }
 
       if (segSrt && segSrt.trim()) {
         segmentResults.push({ srt: segSrt, offsetSec: seg.startSec, durationSec: segDur });
       } else {
         console.log(`[Transcribe Job ${jobId}] Segment ${i + 1}/${segments.length} (${minStart}–${minEnd}хв) returned no speech (silence/music).`);
+      }
+
+      // Pacing delay between segments to respect 15 RPM rate limits
+      if (segments.length > 1 && i < segments.length - 1) {
+        await new Promise((r) => setTimeout(r, 1500));
       }
 
       // Clean up segment WAV file immediately to save disk/RAM

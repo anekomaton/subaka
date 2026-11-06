@@ -862,6 +862,48 @@ export async function logDesktopInfo(
   }
 }
 
+/**
+ * Retrieves the local Whisper binary and ggml-small model paths in AppData\Local\SUBaka\resources
+ */
+export async function getWhisperResourcePath(): Promise<{ binaryPath: string; modelPath: string } | null> {
+  if (!isTauriDesktop()) return null;
+  try {
+    const res = await invoke<{ binaryPath: string; modelPath: string }>('get_whisper_resource_paths');
+    return res;
+  } catch (_) {
+    // Return expected AppData\Local\SUBaka\resources layout paths
+    return {
+      binaryPath: 'resources/whisper.exe',
+      modelPath: 'resources/ggml-small.bin',
+    };
+  }
+}
+
+/**
+ * Invokes native local whisper.cpp sidecar engine for desktop transcription
+ */
+export async function runWhisperTranscribeDesktop(
+  wavAudioPath: string,
+  language = 'auto'
+): Promise<string | null> {
+  if (!isTauriDesktop()) return null;
+  try {
+    logDesktopInfo('WhisperEngine', 'Launching local whisper.cpp transcription', { wavAudioPath, language });
+    const srtOutput = await invoke<string>('run_whisper_transcribe', {
+      audioPath: wavAudioPath,
+      modelName: 'ggml-small.bin',
+      language,
+    });
+    logDesktopInfo('WhisperEngine', 'Local whisper.cpp transcription completed successfully');
+    return srtOutput;
+  } catch (err) {
+    console.warn('[TauriBridge] run_whisper_transcribe failed:', err);
+    logDesktopError('WhisperEngine', 'Local whisper.cpp execution failed', { error: String(err) });
+    return null;
+  }
+}
+
+
 
 
 
