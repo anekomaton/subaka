@@ -989,9 +989,10 @@ pub async fn run_whisper_transcribe(
 
         let output = cmd.output().map_err(|e| format!("Памылка запуску Whisper: {}", e))?;
         if output.status.success() {
-            let srt_file_with_ext = Path::new(&format!("{}.srt", output_srt_path.to_str().unwrap_or("")));
+            let srt_file_path = format!("{}.srt", output_srt_path.to_str().unwrap_or(""));
+            let srt_file_with_ext = Path::new(&srt_file_path);
             if srt_file_with_ext.exists() {
-                let content = fs::read(&srt_file_with_ext).map_err(|e| e.to_string())?;
+                let content = fs::read(srt_file_with_ext).map_err(|e| e.to_string())?;
                 let _ = fs::remove_file(srt_file_with_ext);
                 return Ok(decode_bytes_to_string(&content));
             }
