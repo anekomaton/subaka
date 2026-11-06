@@ -849,7 +849,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.title = `SUBaka ${packageJson.version}`;
+    document.title = `SUBaka`;
   }, []);
 
   const handleToggleTheme = () => {
@@ -3587,9 +3587,11 @@ export default function App() {
       localStorage.removeItem('subaka_playback_current_time');
     } catch {}
 
+    fetch('/api/transcribe/clear', { method: 'POST' }).catch(() => {});
+
     await clearWorkspaceFromStorage();
     if (isTauriDesktop()) {
-      await clearDesktopTempCache();
+      await clearDesktopTempCache().catch(() => {});
     }
     setTimeout(() => {
       isClearingWorkspaceRef.current = false;
@@ -3625,11 +3627,13 @@ export default function App() {
       localStorage.removeItem('subaka_playback_current_time');
     } catch {}
 
+    fetch('/api/transcribe/clear', { method: 'POST' }).catch(() => {});
+
     if (isTauriDesktop()) {
       await clearDesktopTempCache().catch(() => {});
     }
     await clearMediaFromStorage();
-    addToast("Медыяфайл і часовы кэш ачышчаны", "info");
+    addToast("Медыяфайл, дарожкі генерацыі і часовы кэш ачышчаны", "info");
   };
 
   const handleMediaFileLoaded = (file: File) => {
@@ -4463,14 +4467,6 @@ export default function App() {
         onBatchConvertPhonetics={handleBatchConvertPhonetics}
         isConvertingPhoneticsAll={isConvertingPhoneticsAll}
         onOpenTranscribeModal={() => {
-          if (isTauriDesktop()) {
-            const apiKey = geminiApiKey || getDesktopGeminiApiKey();
-            if (!apiKey) {
-              setIsGeminiKeyModalOpen(true);
-              addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
-              return;
-            }
-          }
           setIsSubtitleTrackModalOpen(true);
         }}
         onTranscribe={handleTranscribe}

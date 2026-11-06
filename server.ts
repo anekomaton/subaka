@@ -2427,6 +2427,24 @@ app.post("/api/transcribe/cancel/:jobId", (req, res) => {
   res.json({ success: true });
 });
 
+// Clear all transcribe jobs and temporary upload/cache directories on server
+app.post("/api/transcribe/clear", (_req, res) => {
+  try {
+    transcribeJobs.clear();
+    const dbDir = path.join("/tmp", "transcribe_jobs_db");
+    if (fs.existsSync(dbDir)) {
+      fs.rmSync(dbDir, { recursive: true, force: true });
+    }
+    const uploadsDir = path.join("/tmp", "uploads");
+    if (fs.existsSync(uploadsDir)) {
+      fs.rmSync(uploadsDir, { recursive: true, force: true });
+    }
+    res.json({ success: true, message: "Transcribe cache cleared" });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to clear transcribe cache" });
+  }
+});
+
 
 
 // High-performance server-side audio extraction & transcoding using native FFmpeg

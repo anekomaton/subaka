@@ -355,19 +355,24 @@ pub fn get_desktop_storage_info(
 #[tauri::command]
 pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
     use tauri::Manager;
-    // Cleans temporary media & cache files, keeping resources (grammardb, verbum, dictionaries) intact!
+    // Cleans temporary media, transcribe & cache files, keeping resources (grammardb, verbum, dictionaries) intact!
     let mut deleted_count = 0;
 
     let is_temp_media_file = |name: &str| -> bool {
-        if name.contains("grammardb") || name.contains("verbum") || name.ends_with(".sqlite3") {
+        let lower = name.to_lowercase();
+        if lower.contains("grammardb") || lower.contains("verbum") || lower.ends_with(".sqlite3") {
             return false;
         }
-        name.starts_with("clean_video")
-            || name.starts_with("audio_cache")
-            || name.starts_with("extracted_audio")
-            || name.starts_with("subaka_")
-            || name.starts_with("subaka-")
-            || name.contains("waveform")
+        lower.starts_with("clean_video")
+            || lower.starts_with("audio_cache")
+            || lower.starts_with("extracted_audio")
+            || lower.starts_with("subaka_")
+            || lower.starts_with("subaka-")
+            || lower.starts_with("transcribe")
+            || lower.contains("transcribe")
+            || lower.starts_with("whisper")
+            || lower.contains("whisper")
+            || lower.contains("waveform")
     };
 
     let mut clean_folder = |dir: &Path| {
@@ -378,7 +383,10 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if is_temp_media_file(name) {
                         if path.is_file() {
-                            let _ = fs::remove_file(path);
+                            let _ = fs::remove_file(&path);
+                            deleted_count += 1;
+                        } else if path.is_dir() {
+                            let _ = fs::remove_dir_all(&path);
                             deleted_count += 1;
                         }
                     }
@@ -390,14 +398,43 @@ pub fn clear_desktop_temp_cache(app: AppHandle) -> Result<bool, String> {
     // 1. App cache directory root AND app cache directory /cache subfolder
     if let Ok(base_cache) = app.path().app_cache_dir() {
         clean_folder(&base_cache);
-        clean_folder(&base_cache.join("cache"));
+        
+        let cache_dir = base_cache.join("cache");
+        if cache_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&cache_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let lower = name.to_lowercase();
+                    if !lower.contains("grammardb") && !lower.contains("verbum") && !lower.ends_with(".sqlite3") {
+                        if path.is_file() {
+                            let _ = fs::remove_file(&path);
+                            deleted_count += 1;
+                        } else if path.is_dir() {
+                            let _ = fs::remove_dir_all(&path);
+                            deleted_count += 1;
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    // 2. Temp directory subaka & media cache files
+    // 2. Temp directory subaka, whisper & transcribe cache files
     let temp_dir = std::env::temp_dir();
     clean_folder(&temp_dir);
 
-    log::info!("Cleaned {} temporary media cache files", deleted_count);
+    // 3. Remove transcribe jobs and upload temp subdirs if any
+    let transcribe_db_dir = temp_dir.join("transcribe_jobs_db");
+    if transcribe_db_dir.exists() {
+        let _ = fs::remove_dir_all(&transcribe_db_dir);
+    }
+    let uploads_dir = temp_dir.join("uploads");
+    if uploads_dir.exists() {
+        let _ = fs::remove_dir_all(&uploads_dir);
+    }
+
+    log::info!("Cleaned {} temporary media and transcribe cache files", deleted_count);
     Ok(true)
 }
 
@@ -988,7 +1025,7 @@ pub fn resolve_whisper_executable_and_model(
     }
 
     // Binary candidates to search for
-    let binary_names = ["whisper.exe", "whisper-cli.exe", "main.exe", "whisper"];
+    let binary_names = ["whisper-cli.exe", "main.exe", "whisper.exe", "whisper"];
     let mut found_binary: Option<PathBuf> = None;
 
     for dir in &candidate_dirs {
@@ -1026,7 +1063,7 @@ pub fn resolve_whisper_executable_and_model(
         Some(p) => p,
         None => {
             return Err(
-                "Не знойдзены бінарны файл Whisper (whisper.exe/whisper-cli.exe). Змесціце whisper.exe у тэчку resources/ праграмы або AppData/Local/SUBaka/resources."
+                "Не знойдзены бінарны файл Whisper (whisper.exe/whisper-cli.exe). Змесціце whisper.exe або whisper-cli.exe у тэчку resources/ праграмы або AppData/Local/SUBaka/resources."
                     .to_string(),
             );
         }
@@ -1070,10 +1107,7 @@ pub fn resolve_whisper_executable_and_model(
     let model_path = match found_model {
         Some(p) => p,
         None => {
-            return Err(
-                "Не знойдзена мадэль Whisper (ggml-small.bin / ggml-base.bin). Змесціце файл мадэлі ggml-small.bin у тэчку resources/ праграмы або AppData/Local/SUBaka/resources."
-                    .to_string(),
-            );
+            PathBuf::from(if requested_model.trim().is_empty() { "ggml-small.bin" } else { requested_model.trim() })
         }
     };
 
@@ -1109,6 +1143,7 @@ pub async fn run_whisper_transcribe(
 
         let output_srt_path = std::env::temp_dir().join(format!("subaka_whisper_{}", std::process::id()));
 
+        // 1. Try whisper.cpp CLI flags syntax (-m model -f audio -osrt -of output_prefix -l lang)
         let mut cmd = silent_command(whisper_exe.to_str().unwrap_or("whisper.exe"));
         cmd.args([
             "-m",
@@ -1122,19 +1157,81 @@ pub async fn run_whisper_transcribe(
             if language.is_empty() { "auto" } else { &language },
         ]);
 
-        let output = cmd.output().map_err(|e| format!("Памылка запуску Whisper: {}", e))?;
-        if output.status.success() {
-            let srt_file_path = format!("{}.srt", output_srt_path.to_str().unwrap_or(""));
-            let srt_file_with_ext = Path::new(&srt_file_path);
-            if srt_file_with_ext.exists() {
-                let content = fs::read(srt_file_with_ext).map_err(|e| e.to_string())?;
-                let _ = fs::remove_file(srt_file_with_ext);
-                return Ok(decode_bytes_to_string(&content));
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let srt_file_path = format!("{}.srt", output_srt_path.to_str().unwrap_or(""));
+                let srt_file_with_ext = Path::new(&srt_file_path);
+                if srt_file_with_ext.exists() {
+                    let content = fs::read(srt_file_with_ext).map_err(|e| e.to_string())?;
+                    let _ = fs::remove_file(srt_file_with_ext);
+                    return Ok(decode_bytes_to_string(&content));
+                }
             }
+
+            let err_msg = String::from_utf8_lossy(&output.stderr);
+            // 2. Check if stderr indicates Python OpenAI Whisper CLI (e.g., --output_format / -f argument error)
+            if err_msg.contains("usage: whisper") || err_msg.contains("output_format") || err_msg.contains("invalid choice") || err_msg.contains("unrecognized arguments") {
+                log::info!("[WhisperEngine] Detected Python OpenAI Whisper CLI, switching to Python CLI syntax...");
+                let audio_path_buf = PathBuf::from(&audio_path);
+                let temp_dir = audio_path_buf.parent().unwrap_or_else(|| Path::new("."));
+                let stem = audio_path_buf.file_stem().and_then(|s| s.to_str()).unwrap_or("whisper_input");
+                let expected_srt_path = temp_dir.join(format!("{}.srt", stem));
+                let _ = fs::remove_file(&expected_srt_path);
+
+                let raw_model_str = model_name.to_lowercase();
+                let py_model = if raw_model_str.contains("tiny") {
+                    "tiny"
+                } else if raw_model_str.contains("base") {
+                    "base"
+                } else if raw_model_str.contains("medium") {
+                    "medium"
+                } else if raw_model_str.contains("large-v3") {
+                    "large-v3"
+                } else if raw_model_str.contains("large-v2") {
+                    "large-v2"
+                } else if raw_model_str.contains("large") {
+                    "large"
+                } else {
+                    "small"
+                };
+
+                let mut py_cmd = silent_command(whisper_exe.to_str().unwrap_or("whisper.exe"));
+                let mut py_args = vec![
+                    audio_path.clone(),
+                    "--model".to_string(),
+                    py_model.to_string(),
+                    "--output_dir".to_string(),
+                    temp_dir.to_string_lossy().to_string(),
+                    "--output_format".to_string(),
+                    "srt".to_string(),
+                    "--verbose".to_string(),
+                    "False".to_string(),
+                ];
+
+                if !language.is_empty() && language != "auto" {
+                    py_args.push("--language".to_string());
+                    py_args.push(language.clone());
+                }
+
+                py_cmd.args(&py_args);
+
+                if let Ok(py_output) = py_cmd.output() {
+                    if py_output.status.success() || expected_srt_path.exists() {
+                        if expected_srt_path.exists() {
+                            let content = fs::read(&expected_srt_path).map_err(|e| e.to_string())?;
+                            let _ = fs::remove_file(&expected_srt_path);
+                            return Ok(decode_bytes_to_string(&content));
+                        }
+                    }
+                    let py_err = String::from_utf8_lossy(&py_output.stderr);
+                    return Err(format!("Памылка генерацыі Python Whisper: {}", py_err));
+                }
+            }
+
+            return Err(format!("Памылка генерацыі Whisper: {}", err_msg));
         }
 
-        let err_msg = String::from_utf8_lossy(&output.stderr);
-        Err(format!("Памылка генерацыі Whisper: {}", err_msg))
+        Err("Не ўдалося запусціць працэс Whisper".to_string())
     })
     .await
     .map_err(|e| format!("Памылка патоку Whisper: {}", e))?

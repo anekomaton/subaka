@@ -571,6 +571,7 @@ export async function clearMediaFromStorage(): Promise<void> {
     store.delete('mediaFileName');
     store.delete('extAudioFile');
     store.delete('processedTracks');
+    store.delete('processedForGenTracks');
     store.delete('activeTrackNumber');
     store.delete('activeExternalTrackId');
     store.delete('playbackCurrentTime');
