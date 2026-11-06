@@ -82,7 +82,11 @@
     "resources": [
       "resources/"
     ],
-    "windows": {}
+    "windows": {
+      "nsis": {
+        "compression": "lzma"
+      }
+    }
   },
   "plugins": {
     "shell": {
