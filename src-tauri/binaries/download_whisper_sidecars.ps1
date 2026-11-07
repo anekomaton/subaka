@@ -162,7 +162,7 @@ if (-not (Test-Path $modelTarget) -or (Get-Item $modelTarget).Length -lt 1000000
         try {
             & curl.exe -s -S -f -L --retry 5 --retry-delay 3 -H "User-Agent: Mozilla/5.0" $mUrl -o $modelTarget
         } catch {
-            Write-Host "Warning: Failed downloading ggml-small.bin from $mUrl: $_"
+            Write-Host "Warning: Failed downloading ggml-small.bin from ${mUrl} - $_"
         }
         if ((Test-Path $modelTarget) -and (Get-Item $modelTarget).Length -gt 10000000) {
             break
