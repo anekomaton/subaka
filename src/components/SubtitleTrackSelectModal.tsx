@@ -171,14 +171,22 @@ export default function SubtitleTrackSelectModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header matching TimelinePlayer track select modal */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-700/50">
-          <h3 className="text-base font-semibold flex items-center gap-2 text-indigo-400">
-            <Volume2 className="w-5 h-5 text-indigo-400" />
+        <div className={`flex items-center justify-between pb-3 border-b ${
+          theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'
+        }`}>
+          <h3 className={`text-base font-semibold flex items-center gap-2 ${
+            theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'
+          }`}>
+            <Volume2 className={`w-5 h-5 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`} />
             Выбар аўдыядарожкі для генерацыі субцітраў
           </h3>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className={`p-1 rounded-lg transition-colors cursor-pointer ${
+              theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+            }`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -187,7 +195,9 @@ export default function SubtitleTrackSelectModal({
         {/* Engine Selection (Whisper / Gemini) - Only visible in desktop version */}
         {isDesktop && (
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 block">
+            <label className={`text-xs font-semibold block ${
+              theme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+            }`}>
               Рухавік генерацыі:
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -213,10 +223,18 @@ export default function SubtitleTrackSelectModal({
                   />
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Whisper</span>
-                    <span className="text-[10px] text-slate-400">лакальна</span>
+                    <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>лакальна</span>
                   </div>
                 </div>
-                <span className="text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-amber-300 border-emerald-500/30">
+                <span className={`text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold ${
+                  whisperDetails?.isCuda
+                    ? theme === 'dark'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : theme === 'dark'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      : 'bg-amber-100 text-amber-800 border-amber-300'
+                }`}>
                   {whisperDetails?.isCuda ? 'GPU' : 'CPU'}
                 </span>
               </label>
@@ -243,10 +261,14 @@ export default function SubtitleTrackSelectModal({
                   />
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Gemini</span>
-                    <span className="text-[10px] text-slate-400">анлайн</span>
+                    <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>анлайн</span>
                   </div>
                 </div>
-                <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
+                <span className={`text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold ${
+                  theme === 'dark'
+                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    : 'bg-purple-100 text-purple-800 border-purple-300'
+                }`}>
                   Auto
                 </span>
               </label>
@@ -254,8 +276,8 @@ export default function SubtitleTrackSelectModal({
           </div>
         )}
 
-        <p className="text-xs text-slate-300">
-          Даступна дарожак: <strong className="text-indigo-400">{totalAvailableTracks}</strong>. Выберыце аўдыядарожку з медыяфайла для генерацыі субцітраў.
+        <p className={`text-xs ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+          Даступна дарожак: <strong className={theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}>{totalAvailableTracks}</strong>. Выберыце аўдыядарожку з медыяфайла для генерацыі субцітраў.
         </p>
         {mediaFileName && (
           <p className={`font-semibold truncate max-w-full ${
@@ -266,8 +288,12 @@ export default function SubtitleTrackSelectModal({
         )}
 
         {isProbing && (
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs animate-pulse">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+          <div className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs animate-pulse ${
+            theme === 'dark'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
+            <RefreshCw className={`w-3.5 h-3.5 animate-spin ${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}`} />
             Аналіз дарожак медыяфайла...
           </div>
         )}
@@ -299,11 +325,15 @@ export default function SubtitleTrackSelectModal({
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="font-medium text-xs flex items-center gap-1.5 flex-wrap min-w-0">
                     <span className="truncate max-w-[200px]" title={extAudioFile.name}>{extAudioFile.name}</span>
-                    <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 rounded font-semibold shrink-0">
+                    <span className={`text-[10px] border px-1.5 py-0.2 rounded font-semibold shrink-0 ${
+                      theme === 'dark'
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                        : 'bg-purple-100 text-purple-800 border-purple-300'
+                    }`}>
                       Актыўная дарожка з плэера
                     </span>
                   </span>
-                  <span className="text-[10px] text-slate-400">
+                  <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                     {(extAudioFile.size / 1024 / 1024).toFixed(1)} MB • Знешні аўдыяфайл
                   </span>
                 </div>
@@ -343,11 +373,25 @@ export default function SubtitleTrackSelectModal({
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="font-medium text-xs flex items-center gap-1.5 flex-wrap">
                       Дарожка #{tr.trackNumber}
-                      {tr.language && <span className="text-indigo-400 font-bold uppercase">{tr.language}</span>}
-                      {tr.trackName && <span className="text-slate-300 font-normal">({tr.trackName})</span>}
-                      {isDefault && <span className="text-[10px] text-slate-400 font-normal border border-slate-700 px-1 rounded">(па змаўчанні)</span>}
+                      {tr.language && (
+                        <span className={`${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'} font-bold uppercase`}>
+                          {tr.language}
+                        </span>
+                      )}
+                      {tr.trackName && (
+                        <span className={`${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'} font-normal`}>
+                          ({tr.trackName})
+                        </span>
+                      )}
+                      {isDefault && (
+                        <span className={`text-[10px] font-normal border px-1 rounded ${
+                          theme === 'dark' ? 'text-slate-400 border-slate-700' : 'text-slate-500 border-slate-300'
+                        }`}>
+                          (па змаўчанні)
+                        </span>
+                      )}
                     </span>
-                    <span className="text-[10px] text-slate-400">
+                    <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                       {codecDisplay} {tr.channels ? `• ${tr.channels} кан.` : ''} • Нумар: {tr.trackNumber}
                     </span>
                   </div>
@@ -387,11 +431,15 @@ export default function SubtitleTrackSelectModal({
                         : 'text-xs'
                   }`} title={customGenAudioFile.name}>
                     {customGenAudioFile.name}
-                    <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 rounded font-semibold shrink-0">
+                    <span className={`text-[10px] border px-1.5 py-0.2 rounded font-semibold shrink-0 ${
+                      theme === 'dark'
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                        : 'bg-purple-100 text-purple-800 border-purple-300'
+                    }`}>
                       Загружаны файл
                     </span>
                   </span>
-                  <span className="text-[10px] text-slate-400">
+                  <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                     {(customGenAudioFile.size / 1024 / 1024).toFixed(1)} MB
                   </span>
                 </div>
@@ -401,9 +449,13 @@ export default function SubtitleTrackSelectModal({
         </div>
 
         {/* Button to upload another audio track inside modal */}
-        <div className="pt-2 border-t border-slate-700/50">
-          <label className="w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed border-indigo-500/50 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 font-semibold text-xs cursor-pointer transition-all hover:border-indigo-400 select-none">
-            <Music className="w-4 h-4 text-indigo-400 shrink-0" />
+        <div className={`pt-2 border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'}`}>
+          <label className={`w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed text-xs font-semibold cursor-pointer transition-all select-none ${
+            theme === 'dark'
+              ? 'border-indigo-500/50 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:border-indigo-400'
+              : 'border-indigo-300 bg-indigo-50/70 hover:bg-indigo-100/70 text-indigo-700 hover:border-indigo-400'
+          }`}>
+            <Music className={`w-4 h-4 shrink-0 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`} />
             загрузіць іншую аўдыядарожку
             <input
               type="file"
@@ -415,7 +467,7 @@ export default function SubtitleTrackSelectModal({
         </div>
 
         {/* Modal Actions */}
-        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-700/50">
+        <div className={`flex items-center justify-end gap-2.5 pt-2 border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'}`}>
           <button
             onClick={handleConfirm}
             className="px-3.5 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"

@@ -585,6 +585,7 @@ pub fn sanitize_path_str(path_str: &str) -> String {
     let is_cache_file = file_name.starts_with("clean_video")
         || file_name.starts_with("audio_cache")
         || file_name.starts_with("extracted_audio")
+        || file_name.starts_with("whisper_input")
         || file_name.starts_with("subaka_")
         || file_name.starts_with("subaka-")
         || file_name.contains("grammardb")
@@ -639,48 +640,82 @@ pub fn sanitize_sensitive_info(text: &str) -> String {
         }
     }
 
-    // 3. Redact Windows user directory names: Users\<username>\ or Users/<username>/
-    let lower_res = result.to_lowercase();
-    let mut search_offset = 0;
-    while let Some(rel_pos) = lower_res[search_offset..].find("users") {
-        let pos = search_offset + rel_pos;
-        let bytes = result.as_bytes();
-        let has_sep_before = pos == 0 || matches!(bytes[pos - 1], b'\\' | b'/');
-        let sep_after_pos = pos + 5;
-        if has_sep_before && sep_after_pos < bytes.len() && matches!(bytes[sep_after_pos], b'\\' | b'/') {
-            let u_start = sep_after_pos + 1;
-            let mut u_end = u_start;
-            while u_end < bytes.len() && !matches!(bytes[u_end], b'\\' | b'/' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'') {
-                u_end += 1;
-            }
-            if u_end > u_start {
-                let user_name = &result[u_start..u_end];
-                if user_name != "[REDACTED_USER]" {
-                    result = result.replace(user_name, "[REDACTED_USER]");
+    // 3. Redact by detected system username (from environment variables)
+    for env_var in &["USERNAME", "USER"] {
+        if let Ok(uname) = std::env::var(env_var) {
+            let trimmed = uname.trim();
+            if trimmed.len() >= 2 && !trimmed.eq_ignore_ascii_case("root") && !trimmed.eq_ignore_ascii_case("default") {
+                let lower_trimmed = trimmed.to_lowercase();
+                let mut search_from = 0;
+                while let Some(rel) = result[search_from..].to_lowercase().find(&lower_trimmed) {
+                    let idx = search_from + rel;
+                    let end = idx + trimmed.len();
+                    result.replace_range(idx..end, "[REDACTED_USER]");
+                    search_from = idx + "[REDACTED_USER]".len();
+                    if search_from >= result.len() {
+                        break;
+                    }
                 }
             }
         }
-        search_offset = pos + 5;
     }
 
-    // 4. Redact Linux home directory names: /home/<username>/
-    let lower_res = result.to_lowercase();
-    let mut search_offset = 0;
-    while let Some(rel_pos) = lower_res[search_offset..].find("/home/") {
-        let pos = search_offset + rel_pos;
-        let u_start = pos + 6;
-        let bytes = result.as_bytes();
-        let mut u_end = u_start;
-        while u_end < bytes.len() && !matches!(bytes[u_end], b'/' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'') {
-            u_end += 1;
-        }
-        if u_end > u_start {
-            let user_name = &result[u_start..u_end];
-            if user_name != "[REDACTED_USER]" {
-                result = result.replace(user_name, "[REDACTED_USER]");
+    // 4. Redact Windows user directory names: Users\<username>, Users\\<username>, Users/<username>, Пользователи\<username>
+    for marker in &["users", "пользователи"] {
+        let mut search_offset = 0;
+        while let Some(rel_pos) = result[search_offset..].to_lowercase().find(marker) {
+            let pos = search_offset + rel_pos;
+            let after_marker = pos + marker.len();
+            let bytes = result.as_bytes();
+
+            // Skip any slashes or backslashes (handles both single \ and escaped \\)
+            let mut sep_end = after_marker;
+            while sep_end < bytes.len() && (bytes[sep_end] == b'\\' || bytes[sep_end] == b'/') {
+                sep_end += 1;
+            }
+
+            if sep_end > after_marker && sep_end < bytes.len() {
+                let u_start = sep_end;
+                let mut u_end = u_start;
+                while u_end < bytes.len() && !matches!(bytes[u_end], b'\\' | b'/' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b',' | b';') {
+                    u_end += 1;
+                }
+                if u_end > u_start {
+                    let segment = result[u_start..u_end].to_string();
+                    if segment != "[REDACTED_USER]" && segment != "Public" && segment != "Default" && segment != "All Users" {
+                        result = result.replace(&segment, "[REDACTED_USER]");
+                    }
+                }
+            }
+            search_offset = pos + marker.len() + 1;
+            if search_offset >= result.len() {
+                break;
             }
         }
-        search_offset = pos + 6;
+    }
+
+    // 5. Redact Linux & macOS home directories: /home/<username> or /Users/<username>
+    for prefix in &["/home/", "/users/"] {
+        let mut search_offset = 0;
+        while let Some(rel_pos) = result[search_offset..].to_lowercase().find(prefix) {
+            let pos = search_offset + rel_pos;
+            let u_start = pos + prefix.len();
+            let bytes = result.as_bytes();
+            let mut u_end = u_start;
+            while u_end < bytes.len() && !matches!(bytes[u_end], b'/' | b'\\' | b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b',' | b';') {
+                u_end += 1;
+            }
+            if u_end > u_start {
+                let segment = result[u_start..u_end].to_string();
+                if segment != "[REDACTED_USER]" {
+                    result = result.replace(&segment, "[REDACTED_USER]");
+                }
+            }
+            search_offset = pos + prefix.len() + 1;
+            if search_offset >= result.len() {
+                break;
+            }
+        }
     }
 
     result
@@ -988,6 +1023,7 @@ pub struct WhisperResourcePaths {
 }
 
 static ACTIVE_WHISPER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static WHISPER_CANCELLED_BY_USER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
@@ -1014,6 +1050,21 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
         false
     };
 
+    // 1. Check if Whisper executable already exists in bundled resources directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res_dir = exe_dir.join("resources");
+            let res_cuda = res_dir.join("whisper-cuda.exe");
+            let res_cpu = res_dir.join("whisper.exe");
+            if has_nvidia && res_cuda.exists() && res_cuda.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
+                return Ok(res_cuda);
+            }
+            if res_cpu.exists() && res_cpu.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
+                return Ok(res_cpu);
+            }
+        }
+    }
+
     let cuda_exe = target_dir.join("whisper-cuda.exe");
     let cpu_exe = target_dir.join("whisper.exe");
 
@@ -1026,11 +1077,12 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
 
     let _ = fs::create_dir_all(&target_dir);
 
-    log::info!(
+    let log_msg = sanitize_sensitive_info(&format!(
         "[WhisperEngine] Auto-downloading native Whisper binary into {:?} (NVIDIA GPU detected: {})",
         target_dir,
         has_nvidia
-    );
+    ));
+    log::info!("{}", log_msg);
 
     if has_nvidia {
         let cuda_urls = [
@@ -1135,6 +1187,17 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
     } else {
         requested_model.trim()
     };
+
+    // 1. Check if model already exists in bundled resources directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res_model = exe_dir.join("resources").join(m_file);
+            if res_model.exists() && res_model.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
+                return Ok(res_model);
+            }
+        }
+    }
+
     let target_model = target_dir.join(m_file);
 
     if target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
@@ -1143,7 +1206,12 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
 
     let _ = fs::create_dir_all(&target_dir);
 
-    log::info!("[WhisperEngine] Auto-downloading GGML Whisper model ({}) into {:?}", m_file, target_dir);
+    let log_msg = sanitize_sensitive_info(&format!(
+        "[WhisperEngine] Auto-downloading GGML Whisper model ({}) into {:?}",
+        m_file,
+        target_dir
+    ));
+    log::info!("{}", log_msg);
 
     let model_url = format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", m_file);
     let dl_res = silent_command("curl.exe")
@@ -1344,6 +1412,7 @@ pub fn get_whisper_engine_details(app: AppHandle) -> Result<WhisperEngineDetails
 
 #[tauri::command]
 pub fn cancel_whisper_transcribe() -> Result<bool, String> {
+    WHISPER_CANCELLED_BY_USER.store(true, std::sync::atomic::Ordering::SeqCst);
     let pid = ACTIVE_WHISPER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid != 0 {
         log::info!("[WhisperEngine] Force killing active Whisper process PID: {}", pid);
@@ -1381,15 +1450,18 @@ pub async fn run_whisper_transcribe(
     language: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        WHISPER_CANCELLED_BY_USER.store(false, std::sync::atomic::Ordering::SeqCst);
+
         let (whisper_exe, model_file) = resolve_whisper_executable_and_model(&app, &model_name)?;
 
-        log::info!(
+        let log_msg = sanitize_sensitive_info(&format!(
             "Running whisper transcription via {:?} with model {:?}, audio: {}, lang: {}",
             whisper_exe,
             model_file,
             audio_path,
             if language.is_empty() { "auto" } else { &language }
-        );
+        ));
+        log::info!("{}", log_msg);
 
         let output_srt_path = std::env::temp_dir().join(format!("subaka_whisper_{}", std::process::id()));
 
@@ -1418,7 +1490,12 @@ pub async fn run_whisper_transcribe(
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
-            Err(e) => return Err(format!("Не ўдалося запусціць працэс Whisper: {}", e)),
+            Err(e) => {
+                if WHISPER_CANCELLED_BY_USER.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err("Прыпынена карыстальнікам".to_string());
+                }
+                return Err(format!("Не ўдалося запусціць працэс Whisper: {}", e));
+            }
         };
 
         let pid = child.id();
@@ -1426,6 +1503,11 @@ pub async fn run_whisper_transcribe(
 
         let output_res = child.wait_with_output();
         ACTIVE_WHISPER_PID.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        if WHISPER_CANCELLED_BY_USER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            log::info!("[WhisperEngine] Whisper transcription cancelled by user");
+            return Err("Прыпынена карыстальнікам".to_string());
+        }
 
         if let Ok(output) = output_res {
             if output.status.success() {
@@ -1436,6 +1518,10 @@ pub async fn run_whisper_transcribe(
                     let _ = fs::remove_file(srt_file_with_ext);
                     return Ok(decode_bytes_to_string(&content));
                 }
+            }
+
+            if WHISPER_CANCELLED_BY_USER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return Err("Прыпынена карыстальнікам".to_string());
             }
 
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -1496,7 +1582,12 @@ pub async fn run_whisper_transcribe(
 
                 let mut py_child = match py_cmd.spawn() {
                     Ok(c) => c,
-                    Err(e) => return Err(format!("Не ўдалося запусціць працэс Python Whisper: {}", e)),
+                    Err(e) => {
+                        if WHISPER_CANCELLED_BY_USER.load(std::sync::atomic::Ordering::SeqCst) {
+                            return Err("Прыпынена карыстальнікам".to_string());
+                        }
+                        return Err(format!("Не ўдалося запусціць працэс Python Whisper: {}", e));
+                    }
                 };
 
                 let py_pid = py_child.id();
@@ -1504,6 +1595,11 @@ pub async fn run_whisper_transcribe(
 
                 let py_output_res = py_child.wait_with_output();
                 ACTIVE_WHISPER_PID.store(0, std::sync::atomic::Ordering::SeqCst);
+
+                if WHISPER_CANCELLED_BY_USER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    log::info!("[WhisperEngine] Python Whisper transcription cancelled by user");
+                    return Err("Прыпынена карыстальнікам".to_string());
+                }
 
                 if let Ok(py_output) = py_output_res {
                     if py_output.status.success() || expected_srt_path.exists() {
@@ -1513,12 +1609,23 @@ pub async fn run_whisper_transcribe(
                             return Ok(decode_bytes_to_string(&content));
                         }
                     }
+                    if WHISPER_CANCELLED_BY_USER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        return Err("Прыпынена карыстальнікам".to_string());
+                    }
                     let py_err = String::from_utf8_lossy(&py_output.stderr);
-                    return Err(format!("Памылка генерацыі Python Whisper: {}", py_err));
+                    return Err(format!("Памылка генерацыі Python Whisper: {}", sanitize_sensitive_info(&py_err)));
                 }
             }
 
-            return Err(format!("Памылка генерацыі Whisper: {}", err_msg));
+            if WHISPER_CANCELLED_BY_USER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return Err("Прыпынена карыстальнікам".to_string());
+            }
+
+            return Err(format!("Памылка генерацыі Whisper: {}", sanitize_sensitive_info(&err_msg)));
+        }
+
+        if WHISPER_CANCELLED_BY_USER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return Err("Прыпынена карыстальнікам".to_string());
         }
 
         Err("Не ўдалося запусціць працэс Whisper".to_string())

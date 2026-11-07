@@ -776,10 +776,10 @@ export async function prepareCompatibleVideoDesktop(
 export function sanitizeLogText(text: string): string {
   if (!text) return '';
   return text
-    // Replace Windows user profile paths: C:\Users\<Username>\... -> C:\Users\<user>\...
-    .replace(/[A-Za-z]:\\(?:Users|Пользователи|home)\\[^\\]+/gi, '<user_dir>')
+    // Replace Windows user profile paths: C:\Users\<Username>\... or C:\\Users\\<Username>\\...
+    .replace(/[A-Za-z]:\\\\?(?:Users|Пользователи|home)\\\\?[^\\/"'\n\r\t<>*|?]+/gi, '<user_dir>')
     // Replace full file paths with generic placeholders keeping only extension
-    .replace(/[A-Za-z]:\\[^"'\n\r\t<>*|?]+\.([a-zA-Z0-9]{2,5})\b/gi, '<path>/<file>.$1')
+    .replace(/[A-Za-z]:\\\\?[^"'\n\r\t<>*|?]+\.([a-zA-Z0-9]{2,5})\b/gi, '<path>/<file>.$1')
     .replace(/\/(?:home|Users)\/[^"'\n\r\t<>*|?]+\.([a-zA-Z0-9]{2,5})\b/gi, '<path>/<file>.$1')
     // Remove query params or keys from URLs
     .replace(/([?&](?:key|token|auth|secret|api_key)=)[^&]+/gi, '$1<redacted>')
@@ -946,7 +946,9 @@ export async function runWhisperTranscribeDesktop(
 
   if (signal?.aborted) {
     await cancelWhisperTranscribeDesktop();
-    throw new Error('Абпрацоўка адменена карыстальнікам');
+    const abortErr = new Error('Прыпынена карыстальнікам');
+    abortErr.name = 'AbortError';
+    throw abortErr;
   }
 
   const abortHandler = () => {
@@ -971,7 +973,11 @@ export async function runWhisperTranscribeDesktop(
       }
     }
 
-    logDesktopInfo('WhisperEngine', 'Launching local whisper.cpp transcription', { wavPath, modelName, language });
+    logDesktopInfo('WhisperEngine', 'Launching local whisper.cpp transcription', {
+      wavPath: sanitizeLogText(wavPath),
+      modelName,
+      language,
+    });
     const srtOutput = await invoke<string>('run_whisper_transcribe', {
       audioPath: wavPath,
       modelName: modelName || 'ggml-small.bin',
@@ -979,13 +985,29 @@ export async function runWhisperTranscribeDesktop(
     });
 
     if (signal?.aborted) {
-      throw new Error('Абпрацоўка адменена карыстальнікам');
+      const abortErr = new Error('Прыпынена карыстальнікам');
+      abortErr.name = 'AbortError';
+      throw abortErr;
     }
 
     logDesktopInfo('WhisperEngine', 'Local whisper.cpp transcription completed successfully');
     return srtOutput;
   } catch (err: any) {
     const errorMsg = typeof err === 'string' ? err : (err?.message || String(err));
+    const isUserCancelled =
+      signal?.aborted ||
+      errorMsg.includes('Прыпынена карыстальнікам') ||
+      errorMsg.includes('прыпынена карыстальнікам') ||
+      errorMsg.includes('адменена') ||
+      errorMsg.includes('AbortError');
+
+    if (isUserCancelled) {
+      logDesktopInfo('WhisperEngine', 'Транскрыпцыя Whisper прыпынена карыстальнікам');
+      const abortErr = new Error('Прыпынена карыстальнікам');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+
     console.warn('[TauriBridge] run_whisper_transcribe failed:', errorMsg);
     logDesktopError('WhisperEngine', 'Local whisper.cpp execution failed', { error: errorMsg });
     throw new Error(errorMsg);

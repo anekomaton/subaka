@@ -3068,9 +3068,18 @@ export default function App() {
       addStatusMessage(successMsg, "success");
       addToast(successMsg, "success");
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        addStatusMessage("Генерацыя субцітраў прыпынена карыстальнікам.", "info");
-        addToast("Генерацыя субцітраў прыпынена карыстальнікам.", "info");
+      const isAbort =
+        err?.name === 'AbortError' ||
+        err instanceof DOMException ||
+        err?.message?.includes("Прыпынена карыстальнікам") ||
+        err?.message?.includes("прыпынена карыстальнікам") ||
+        err?.message?.includes("адменена") ||
+        err?.message?.includes("Aborted") ||
+        controller.signal.aborted;
+
+      if (isAbort) {
+        addStatusMessage("Прыпынена карыстальнікам", "info");
+        addToast("Прыпынена карыстальнікам", "info");
       } else {
         console.error("Transcribe error:", err);
         let userMsg = err.message || "Памылка пры генерацыі субцітраў";
