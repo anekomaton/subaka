@@ -1,4 +1,4 @@
-# PowerShell script to download static Whisper.cpp binary and GGML model for SUBaka Desktop resources
+# PowerShell script to download static Whisper.cpp binaries (CPU & CUDA) and GGML model for SUBaka Desktop resources
 $PSScriptRoot = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
 $resDir = Join-Path (Split-Path -Parent -Path $PSScriptRoot) "resources"
 New-Item -ItemType Directory -Force -Path $resDir | Out-Null
@@ -23,22 +23,32 @@ if (-not (Test-Path $cudaExeTarget) -or (Get-Item $cudaExeTarget).Length -lt 100
             Expand-Archive -Path $cudaZipTarget -DestinationPath $tempCudaDir -Force
             Remove-Item $cudaZipTarget -Force -ErrorAction SilentlyContinue
 
-            # Move whisper executable as whisper-cuda.exe
-            $cliExe = Join-Path $tempCudaDir "whisper-cli.exe"
-            $mainExe = Join-Path $tempCudaDir "main.exe"
-            if (Test-Path $cliExe) {
-                Move-Item $cliExe $cudaExeTarget -Force
-            } elseif (Test-Path $mainExe) {
-                Move-Item $mainExe $cudaExeTarget -Force
+            # Find executable recursively inside extracted structure
+            $cliExe = Get-ChildItem -Path $tempCudaDir -Recurse -Filter "whisper-cli.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $cliExe) {
+                $cliExe = Get-ChildItem -Path $tempCudaDir -Recurse -Filter "main.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $cliExe) {
+                $cliExe = Get-ChildItem -Path $tempCudaDir -Recurse -Filter "whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $cliExe) {
+                $cliExe = Get-ChildItem -Path $tempCudaDir -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             }
 
-            # Move all DLLs to resources root
-            Get-ChildItem -Path $tempCudaDir -Filter "*.dll" | ForEach-Object {
-                Move-Item $_.FullName $resDir -Force
+            if ($cliExe) {
+                Copy-Item $cliExe.FullName $cudaExeTarget -Force
+                Write-Host "CUDA Whisper binary extracted: $cudaExeTarget ($((Get-Item $cudaExeTarget).Length) bytes)"
+            } else {
+                Write-Host "Warning: Could not locate executable in CUDA zip"
+            }
+
+            # Copy all DLLs to resources root
+            Get-ChildItem -Path $tempCudaDir -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object {
+                Copy-Item $_.FullName $resDir -Force
+                Write-Host "Extracted CUDA DLL: $($_.Name)"
             }
 
             Remove-Item $tempCudaDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "CUDA Whisper binary ready: $cudaExeTarget"
         }
     } catch {
         Write-Host "Notice: CUDA download skipped or failed: $_"
@@ -60,16 +70,25 @@ if (-not (Test-Path $whisperExeTarget) -or (Get-Item $whisperExeTarget).Length -
             Expand-Archive -Path $zipTarget -DestinationPath $tempCpuDir -Force
             Remove-Item $zipTarget -Force -ErrorAction SilentlyContinue
 
-            $cliExe = Join-Path $tempCpuDir "whisper-cli.exe"
-            $mainExe = Join-Path $tempCpuDir "main.exe"
-            if (Test-Path $cliExe) {
-                Move-Item $cliExe $whisperExeTarget -Force
-            } elseif (Test-Path $mainExe) {
-                Move-Item $mainExe $whisperExeTarget -Force
+            $cliExe = Get-ChildItem -Path $tempCpuDir -Recurse -Filter "whisper-cli.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $cliExe) {
+                $cliExe = Get-ChildItem -Path $tempCpuDir -Recurse -Filter "main.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $cliExe) {
+                $cliExe = Get-ChildItem -Path $tempCpuDir -Recurse -Filter "whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $cliExe) {
+                $cliExe = Get-ChildItem -Path $tempCpuDir -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+
+            if ($cliExe) {
+                Copy-Item $cliExe.FullName $whisperExeTarget -Force
+                Write-Host "Standard Whisper CPU binary extracted: $whisperExeTarget ($((Get-Item $whisperExeTarget).Length) bytes)"
+            } else {
+                Write-Host "Warning: Could not locate executable in CPU zip"
             }
 
             Remove-Item $tempCpuDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "Standard Whisper CPU binary ready: $whisperExeTarget"
         }
     } catch {
         Write-Host "Warning: Failed downloading whisper zip: $_"
@@ -77,7 +96,7 @@ if (-not (Test-Path $whisperExeTarget) -or (Get-Item $whisperExeTarget).Length -
     }
 }
 
-# 2. Download ggml-small.bin model if missing or invalid (< 10 MB)
+# 3. Download ggml-small.bin model if missing or invalid (< 10 MB)
 if (-not (Test-Path $modelTarget) -or (Get-Item $modelTarget).Length -lt 10000000) {
     Write-Host "Downloading ggml-small.bin model (~460MB) into resources..."
     $modelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
@@ -89,9 +108,15 @@ if (-not (Test-Path $modelTarget) -or (Get-Item $modelTarget).Length -lt 1000000
 }
 
 if (Test-Path $whisperExeTarget) {
-    Write-Host "Whisper executable ready: $whisperExeTarget ($((Get-Item $whisperExeTarget).Length) bytes)"
+    Write-Host "Whisper CPU executable ready: $whisperExeTarget ($((Get-Item $whisperExeTarget).Length) bytes)"
 } else {
     Write-Host "Notice: whisper.exe not present in resources."
+}
+
+if (Test-Path $cudaExeTarget) {
+    Write-Host "Whisper CUDA executable ready: $cudaExeTarget ($((Get-Item $cudaExeTarget).Length) bytes)"
+} else {
+    Write-Host "Notice: whisper-cuda.exe not present in resources."
 }
 
 if (Test-Path $modelTarget) {
