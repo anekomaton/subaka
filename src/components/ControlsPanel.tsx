@@ -437,7 +437,7 @@ export default function ControlsPanel({
             <div className="flex items-center justify-center min-w-0 order-last lg:order-none w-full lg:w-auto my-0.5 lg:my-0">
               <div className={`py-1 px-2.5 rounded-md flex items-center justify-center gap-1.5 h-7 border shrink-0 w-full lg:w-auto ${
                 theme === 'dark' ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-50 border-slate-200'
-              }`} title={isTranscribing ? "Генерацыя субцітраў" : "Аўтасубцітры паспяхова сфарміраваны"}>
+              }`} title={isTranscribing ? "Генерацыя субцітраў" : "Аўтасубцітры сфарміраваны"}>
                 {isTranscribing ? (
                   <div className="flex items-center gap-1.5 flex-wrap justify-center">
                     <span className={`text-[9.5px] font-bold tracking-wider ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
@@ -485,7 +485,7 @@ export default function ControlsPanel({
               if (!mediaFileName) {
                 transcribeTitle = "Загрузіце медыяфайл для генерацыі субцітраў";
               } else if (isAudioProcessing || (mediaLoadingProgress !== null && mediaLoadingProgress < 100)) {
-                transcribeTitle = "Аўдыядарожка яшчэ апрацоўваецца, калі ласка, пачакайце...";
+                transcribeTitle = "Аўдыядарожка яшчэ апрацоўваецца, пачакайце...";
               } else {
                 transcribeTitle = "Аўтаматычна распазнаць мову і стварыць субцітры з медыяфайла";
               }

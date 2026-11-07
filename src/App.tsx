@@ -2727,8 +2727,8 @@ export default function App() {
       // In Desktop standalone mode (Tauri): execute direct transcription via Whisper or Gemini.
       if (isTauriDesktop()) {
         if (engineChoice === 'whisper') {
-          addStatusMessage(`Запуск лакальнага афлайн-распазнавання праз Whisper...`, "info");
-          setTranscribeProgress("Распазнаванне маўлення праз лакальны Whisper engine...");
+          addStatusMessage(`Запуск лакальнага Whisper...`, "info");
+          setTranscribeProgress("Генерацыя субцітраў Whisper...");
 
           const rawSrtResult = await runWhisperTranscribeDesktop(
             targetFile,
@@ -2738,7 +2738,7 @@ export default function App() {
           );
 
           if (!rawSrtResult) {
-            throw new Error("Лакальны рухавік Whisper не вярнуў субцітры.");
+            throw new Error("Лакальны Whisper не вярнуў субцітры.");
           }
 
           const parsed = parseSrt(rawSrtResult, mediaDurationSec);
@@ -2747,9 +2747,9 @@ export default function App() {
           }
 
           setAutoSubtitles(parsed);
-          const successMsg = `Аўтасубцітры паспяхова сфарміраваны праз лакальны Whisper (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
+          const successMsg = `Аўтасубцітры згенераваны Whisper (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
           addStatusMessage(successMsg, "success");
-          addToast(`Сфармавана ${parsed.length} субцітраў праз лакальны Whisper!`, "success");
+          addToast(`Згенеравана ${parsed.length} субцітраў праз Whisper!`, "success");
           return;
         }
 
@@ -2785,7 +2785,7 @@ export default function App() {
         }
 
         setAutoSubtitles(parsed);
-        const successMsg = `Аўтасубцітры паспяхова сфарміраваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
+        const successMsg = `Аўтасубцітры згенераваны (картак: ${parsed.length})! Націсніце «ужыць», каб уставіць іх у працоўную вобласць.`;
         addStatusMessage(successMsg, "success");
         addToast(successMsg, "success");
         return;
@@ -2968,7 +2968,7 @@ export default function App() {
               console.warn(warnMsg);
               addStatusMessage(warnMsg, "warning");
               if (consecutive404 >= MAX_CONSECUTIVE_404) {
-                throw new Error("Задача распазнавання страчана. Калі ласка, пачніце генерацыю субцітраў зноў.");
+                throw new Error("Задача распазнавання страчана, пачніце генерацыю субцітраў зноў.");
               }
               continue;
             }
@@ -3001,7 +3001,7 @@ export default function App() {
           if (statusData.status === "completed") {
             rawSrtResult = statusData.srt || "";
             jobCompleted = true;
-            addStatusMessage("Распазнаванне паспяхова завершана!", "success");
+            addStatusMessage("Распазнаванне завершана!", "success");
             break;
           } else if (statusData.status === "error") {
             const fatalMsg = statusData.error || "Памылка на баку сервера пры апрацоўцы";

@@ -7,7 +7,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
-import { isTauriDesktop } from '../utils/tauriBridge';
+import { isTauriDesktop, getWhisperEngineDetails, WhisperEngineDetails } from '../utils/tauriBridge';
 
 interface SubtitleTrackSelectModalProps {
   isOpen: boolean;
@@ -48,7 +48,16 @@ export default function SubtitleTrackSelectModal({
   const [customGenAudioFile, setCustomGenAudioFile] = useState<File | null>(null);
   const [isDesktop, setIsDesktop] = useState<boolean>(() => isTauriDesktop());
   const [engineChoice, setEngineChoice] = useState<'whisper' | 'gemini'>(() => isTauriDesktop() ? 'whisper' : 'gemini');
+  const [whisperDetails, setWhisperDetails] = useState<WhisperEngineDetails | null>(null);
   const modelChoice = 'auto';
+
+  useEffect(() => {
+    if (isDesktop && isOpen) {
+      getWhisperEngineDetails().then((details) => {
+        if (details) setWhisperDetails(details);
+      });
+    }
+  }, [isDesktop, isOpen]);
 
   // Determine if extAudioFile is an internal transcoded track from mediaFile or a genuine user-uploaded external track
   const isTranscodedTrack = (file: File | null) => {
@@ -207,8 +216,12 @@ export default function SubtitleTrackSelectModal({
                     <span className="text-[10px] text-slate-400">лакальна</span>
                   </div>
                 </div>
-                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
-                  180MB
+                <span className={`text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold ${
+                  whisperDetails?.isCuda
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  {whisperDetails?.isCuda ? 'GPU' : 'CPU'}
                 </span>
               </label>
 
