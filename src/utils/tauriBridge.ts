@@ -887,34 +887,110 @@ export async function saveTempBinaryFileDesktop(content: Blob | File, filename: 
 }
 
 export interface WhisperEngineDetails {
+  isInstalled: boolean;
+  modelInstalled: boolean;
+  binaryInstalled: boolean;
   binaryPath: string;
   modelPath: string;
   isCuda: boolean;
   engineName: string;
+  modelSizeMb: number;
+}
+
+export interface WhisperDownloadProgress {
+  stage: string;
+  percent: number;
+  downloadedBytes: number;
+  totalBytes: number;
 }
 
 /**
- * Retrieves full details about the local Whisper engine (CPU vs NVIDIA CUDA GPU)
+ * Retrieves full details about the local Whisper engine (CPU vs NVIDIA CUDA GPU, and installation status)
  */
 export async function getWhisperEngineDetails(): Promise<WhisperEngineDetails | null> {
   if (!isTauriDesktop()) return null;
   try {
-    const res = await invoke<{ binary_path: string; model_path: string; is_cuda: boolean; engine_name: string }>(
-      'get_whisper_engine_details'
-    );
+    const res = await invoke<{
+      is_installed: boolean;
+      model_installed: boolean;
+      binary_installed: boolean;
+      binary_path: string;
+      model_path: string;
+      is_cuda: boolean;
+      engine_name: string;
+      model_size_mb: number;
+    }>('get_whisper_engine_details');
     return {
+      isInstalled: res.is_installed,
+      modelInstalled: res.model_installed,
+      binaryInstalled: res.binary_installed,
       binaryPath: res.binary_path,
       modelPath: res.model_path,
       isCuda: res.is_cuda,
       engineName: res.engine_name,
+      modelSizeMb: res.model_size_mb,
     };
-  } catch (_) {
+  } catch (err) {
+    console.warn('[TauriBridge] get_whisper_engine_details failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Downloads the offline Whisper model and components in-app with progress reporting
+ */
+export async function downloadWhisperBundleDesktop(
+  onProgress?: (progress: WhisperDownloadProgress) => void
+): Promise<WhisperEngineDetails | null> {
+  if (!isTauriDesktop()) return null;
+  let unlisten: UnlistenFn | null = null;
+  try {
+    if (onProgress) {
+      unlisten = await listen<any>('whisper-download-progress', (event) => {
+        const payload = event.payload;
+        if (payload) {
+          onProgress({
+            stage: payload.stage || 'Спампоўка...',
+            percent: typeof payload.percent === 'number' ? payload.percent : 0,
+            downloadedBytes: payload.downloaded_bytes || 0,
+            totalBytes: payload.total_bytes || 0,
+          });
+        }
+      });
+    }
+
+    logDesktopInfo('WhisperEngine', 'Starting in-app Whisper download');
+    const res = await invoke<any>('download_whisper_bundle');
     return {
-      binaryPath: 'resources/whisper.exe',
-      modelPath: 'resources/ggml-small.bin',
-      isCuda: false,
-      engineName: 'CPU (Standard whisper.cpp)',
+      isInstalled: res.is_installed,
+      modelInstalled: res.model_installed,
+      binaryInstalled: res.binary_installed,
+      binaryPath: res.binary_path,
+      modelPath: res.model_path,
+      isCuda: res.is_cuda,
+      engineName: res.engine_name,
+      modelSizeMb: res.model_size_mb,
     };
+  } catch (err: any) {
+    logDesktopError('WhisperEngine', 'download_whisper_bundle failed', { error: err?.message || String(err) });
+    throw err;
+  } finally {
+    if (unlisten) {
+      unlisten();
+    }
+  }
+}
+
+/**
+ * Cancels an in-progress Whisper download
+ */
+export async function cancelWhisperDownloadDesktop(): Promise<boolean> {
+  if (!isTauriDesktop()) return false;
+  try {
+    await invoke('cancel_whisper_download');
+    return true;
+  } catch {
+    return false;
   }
 }
 

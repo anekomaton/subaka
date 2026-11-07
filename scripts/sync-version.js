@@ -69,6 +69,7 @@ try {
     try {
       const workflow = fs.readFileSync(releaseWorkflowPath, 'utf8');
       const updatedWorkflow = workflow
+        .replace(/SUBaka_\d+\.\d+\.\d+_x64-(lite|full)_setup/g, `SUBaka_${version}_x64-$1_setup`)
         .replace(/SUBaka_\d+\.\d+\.\d+_x64-setup/g, `SUBaka_${version}_x64-setup`)
         .replace(/tag_name:\s*\${{\s*startsWith\(github\.ref,\s*'refs\/tags\/'\)\s*&&\s*github\.ref_name\s*\|\|\s*'v\d+\.\d+\.\d+'\s*}}/g, `tag_name: \${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v${version}' }}`)
         .replace(/name:\s*'SUBaka v\d+\.\d+\.\d+ \(Windows x64\)'/g, `name: 'SUBaka v${version} (Windows x64)'`);

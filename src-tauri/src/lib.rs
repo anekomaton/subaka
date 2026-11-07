@@ -284,6 +284,8 @@ pub fn run() {
             get_whisper_engine_details,
             cancel_whisper_transcribe,
             run_whisper_transcribe,
+            download_whisper_bundle,
+            cancel_whisper_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SUBaka desktop application");

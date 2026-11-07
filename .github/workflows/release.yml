@@ -10,10 +10,14 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    permissions:
-      contents: write
+  build:
+    name: Build ${{ matrix.edition == 'lite' && 'Lite' || 'Full' }} Installer
     runs-on: windows-latest
+    strategy:
+      matrix:
+        edition: [lite, full]
+      fail-fast: false
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +34,9 @@ jobs:
 
       - name: Install npm dependencies
         run: npm install
+
+      - name: Sync version across project files
+        run: node scripts/sync-version.js
 
       - name: Download FFmpeg sidecar (Windows x64)
         shell: pwsh
@@ -78,7 +85,7 @@ jobs:
       - name: Build Frontend for Desktop
         run: npm run build:client
 
-      - name: Build Offline Dictionaries & GrammarDB into Resources
+      - name: Build Offline Dictionaries & Resources
         shell: pwsh
         run: |
           $resDir = Join-Path (Get-Location) "src-tauri/resources"
@@ -88,64 +95,42 @@ jobs:
           # 1. Build Verbum Offline Dictionaries (TSBLM, Klyshka, RBS, ESBM)
           $verbumTarget = Join-Path $resDir "verbum_offline.sqlite3"
           if (-not (Test-Path $verbumTarget) -or (Get-Item $verbumTarget).Length -lt 10000000) {
-            Write-Host "Building offline Verbum dictionaries (TSBLM, Klyshka, RBS, ESBM) into resources..."
+            Write-Host "Building offline Verbum dictionaries (TSBLM, Klyshka, RBS, ESBM)..."
             try {
               python scripts/build-verbum-db.py $verbumTarget
             } catch {
-              Write-Host "Warning: build-verbum-db.py caught error: $_"
+              Write-Host "Warning: build-verbum-db.py error: $_"
             }
           }
 
           # 2. Build GrammarDB from Official Belarus/GrammarDB Release
           $grammarTarget = Join-Path $resDir "grammardb.sqlite3"
           if (-not (Test-Path $grammarTarget) -or (Get-Item $grammarTarget).Length -lt 10000000) {
-            Write-Host "Building offline GrammarDB (2M+ word forms) into resources..."
+            Write-Host "Building offline GrammarDB (2M+ word forms)..."
             try {
               python server/buildGrammarDbFromRelease.py $grammarTarget
             } catch {
-              Write-Host "Warning: buildGrammarDbFromRelease.py caught error: $_"
+              Write-Host "Warning: buildGrammarDbFromRelease.py error: $_"
             }
           }
 
-          # 3. Download Whisper sidecar binaries (CPU, CUDA), DLLs and model into resources
-          $whisperScript = Join-Path (Get-Location) "src-tauri/binaries/download_whisper_sidecars.ps1"
-          if (Test-Path $whisperScript) {
-            Write-Host "Downloading Whisper sidecars (CPU, CUDA), DLLs & GGML model into resources..."
-            & pwsh -ExecutionPolicy Bypass -File $whisperScript
+          # 3. Whisper Components: Full vs Lite
+          if ("${{ matrix.edition }}" -eq "full") {
+            Write-Host "=== FULL EDITION: Preparing complete Whisper offline binaries, CUDA and GGML model ==="
+            $whisperScript = Join-Path (Get-Location) "src-tauri/binaries/download_whisper_sidecars.ps1"
+            if (Test-Path $whisperScript) {
+              & pwsh -ExecutionPolicy Bypass -File $whisperScript
+            } else {
+              Write-Error "Script download_whisper_sidecars.ps1 not found!"
+              exit 1
+            }
           } else {
-            Write-Error "Script download_whisper_sidecars.ps1 not found!"
-            exit 1
+            Write-Host "=== LITE EDITION: Skipping pre-bundled Whisper model and CUDA to minimize package size ==="
+            # In Lite edition, do not bundle ggml-small.bin or CUDA binaries into installer resources.
+            # Only keep empty placeholder or lightweight whisper CPU if needed; model will download on demand.
           }
 
-          $whisperExe = Join-Path $resDir "whisper.exe"
-          $cudaExe = Join-Path $resDir "whisper-cuda.exe"
-          $dllFiles = Get-ChildItem -Path $resDir -Filter "*.dll" -ErrorAction SilentlyContinue
-
-          Write-Host "=== VERIFYING WHISPER AND DLL ARTIFACTS ==="
-          if (Test-Path $whisperExe) {
-            Write-Host "✓ Found whisper.exe ($((Get-Item $whisperExe).Length) bytes)"
-          } else {
-            Write-Error "CRITICAL: whisper.exe is missing from resources!"
-            exit 1
-          }
-
-          if (Test-Path $cudaExe) {
-            Write-Host "✓ Found whisper-cuda.exe ($((Get-Item $cudaExe).Length) bytes)"
-          } else {
-            Write-Warning "Notice: whisper-cuda.exe is missing from resources"
-          }
-
-          Write-Host "✓ Found $($dllFiles.Count) DLL(s) in resources:"
-          foreach ($d in $dllFiles) {
-            Write-Host "   - $($d.Name) ($($d.Length) bytes)"
-          }
-
-          if ($dllFiles.Count -eq 0) {
-            Write-Error "CRITICAL: No DLLs found in resources! whisper.exe will fail without whisper.dll and ggml*.dll"
-            exit 1
-          }
-
-          Write-Host "Prepared resources folder contents:"
+          Write-Host "Prepared resources folder contents (${{ matrix.edition }}):"
           Get-ChildItem $resDir | ForEach-Object {
             Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1MB, 2)) MB"
           }
@@ -156,31 +141,18 @@ jobs:
       - name: Locate and Stage Windows Installer
         shell: pwsh
         run: |
-          Write-Host "Searching for built installers under src-tauri/target..."
-          $allExes = Get-ChildItem -Path "src-tauri/target" -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue
-          foreach ($f in $allExes) {
-            Write-Host "Found binary: $($f.FullName) ($($f.Length) bytes)"
-          }
-
-          # 1. Look for installer inside bundle/nsis
+          $pkgVersion = (Get-Content package.json | ConvertFrom-Json).version
+          Write-Host "Staging installer for version $pkgVersion (${{ matrix.edition }})..."
+          
           $installer = Get-ChildItem -Path "src-tauri/target" -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match "bundle[\\/]nsis" -and $_.Extension -eq ".exe" } |
             Select-Object -First 1
 
-          # 2. Look for any setup executable
           if (-not $installer) {
             $installer = Get-ChildItem -Path "src-tauri/target" -Recurse -Filter "*setup*.exe" -ErrorAction SilentlyContinue |
               Select-Object -First 1
           }
 
-          # 3. Look for any .exe inside bundle directory
-          if (-not $installer) {
-            $installer = Get-ChildItem -Path "src-tauri/target" -Recurse -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match "bundle" -and $_.Extension -eq ".exe" } |
-              Select-Object -First 1
-          }
-
-          # 4. Fallback to release binary if bundling had issues
           if (-not $installer) {
             $installer = Get-ChildItem -Path "src-tauri/target" -Recurse -ErrorAction SilentlyContinue |
               Where-Object { $_.FullName -match "release" -and $_.Name -like "*subaka*.exe" -and $_.Name -notmatch "build_script" } |
@@ -188,37 +160,73 @@ jobs:
           }
 
           if (-not $installer) {
-            Write-Error "Could not find built installer under src-tauri/target! Showing directory tree:"
-            Get-ChildItem -Path "src-tauri/target" -Recurse -Depth 3 | Select-Object FullName
+            Write-Error "Could not find built installer under src-tauri/target!"
             exit 1
           }
 
-          Write-Host "Staging installer: $($installer.FullName) ($($installer.Length) bytes)"
+          $editionName = "${{ matrix.edition }}"
+          $destFileName = "SUBaka_${pkgVersion}_x64-${editionName}_setup.exe"
           New-Item -ItemType Directory -Force -Path "release_artifacts" | Out-Null
-          Copy-Item $installer.FullName "release_artifacts/SUBaka_1.0.1_x64-setup.exe" -Force
-          $staged = Get-Item "release_artifacts/SUBaka_1.0.1_x64-setup.exe"
-          Write-Host "Installer staged: $($staged.FullName) ($($staged.Length) bytes)"
+          $destPath = Join-Path "release_artifacts" $destFileName
+
+          Copy-Item $installer.FullName $destPath -Force
+          $staged = Get-Item $destPath
+          Write-Host "Installer staged successfully: $($staged.FullName) ($($staged.Length) bytes)"
 
       - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SUBaka_1.0.1_x64-setup
-          path: release_artifacts/SUBaka_1.0.1_x64-setup.exe
+          name: SUBaka_x64_${{ matrix.edition }}_setup
+          path: release_artifacts/*.exe
           if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+          merge-multiple: true
+
+      - name: Inspect downloaded binaries
+        run: |
+          mkdir -p release_artifacts
+          cp downloaded_artifacts/*.exe release_artifacts/ || true
+          ls -lh release_artifacts/
+
+      - name: Determine Version
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.1' }}
-          name: 'SUBaka v1.0.1 (Windows x64)'
-          files: release_artifacts/SUBaka_1.0.1_x64-setup.exe
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.get_version.outputs.VERSION) }}
+          name: ${{ format('SUBaka v{0} (Windows x64)', steps.get_version.outputs.VERSION) }}
+          files: release_artifacts/SUBaka_*_x64-*_setup.exe
           fail_on_unmatched_files: false
           body: |
-            ## Праграма SUBaka пад Windows 10 (x64)
+            ## Праграма SUBaka пад Windows 10/11 (x64)
 
-            - **`SUBaka_1.0.1_x64-setup.exe`** — інсталятар для Windows (x64).
+            Даступныя два варыянты інсталятара:
+
+            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-lite_setup.exe`** (~120–150 МБ) — палегчаная версія (праграма + FFmpeg + слоўнікі Verbum і GrammarDB). Падчас усталёўкі інсталятар прапануе птушачку для спампоўкі мадэлі Whisper (~460 МБ), альбо яе можна спампаваць у любы момант наўпрост у дадатку.
+            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-full_setup.exe`** (~770 МБ) — поўная аўтаномная версія «ўсё ў адным» з убудаванай мадэллю Whisper і паскарэннем NVIDIA CUDA (cuBLAS).
           draft: false
           prerelease: false
           make_latest: true

@@ -4,10 +4,18 @@ import {
   X,
   Music,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Download
 } from 'lucide-react';
 import { probeMkvAudioCodec, AudioTrackInfo } from '../utils/mkvAudioExtractor';
-import { isTauriDesktop, getWhisperEngineDetails, WhisperEngineDetails } from '../utils/tauriBridge';
+import {
+  isTauriDesktop,
+  getWhisperEngineDetails,
+  WhisperEngineDetails,
+  downloadWhisperBundleDesktop,
+  cancelWhisperDownloadDesktop,
+  WhisperDownloadProgress
+} from '../utils/tauriBridge';
 
 interface SubtitleTrackSelectModalProps {
   isOpen: boolean;
@@ -49,15 +57,51 @@ export default function SubtitleTrackSelectModal({
   const [isDesktop, setIsDesktop] = useState<boolean>(() => isTauriDesktop());
   const [engineChoice, setEngineChoice] = useState<'whisper' | 'gemini'>(() => isTauriDesktop() ? 'whisper' : 'gemini');
   const [whisperDetails, setWhisperDetails] = useState<WhisperEngineDetails | null>(null);
+  const [whisperDownloadProgress, setWhisperDownloadProgress] = useState<WhisperDownloadProgress | null>(null);
+  const [isDownloadingWhisper, setIsDownloadingWhisper] = useState(false);
+  const [whisperDownloadError, setWhisperDownloadError] = useState<string | null>(null);
   const modelChoice = 'auto';
 
   useEffect(() => {
     if (isDesktop && isOpen) {
       getWhisperEngineDetails().then((details) => {
-        if (details) setWhisperDetails(details);
+        if (details) {
+          setWhisperDetails(details);
+          if (!details.isInstalled) {
+            setEngineChoice('gemini');
+          }
+        }
       });
     }
   }, [isDesktop, isOpen]);
+
+  const handleDownloadWhisper = async () => {
+    setIsDownloadingWhisper(true);
+    setWhisperDownloadError(null);
+    setWhisperDownloadProgress({ stage: 'Падрыхтоўка да спампоўкі...', percent: 0, downloadedBytes: 0, totalBytes: 0 });
+    try {
+      const updated = await downloadWhisperBundleDesktop((prog) => {
+        setWhisperDownloadProgress(prog);
+      });
+      if (updated) {
+        setWhisperDetails(updated);
+        if (updated.isInstalled) {
+          setEngineChoice('whisper');
+        }
+      }
+    } catch (err: any) {
+      setWhisperDownloadError(err?.message || 'Не ўдалося спампаваць мадэль.');
+    } finally {
+      setIsDownloadingWhisper(false);
+      setWhisperDownloadProgress(null);
+    }
+  };
+
+  const handleCancelDownload = async () => {
+    await cancelWhisperDownloadDesktop();
+    setIsDownloadingWhisper(false);
+    setWhisperDownloadProgress(null);
+  };
 
   // Determine if extAudioFile is an internal transcoded track from mediaFile or a genuine user-uploaded external track
   const isTranscodedTrack = (file: File | null) => {
@@ -194,52 +238,74 @@ export default function SubtitleTrackSelectModal({
 
         {/* Engine Selection (Whisper / Gemini) - Only visible in desktop version */}
         {isDesktop && (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label className={`text-xs font-semibold block ${
               theme === 'dark' ? 'text-slate-300' : 'text-slate-700'
             }`}>
               Рухавік генерацыі:
             </label>
             <div className="grid grid-cols-2 gap-2">
-              <label
-                onClick={() => setEngineChoice('whisper')}
-                className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
-                  engineChoice === 'whisper'
+              <div
+                onClick={() => {
+                  if (whisperDetails?.isInstalled) {
+                    setEngineChoice('whisper');
+                  }
+                }}
+                className={`flex items-center justify-between p-2.5 rounded-lg border transition-all ${
+                  !whisperDetails?.isInstalled
                     ? theme === 'dark'
-                      ? 'bg-indigo-950/60 border-indigo-500 text-indigo-100 ring-1 ring-indigo-500/30'
-                      : 'bg-indigo-50 border-indigo-500 text-indigo-950 ring-1 ring-indigo-500/30'
-                    : theme === 'dark'
-                      ? 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800'
-                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      ? 'bg-slate-900/50 border-slate-800 text-slate-500 opacity-60 cursor-not-allowed select-none'
+                      : 'bg-slate-100/70 border-slate-200 text-slate-400 opacity-60 cursor-not-allowed select-none'
+                    : engineChoice === 'whisper'
+                      ? theme === 'dark'
+                        ? 'bg-indigo-950/60 border-indigo-500 text-indigo-100 ring-1 ring-indigo-500/30 cursor-pointer'
+                        : 'bg-indigo-50 border-indigo-500 text-indigo-950 ring-1 ring-indigo-500/30 cursor-pointer'
+                      : theme === 'dark'
+                        ? 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800 cursor-pointer'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer'
                 }`}
+                title={!whisperDetails?.isInstalled ? 'Мадэль Whisper не ўсталявана ў гэтай версіі' : 'Лакальнае распазнаванне Whisper'}
               >
                 <div className="flex items-center gap-2">
                   <input
                     type="radio"
                     name="engineChoice"
-                    checked={engineChoice === 'whisper'}
-                    onChange={() => setEngineChoice('whisper')}
-                    className="accent-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                    disabled={!whisperDetails?.isInstalled}
+                    checked={engineChoice === 'whisper' && Boolean(whisperDetails?.isInstalled)}
+                    onChange={() => {
+                      if (whisperDetails?.isInstalled) setEngineChoice('whisper');
+                    }}
+                    className={`accent-indigo-500 w-3.5 h-3.5 ${whisperDetails?.isInstalled ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                   />
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Whisper</span>
-                    <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>лакальна</span>
+                    <span className={`text-[10px] ${
+                      !whisperDetails?.isInstalled
+                        ? 'text-amber-500/80 dark:text-amber-400/80'
+                        : theme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                    }`}>
+                      {!whisperDetails?.isInstalled ? 'не ўсталявана' : 'лакальна'}
+                    </span>
                   </div>
                 </div>
                 <span className={`text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold ${
-                  whisperDetails?.isCuda
+                  !whisperDetails?.isInstalled
                     ? theme === 'dark'
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                      : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                    : theme === 'dark'
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                      : 'bg-amber-100 text-amber-800 border-amber-300'
+                      ? 'bg-slate-800 text-slate-400 border-slate-700'
+                      : 'bg-slate-200 text-slate-600 border-slate-300'
+                    : whisperDetails?.isCuda
+                      ? theme === 'dark'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : theme === 'dark'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
                 }`}>
-                  {whisperDetails?.isCuda ? 'GPU' : 'CPU'}
+                  {!whisperDetails?.isInstalled ? 'Lite' : whisperDetails?.isCuda ? 'GPU' : 'CPU'}
                 </span>
-              </label>
+              </div>
 
-              <label
+              <div
                 onClick={() => setEngineChoice('gemini')}
                 className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
                   engineChoice === 'gemini'
@@ -271,8 +337,80 @@ export default function SubtitleTrackSelectModal({
                 }`}>
                   Auto
                 </span>
-              </label>
+              </div>
             </div>
+
+            {/* Offline Whisper Download Prompt & Progress (Shown when Whisper model is missing in Lite version) */}
+            {!whisperDetails?.isInstalled && (
+              <div className={`p-2.5 rounded-lg border text-xs space-y-2 ${
+                theme === 'dark'
+                  ? 'bg-slate-800/60 border-slate-700/80 text-slate-300'
+                  : 'bg-indigo-50/60 border-indigo-200/80 text-slate-700'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <p className={`text-[11px] font-semibold ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-800'}`}>
+                      Афлайн-мадэль Whisper не спампавана
+                    </p>
+                    <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Для лакальнай транскрыпцыі без Gemini спампуйце мадэль (~460 МБ).
+                    </p>
+                  </div>
+                </div>
+
+                {isDownloadingWhisper && whisperDownloadProgress ? (
+                  <div className="space-y-1.5 pt-0.5">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="truncate max-w-[240px] font-medium text-indigo-400">
+                        {whisperDownloadProgress.stage}
+                      </span>
+                      <span className="font-mono font-bold text-indigo-400">
+                        {whisperDownloadProgress.percent.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className={`w-full rounded-full h-1.5 overflow-hidden ${
+                      theme === 'dark' ? 'bg-slate-700' : 'bg-slate-200'
+                    }`}>
+                      <div
+                        className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.max(5, whisperDownloadProgress.percent)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[9px] text-slate-400">
+                      <span>
+                        {whisperDownloadProgress.downloadedBytes > 0
+                          ? `${(whisperDownloadProgress.downloadedBytes / 1048576).toFixed(1)} МБ / ${(whisperDownloadProgress.totalBytes / 1048576).toFixed(1)} МБ`
+                          : 'Падрыхтоўка спампоўкі...'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCancelDownload}
+                        className="text-red-400 hover:text-red-300 underline cursor-pointer font-medium"
+                      >
+                        Адмяніць
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-0.5">
+                    <button
+                      type="button"
+                      onClick={handleDownloadWhisper}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Спампаваць мадэль Whisper (~460 МБ)
+                    </button>
+                  </div>
+                )}
+
+                {whisperDownloadError && (
+                  <p className="text-[10px] text-red-400 pt-0.5">
+                    Памылка: {whisperDownloadError}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

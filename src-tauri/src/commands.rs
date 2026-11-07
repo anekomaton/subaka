@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DesktopInfo {
@@ -1225,10 +1225,7 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
     }
 }
 
-pub fn resolve_whisper_executable_and_model(
-    app: &AppHandle,
-    requested_model: &str,
-) -> Result<(PathBuf, PathBuf), String> {
+pub fn get_whisper_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
     let mut candidate_dirs: Vec<PathBuf> = Vec::new();
 
     // 1. Executable directory: <exe_dir>/resources and <exe_dir>
@@ -1262,7 +1259,10 @@ pub fn resolve_whisper_executable_and_model(
         candidate_dirs.push(cwd);
     }
 
-    // Binary candidates to search for (preferring CUDA/cuBLAS GPU variants first)
+    candidate_dirs
+}
+
+pub fn locate_whisper_binary(app: &AppHandle) -> Option<PathBuf> {
     let binary_names = [
         "whisper-cuda.exe",
         "whisper-cublas.exe",
@@ -1272,57 +1272,37 @@ pub fn resolve_whisper_executable_and_model(
         "whisper.exe",
         "whisper",
     ];
-    let mut found_binary: Option<PathBuf> = None;
 
-    for dir in &candidate_dirs {
+    let dirs = get_whisper_candidate_dirs(app);
+    for dir in &dirs {
         for b_name in &binary_names {
             let candidate = dir.join(b_name);
             if candidate.exists() && candidate.is_file() {
-                found_binary = Some(candidate);
-                break;
-            }
-        }
-        if found_binary.is_some() {
-            break;
-        }
-    }
-
-    // Auto-download native Whisper into SUBaka AppData if missing in local candidate directories
-    if found_binary.is_none() {
-        if let Ok(dl_bin) = ensure_whisper_downloaded(app) {
-            found_binary = Some(dl_bin);
-        }
-    }
-
-    // Secondary fallback: check system PATH only if auto-download did not succeed
-    if found_binary.is_none() {
-        if let Ok(path_var) = std::env::var("PATH") {
-            for path_entry in std::env::split_paths(&path_var) {
-                for b_name in &binary_names {
-                    let candidate = path_entry.join(b_name);
-                    if candidate.exists() && candidate.is_file() {
-                        found_binary = Some(candidate);
-                        break;
+                if let Ok(meta) = candidate.metadata() {
+                    if meta.len() > 100000 {
+                        return Some(candidate);
                     }
                 }
-                if found_binary.is_some() {
-                    break;
+            }
+        }
+    }
+
+    // Check system PATH
+    if let Ok(path_var) = std::env::var("PATH") {
+        for path_entry in std::env::split_paths(&path_var) {
+            for b_name in &binary_names {
+                let candidate = path_entry.join(b_name);
+                if candidate.exists() && candidate.is_file() {
+                    return Some(candidate);
                 }
             }
         }
     }
 
-    let binary_path = match found_binary {
-        Some(p) => p,
-        None => {
-            return Err(
-                "Не знойдзены бінарны файл Whisper і не ўдалася яго завантажка."
-                    .to_string(),
-            );
-        }
-    };
+    None
+}
 
-    // Model candidates to search for
+pub fn locate_whisper_model(app: &AppHandle, requested_model: &str) -> Option<PathBuf> {
     let mut model_names = Vec::new();
     if !requested_model.trim().is_empty() {
         model_names.push(requested_model.trim().to_string());
@@ -1332,53 +1312,89 @@ pub fn resolve_whisper_executable_and_model(
     model_names.push("ggml-medium.bin".to_string());
     model_names.push("ggml-tiny.bin".to_string());
 
-    let mut found_model: Option<PathBuf> = None;
-
-    // Check if requested model is an absolute path that exists
     if !requested_model.trim().is_empty() {
         let direct_path = Path::new(requested_model);
         if direct_path.is_absolute() && direct_path.exists() {
-            found_model = Some(direct_path.to_path_buf());
-        }
-    }
-
-    if found_model.is_none() {
-        for dir in &candidate_dirs {
-            for m_name in &model_names {
-                let candidate = dir.join(m_name);
-                if candidate.exists() && candidate.is_file() {
-                    found_model = Some(candidate);
-                    break;
+            if let Ok(meta) = direct_path.metadata() {
+                if meta.len() > 10000000 {
+                    return Some(direct_path.to_path_buf());
                 }
             }
-            if found_model.is_some() {
-                break;
+        }
+    }
+
+    let dirs = get_whisper_candidate_dirs(app);
+    for dir in &dirs {
+        for m_name in &model_names {
+            let candidate = dir.join(m_name);
+            if candidate.exists() && candidate.is_file() {
+                if let Ok(meta) = candidate.metadata() {
+                    if meta.len() > 10000000 {
+                        return Some(candidate);
+                    }
+                }
             }
         }
     }
 
-    if found_model.is_none() {
-        if let Ok(dl_mod) = ensure_whisper_model_downloaded(app, requested_model) {
-            found_model = Some(dl_mod);
-        }
-    }
+    None
+}
 
-    let model_path = match found_model {
-        Some(p) => p,
+pub fn resolve_whisper_executable_and_model(
+    app: &AppHandle,
+    requested_model: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    let binary = match locate_whisper_binary(app) {
+        Some(b) => b,
         None => {
-            PathBuf::from(if requested_model.trim().is_empty() { "ggml-small.bin" } else { requested_model.trim() })
+            if let Ok(dl_bin) = ensure_whisper_downloaded(app) {
+                dl_bin
+            } else {
+                return Err("Не знойдзены выканаўчы файл рухавіка Whisper (whisper.exe).".to_string());
+            }
         }
     };
 
-    Ok((binary_path, model_path))
+    let model = match locate_whisper_model(app, requested_model) {
+        Some(m) => m,
+        None => {
+            if let Ok(dl_mod) = ensure_whisper_model_downloaded(app, requested_model) {
+                dl_mod
+            } else {
+                return Err("Мадэль афлайн-распазнавання Whisper (ggml-small.bin) не знойдзена. Спампуйце мадэль у мадальным акне выбару дарожкі або выкарыстоўвайце Gemini.".to_string());
+            }
+        }
+    };
+
+    Ok((binary, model))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhisperEngineDetails {
+    pub is_installed: bool,
+    pub model_installed: bool,
+    pub binary_installed: bool,
     pub binary_path: String,
     pub model_path: String,
     pub is_cuda: bool,
     pub engine_name: String,
+    pub model_size_mb: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhisperDownloadProgress {
+    pub stage: String,
+    pub percent: f64,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+}
+
+static WHISPER_DOWNLOAD_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+pub fn cancel_whisper_download() -> Result<bool, String> {
+    WHISPER_DOWNLOAD_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(true)
 }
 
 #[tauri::command]
@@ -1392,8 +1408,17 @@ pub fn get_whisper_resource_paths(app: AppHandle) -> Result<WhisperResourcePaths
 
 #[tauri::command]
 pub fn get_whisper_engine_details(app: AppHandle) -> Result<WhisperEngineDetails, String> {
-    let (binary, model) = resolve_whisper_executable_and_model(&app, "ggml-small.bin")?;
-    let bin_str = binary.to_string_lossy().to_string();
+    let binary_opt = locate_whisper_binary(&app);
+    let model_opt = locate_whisper_model(&app, "ggml-small.bin");
+
+    let binary_installed = binary_opt.is_some();
+    let model_installed = model_opt.is_some();
+    let is_installed = binary_installed && model_installed;
+
+    let bin_str = binary_opt
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
     let lower = bin_str.to_lowercase();
     let is_cuda = lower.contains("cuda") || lower.contains("cublas") || lower.contains("gpu");
     let engine_name = if is_cuda {
@@ -1402,12 +1427,190 @@ pub fn get_whisper_engine_details(app: AppHandle) -> Result<WhisperEngineDetails
         "CPU (Standard whisper.cpp)".to_string()
     };
 
+    let model_str = model_opt
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let model_size_mb = model_opt
+        .as_ref()
+        .and_then(|p| p.metadata().ok())
+        .map(|m| (m.len() as f64) / (1024.0 * 1024.0))
+        .unwrap_or(0.0);
+
     Ok(WhisperEngineDetails {
+        is_installed,
+        model_installed,
+        binary_installed,
         binary_path: bin_str,
-        model_path: model.to_string_lossy().to_string(),
+        model_path: model_str,
         is_cuda,
         engine_name,
+        model_size_mb: (model_size_mb * 10.0).round() / 10.0,
     })
+}
+
+#[tauri::command]
+pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDetails, String> {
+    WHISPER_DOWNLOAD_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+    let app_clone = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let target_dir = app_clone
+            .path()
+            .app_local_data_dir()
+            .unwrap_or_else(|_| {
+                std::env::var("LOCALAPPDATA")
+                    .map(|l| Path::new(&l).join("SUBaka"))
+                    .unwrap_or_else(|_| PathBuf::from("."))
+            });
+        let _ = fs::create_dir_all(&target_dir);
+
+        // 1. Ensure binary exists
+        let binary_opt = locate_whisper_binary(&app_clone);
+        if binary_opt.is_none() {
+            let _ = app_clone.emit(
+                "whisper-download-progress",
+                WhisperDownloadProgress {
+                    stage: "Спампоўка бінарных файлаў Whisper...".to_string(),
+                    percent: 5.0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                },
+            );
+            if let Err(e) = ensure_whisper_downloaded(&app_clone) {
+                return Err(format!("Памылка спампоўкі выканаўчага рухавіка Whisper: {}", e));
+            }
+        }
+
+        if WHISPER_DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("Спампоўка адменена карыстальнікам.".to_string());
+        }
+
+        // 2. Download ggml-small.bin
+        let model_opt = locate_whisper_model(&app_clone, "ggml-small.bin");
+        if model_opt.is_none() {
+            let model_file = target_dir.join("ggml-small.bin");
+            let temp_model_file = target_dir.join("ggml-small.bin.downloading");
+            let expected_total_bytes: u64 = 488_000_000;
+
+            let _ = app_clone.emit(
+                "whisper-download-progress",
+                WhisperDownloadProgress {
+                    stage: "Падключэнне для спампоўкі мадэлі...".to_string(),
+                    percent: 10.0,
+                    downloaded_bytes: 0,
+                    total_bytes: expected_total_bytes,
+                },
+            );
+
+            let urls = [
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+                "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+            ];
+
+            let mut success = false;
+            for model_url in &urls {
+                if WHISPER_DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = fs::remove_file(&temp_model_file);
+                    return Err("Спампоўка адменена карыстальнікам.".to_string());
+                }
+
+                #[cfg(target_os = "windows")]
+                let mut child = match silent_command("curl.exe")
+                    .args([
+                        "-s",
+                        "-S",
+                        "-f",
+                        "-L",
+                        "--retry",
+                        "3",
+                        model_url,
+                        "-o",
+                        temp_model_file.to_str().unwrap_or(""),
+                    ])
+                    .spawn()
+                {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+
+                #[cfg(not(target_os = "windows"))]
+                let mut child = match silent_command("curl")
+                    .args([
+                        "-s",
+                        "-S",
+                        "-f",
+                        "-L",
+                        "--retry",
+                        "3",
+                        model_url,
+                        "-o",
+                        temp_model_file.to_str().unwrap_or(""),
+                    ])
+                    .spawn()
+                {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+
+                loop {
+                    if WHISPER_DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = child.kill();
+                        let _ = fs::remove_file(&temp_model_file);
+                        return Err("Спампоўка адменена карыстальнікам.".to_string());
+                    }
+
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            if status.success() && temp_model_file.exists() && temp_model_file.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
+                                success = true;
+                            }
+                            break;
+                        }
+                        Ok(None) => {
+                            let cur_len = temp_model_file.metadata().map(|m| m.len()).unwrap_or(0);
+                            let pct = (10.0 + (cur_len as f64 / expected_total_bytes as f64) * 88.0).min(98.0);
+                            let _ = app_clone.emit(
+                                "whisper-download-progress",
+                                WhisperDownloadProgress {
+                                    stage: format!("Спампоўка мадэлі Whisper ({:.1} МБ / {:.1} МБ)...", cur_len as f64 / 1048576.0, expected_total_bytes as f64 / 1048576.0),
+                                    percent: (pct * 10.0).round() / 10.0,
+                                    downloaded_bytes: cur_len,
+                                    total_bytes: expected_total_bytes,
+                                },
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                if success {
+                    let _ = fs::rename(&temp_model_file, &model_file);
+                    break;
+                }
+            }
+
+            if !success && !model_file.exists() {
+                return Err("Не ўдалося спампаваць мадэль Whisper (ggml-small.bin).".to_string());
+            }
+        }
+
+        let _ = app_clone.emit(
+            "whisper-download-progress",
+            WhisperDownloadProgress {
+                stage: "Мадэль Whisper паспяхова спампавана!".to_string(),
+                percent: 100.0,
+                downloaded_bytes: 488_000_000,
+                total_bytes: 488_000_000,
+            },
+        );
+
+        get_whisper_engine_details(app_clone)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
