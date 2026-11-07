@@ -107,15 +107,42 @@ jobs:
             }
           }
 
-          # 3. Download Whisper sidecar binary and model into resources
+          # 3. Download Whisper sidecar binaries (CPU, CUDA), DLLs and model into resources
           $whisperScript = Join-Path (Get-Location) "src-tauri/binaries/download_whisper_sidecars.ps1"
           if (Test-Path $whisperScript) {
-            Write-Host "Downloading Whisper sidecar binary (whisper.exe) & GGML model into resources..."
-            try {
-              powershell -ExecutionPolicy Bypass -File $whisperScript
-            } catch {
-              Write-Host "Warning: download_whisper_sidecars.ps1 caught error: $_"
-            }
+            Write-Host "Downloading Whisper sidecars (CPU, CUDA), DLLs & GGML model into resources..."
+            & pwsh -ExecutionPolicy Bypass -File $whisperScript
+          } else {
+            Write-Error "Script download_whisper_sidecars.ps1 not found!"
+            exit 1
+          }
+
+          $whisperExe = Join-Path $resDir "whisper.exe"
+          $cudaExe = Join-Path $resDir "whisper-cuda.exe"
+          $dllFiles = Get-ChildItem -Path $resDir -Filter "*.dll" -ErrorAction SilentlyContinue
+
+          Write-Host "=== VERIFYING WHISPER AND DLL ARTIFACTS ==="
+          if (Test-Path $whisperExe) {
+            Write-Host "✓ Found whisper.exe ($((Get-Item $whisperExe).Length) bytes)"
+          } else {
+            Write-Error "CRITICAL: whisper.exe is missing from resources!"
+            exit 1
+          }
+
+          if (Test-Path $cudaExe) {
+            Write-Host "✓ Found whisper-cuda.exe ($((Get-Item $cudaExe).Length) bytes)"
+          } else {
+            Write-Warning "Notice: whisper-cuda.exe is missing from resources"
+          }
+
+          Write-Host "✓ Found $($dllFiles.Count) DLL(s) in resources:"
+          foreach ($d in $dllFiles) {
+            Write-Host "   - $($d.Name) ($($d.Length) bytes)"
+          }
+
+          if ($dllFiles.Count -eq 0) {
+            Write-Error "CRITICAL: No DLLs found in resources! whisper.exe will fail without whisper.dll and ggml*.dll"
+            exit 1
           }
 
           Write-Host "Prepared resources folder contents:"

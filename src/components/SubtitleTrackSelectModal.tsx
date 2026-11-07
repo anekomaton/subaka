@@ -216,11 +216,7 @@ export default function SubtitleTrackSelectModal({
                     <span className="text-[10px] text-slate-400">лакальна</span>
                   </div>
                 </div>
-                <span className={`text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold ${
-                  whisperDetails?.isCuda
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                }`}>
+                <span className="text-[9px] border px-1.5 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-amber-300 border-emerald-500/30">
                   {whisperDetails?.isCuda ? 'GPU' : 'CPU'}
                 </span>
               </label>

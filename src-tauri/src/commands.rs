@@ -1033,32 +1033,41 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     );
 
     if has_nvidia {
-        let cuda_url = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.4/whisper-cublas-12.2.0-x64.zip";
+        let cuda_urls = [
+            "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-cublas-12.4.0-bin-x64.zip",
+            "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-cublas-11.8.0-bin-x64.zip",
+            "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-cublas-12.4.0-bin-x64.zip",
+        ];
         let zip_cuda = target_dir.join("whisper-cuda.zip");
-        let dl_res = silent_command("curl.exe")
-            .args(["-s", "-S", "-f", "-L", "--retry", "3", cuda_url, "-o", zip_cuda.to_str().unwrap_or("")])
-            .status();
-
-        if dl_res.map(|s| s.success()).unwrap_or(false) && zip_cuda.exists() {
-            let _ = silent_command("powershell")
-                .args([
-                    "-NoProfile",
-                    "-Command",
-                    &format!(
-                        "Expand-Archive -Path '{}' -DestinationPath '{}' -Force; Remove-Item '{}' -Force -ErrorAction SilentlyContinue",
-                        zip_cuda.display(),
-                        target_dir.display(),
-                        zip_cuda.display()
-                    ),
-                ])
+        for cuda_url in &cuda_urls {
+            let dl_res = silent_command("curl.exe")
+                .args(["-s", "-S", "-f", "-L", "--retry", "3", cuda_url, "-o", zip_cuda.to_str().unwrap_or("")])
                 .status();
 
-            let cli_exe = target_dir.join("whisper-cli.exe");
-            let main_exe = target_dir.join("main.exe");
-            if cli_exe.exists() {
-                let _ = fs::rename(&cli_exe, &cuda_exe);
-            } else if main_exe.exists() {
-                let _ = fs::rename(&main_exe, &cuda_exe);
+            if dl_res.map(|s| s.success()).unwrap_or(false) && zip_cuda.exists() && zip_cuda.metadata().map(|m| m.len()).unwrap_or(0) > 1000000 {
+                let _ = silent_command("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        &format!(
+                            "$ProgressPreference='SilentlyContinue'; \
+                             $tempDir = Join-Path '{}' 'temp_cuda'; \
+                             New-Item -ItemType Directory -Force -Path $tempDir | Out-Null; \
+                             Expand-Archive -Path '{}' -DestinationPath $tempDir -Force; \
+                             $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Where-Object {{ $_.Name -match 'whisper-cli|whisper|main' }} | Select-Object -First 1; \
+                             if ($exe) {{ Copy-Item $exe.FullName '{}' -Force }}; \
+                             Get-ChildItem -Path $tempDir -Recurse -Filter '*.dll' | ForEach-Object {{ Copy-Item $_.FullName '{}' -Force }}; \
+                             Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue; \
+                             Remove-Item '{}' -Force -ErrorAction SilentlyContinue;",
+                            target_dir.display(),
+                            zip_cuda.display(),
+                            cuda_exe.display(),
+                            target_dir.display(),
+                            zip_cuda.display()
+                        ),
+                    ])
+                    .status();
+                break;
             }
         }
         if cuda_exe.exists() {
@@ -1066,32 +1075,40 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
 
-    let cpu_url = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.4/whisper-bin-x64.zip";
+    let cpu_urls = [
+        "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip",
+        "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip",
+    ];
     let zip_cpu = target_dir.join("whisper-bin-cpu.zip");
-    let dl_cpu = silent_command("curl.exe")
-        .args(["-s", "-S", "-f", "-L", "--retry", "3", cpu_url, "-o", zip_cpu.to_str().unwrap_or("")])
-        .status();
-
-    if dl_cpu.map(|s| s.success()).unwrap_or(false) && zip_cpu.exists() {
-        let _ = silent_command("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force; Remove-Item '{}' -Force -ErrorAction SilentlyContinue",
-                    zip_cpu.display(),
-                    target_dir.display(),
-                    zip_cpu.display()
-                ),
-            ])
+    for cpu_url in &cpu_urls {
+        let dl_cpu = silent_command("curl.exe")
+            .args(["-s", "-S", "-f", "-L", "--retry", "3", cpu_url, "-o", zip_cpu.to_str().unwrap_or("")])
             .status();
 
-        let cli_exe = target_dir.join("whisper-cli.exe");
-        let main_exe = target_dir.join("main.exe");
-        if cli_exe.exists() {
-            let _ = fs::rename(&cli_exe, &cpu_exe);
-        } else if main_exe.exists() {
-            let _ = fs::rename(&main_exe, &cpu_exe);
+        if dl_cpu.map(|s| s.success()).unwrap_or(false) && zip_cpu.exists() && zip_cpu.metadata().map(|m| m.len()).unwrap_or(0) > 500000 {
+            let _ = silent_command("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!(
+                        "$ProgressPreference='SilentlyContinue'; \
+                         $tempDir = Join-Path '{}' 'temp_cpu'; \
+                         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null; \
+                         Expand-Archive -Path '{}' -DestinationPath $tempDir -Force; \
+                         $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Where-Object {{ $_.Name -match 'whisper-cli|whisper|main' }} | Select-Object -First 1; \
+                         if ($exe) {{ Copy-Item $exe.FullName '{}' -Force }}; \
+                         Get-ChildItem -Path $tempDir -Recurse -Filter '*.dll' | ForEach-Object {{ Copy-Item $_.FullName '{}' -Force }}; \
+                         Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue; \
+                         Remove-Item '{}' -Force -ErrorAction SilentlyContinue;",
+                        target_dir.display(),
+                        zip_cpu.display(),
+                        cpu_exe.display(),
+                        target_dir.display(),
+                        zip_cpu.display()
+                    ),
+                ])
+                .status();
+            break;
         }
     }
 
@@ -1378,6 +1395,15 @@ pub async fn run_whisper_transcribe(
 
         // 1. Try whisper.cpp CLI flags syntax (-m model -f audio -osrt -of output_prefix -l lang)
         let mut cmd = silent_command(whisper_exe.to_str().unwrap_or("whisper.exe"));
+        if let Some(parent_dir) = whisper_exe.parent() {
+            cmd.current_dir(parent_dir);
+            if let Ok(cur_path) = std::env::var("PATH") {
+                let new_path = format!("{};{}", parent_dir.display(), cur_path);
+                cmd.env("PATH", new_path);
+            } else {
+                cmd.env("PATH", parent_dir);
+            }
+        }
         cmd.args([
             "-m",
             model_file.to_str().unwrap_or("ggml-small.bin"),
@@ -1440,6 +1466,15 @@ pub async fn run_whisper_transcribe(
                 };
 
                 let mut py_cmd = silent_command(whisper_exe.to_str().unwrap_or("whisper.exe"));
+                if let Some(parent_dir) = whisper_exe.parent() {
+                    py_cmd.current_dir(parent_dir);
+                    if let Ok(cur_path) = std::env::var("PATH") {
+                        let new_path = format!("{};{}", parent_dir.display(), cur_path);
+                        py_cmd.env("PATH", new_path);
+                    } else {
+                        py_cmd.env("PATH", parent_dir);
+                    }
+                }
                 let mut py_args = vec![
                     audio_path.clone(),
                     "--model".to_string(),

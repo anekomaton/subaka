@@ -80,11 +80,13 @@
       "binaries/ffmpeg"
     ],
     "resources": [
-      "resources/"
+      "resources/*",
+      "resources/**/*"
     ],
     "windows": {
       "nsis": {
-        "compression": "lzma"
+        "compression": "lzma",
+        "installerHooks": "nsis_hooks.nsh"
       }
     }
   },
