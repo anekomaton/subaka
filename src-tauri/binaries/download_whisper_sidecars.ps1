@@ -14,46 +14,66 @@ if (-not (Test-Path $cudaExeTarget) -or (Get-Item $cudaExeTarget).Length -lt 100
     Write-Host "Downloading CUDA cuBLAS Whisper binary into resources..."
     $cudaZipTarget = Join-Path $resDir "whisper-cublas-x64.zip"
     $cudaZipUrl = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.4/whisper-cublas-12.2.0-x64.zip"
+    $tempCudaDir = Join-Path $resDir "temp_cuda_extract"
+    
     try {
         & curl.exe -s -S -f -L --retry 5 --retry-delay 2 $cudaZipUrl -o $cudaZipTarget
         if (Test-Path $cudaZipTarget) {
-            Expand-Archive -Path $cudaZipTarget -DestinationPath $resDir -Force
+            New-Item -ItemType Directory -Force -Path $tempCudaDir | Out-Null
+            Expand-Archive -Path $cudaZipTarget -DestinationPath $tempCudaDir -Force
             Remove-Item $cudaZipTarget -Force -ErrorAction SilentlyContinue
-            $cliExe = Join-Path $resDir "whisper-cli.exe"
-            $mainExe = Join-Path $resDir "main.exe"
+
+            # Move whisper executable as whisper-cuda.exe
+            $cliExe = Join-Path $tempCudaDir "whisper-cli.exe"
+            $mainExe = Join-Path $tempCudaDir "main.exe"
             if (Test-Path $cliExe) {
                 Move-Item $cliExe $cudaExeTarget -Force
             } elseif (Test-Path $mainExe) {
                 Move-Item $mainExe $cudaExeTarget -Force
             }
+
+            # Move all DLLs to resources root
+            Get-ChildItem -Path $tempCudaDir -Filter "*.dll" | ForEach-Object {
+                Move-Item $_.FullName $resDir -Force
+            }
+
+            Remove-Item $tempCudaDir -Recurse -Force -ErrorAction SilentlyContinue
             Write-Host "CUDA Whisper binary ready: $cudaExeTarget"
         }
     } catch {
         Write-Host "Notice: CUDA download skipped or failed: $_"
+        Remove-Item $tempCudaDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-# 2. Download standard Whisper CPU binary if missing or invalid (< 100 KB)
+# 2. Download standard Whisper CPU binary
 if (-not (Test-Path $whisperExeTarget) -or (Get-Item $whisperExeTarget).Length -lt 100000) {
     Write-Host "Downloading standard whisper.exe binary into resources..."
     $zipTarget = Join-Path $resDir "whisper-bin-x64.zip"
     $whisperZipUrl = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.4/whisper-bin-x64.zip"
+    $tempCpuDir = Join-Path $resDir "temp_cpu_extract"
     
     try {
         & curl.exe -s -S -f -L --retry 5 --retry-delay 2 $whisperZipUrl -o $zipTarget
         if (Test-Path $zipTarget) {
-            Expand-Archive -Path $zipTarget -DestinationPath $resDir -Force
+            New-Item -ItemType Directory -Force -Path $tempCpuDir | Out-Null
+            Expand-Archive -Path $zipTarget -DestinationPath $tempCpuDir -Force
             Remove-Item $zipTarget -Force -ErrorAction SilentlyContinue
-            $cliExe = Join-Path $resDir "whisper-cli.exe"
-            $mainExe = Join-Path $resDir "main.exe"
+
+            $cliExe = Join-Path $tempCpuDir "whisper-cli.exe"
+            $mainExe = Join-Path $tempCpuDir "main.exe"
             if (Test-Path $cliExe) {
                 Move-Item $cliExe $whisperExeTarget -Force
             } elseif (Test-Path $mainExe) {
                 Move-Item $mainExe $whisperExeTarget -Force
             }
+
+            Remove-Item $tempCpuDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "Standard Whisper CPU binary ready: $whisperExeTarget"
         }
     } catch {
         Write-Host "Warning: Failed downloading whisper zip: $_"
+        Remove-Item $tempCpuDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

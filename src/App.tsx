@@ -77,7 +77,8 @@ import {
   logDesktopError,
   logDesktopWarn,
   logDesktopInfo,
-  runWhisperTranscribeDesktop
+  runWhisperTranscribeDesktop,
+  cancelWhisperTranscribeDesktop
 } from './utils/tauriBridge';
 import { synthesizeSubtitleAudioUniversal } from './utils/synthesisClient';
 import { useSingleBrowserTab } from './utils/useSingleBrowserTab';
@@ -2732,7 +2733,8 @@ export default function App() {
           const rawSrtResult = await runWhisperTranscribeDesktop(
             targetFile,
             'ggml-small.bin',
-            'auto'
+            'auto',
+            controller.signal
           );
 
           if (!rawSrtResult) {
@@ -3091,6 +3093,7 @@ export default function App() {
     if (transcribeAbortControllerRef.current) {
       transcribeAbortControllerRef.current.abort();
     }
+    cancelWhisperTranscribeDesktop().catch(() => {});
   };
 
   const handleCancelSynthesizeAll = () => {

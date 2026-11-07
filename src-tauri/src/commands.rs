@@ -987,19 +987,18 @@ pub struct WhisperResourcePaths {
     pub model_path: String,
 }
 
+static ACTIVE_WHISPER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
     let target_dir = app
         .path()
         .app_local_data_dir()
-        .map(|p| p.join("resources"))
         .unwrap_or_else(|_| {
             std::env::var("LOCALAPPDATA")
-                .map(|l| Path::new(&l).join("SUBaka").join("resources"))
-                .unwrap_or_else(|_| PathBuf::from("resources"))
+                .map(|l| Path::new(&l).join("SUBaka"))
+                .unwrap_or_else(|_| PathBuf::from("."))
         });
-
-    let _ = fs::create_dir_all(&target_dir);
 
     let has_nvidia = if cfg!(target_os = "windows") {
         silent_command("powershell")
@@ -1024,6 +1023,8 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     if cpu_exe.exists() && cpu_exe.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
         return Ok(cpu_exe);
     }
+
+    let _ = fs::create_dir_all(&target_dir);
 
     log::info!(
         "[WhisperEngine] Auto-downloading native Whisper binary into {:?} (NVIDIA GPU detected: {})",
@@ -1106,14 +1107,12 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
     let target_dir = app
         .path()
         .app_local_data_dir()
-        .map(|p| p.join("resources"))
         .unwrap_or_else(|_| {
             std::env::var("LOCALAPPDATA")
-                .map(|l| Path::new(&l).join("SUBaka").join("resources"))
-                .unwrap_or_else(|_| PathBuf::from("resources"))
+                .map(|l| Path::new(&l).join("SUBaka"))
+                .unwrap_or_else(|_| PathBuf::from("."))
         });
 
-    let _ = fs::create_dir_all(&target_dir);
     let m_file = if requested_model.trim().is_empty() {
         "ggml-small.bin"
     } else {
@@ -1124,6 +1123,8 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
     if target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
         return Ok(target_model);
     }
+
+    let _ = fs::create_dir_all(&target_dir);
 
     log::info!("[WhisperEngine] Auto-downloading GGML Whisper model ({}) into {:?}", m_file, target_dir);
 
@@ -1161,14 +1162,12 @@ pub fn resolve_whisper_executable_and_model(
 
     // 3. App local data directory (%LOCALAPPDATA%/SUBaka)
     if let Ok(app_dir) = app.path().app_local_data_dir() {
-        candidate_dirs.push(app_dir.join("resources"));
         candidate_dirs.push(app_dir);
     }
 
     // 4. Fallback LOCALAPPDATA environment variable
     if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
         let base_dir = Path::new(&local_appdata).join("SUBaka");
-        candidate_dirs.push(base_dir.join("resources"));
         candidate_dirs.push(base_dir);
     }
 
@@ -1203,7 +1202,7 @@ pub fn resolve_whisper_executable_and_model(
         }
     }
 
-    // Auto-download native Whisper into SUBaka AppData resources if missing in local candidate directories
+    // Auto-download native Whisper into SUBaka AppData if missing in local candidate directories
     if found_binary.is_none() {
         if let Ok(dl_bin) = ensure_whisper_downloaded(app) {
             found_binary = Some(dl_bin);
@@ -1232,7 +1231,7 @@ pub fn resolve_whisper_executable_and_model(
         Some(p) => p,
         None => {
             return Err(
-                "Не знойдзены бінарны файл Whisper і не ўдалася яго завантажка. Змесціце whisper.exe у AppData/Local/SUBaka/resources."
+                "Не знойдзены бінарны файл Whisper і не ўдалася яго завантажка."
                     .to_string(),
             );
         }
@@ -1327,6 +1326,37 @@ pub fn get_whisper_engine_details(app: AppHandle) -> Result<WhisperEngineDetails
 }
 
 #[tauri::command]
+pub fn cancel_whisper_transcribe() -> Result<bool, String> {
+    let pid = ACTIVE_WHISPER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid != 0 {
+        log::info!("[WhisperEngine] Force killing active Whisper process PID: {}", pid);
+        #[cfg(target_os = "windows")]
+        {
+            let _ = silent_command("taskkill")
+                .args(["/F", "/PID", &pid.to_string(), "/T"])
+                .status();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = silent_command("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for exe_name in &["whisper.exe", "whisper-cuda.exe", "whisper-cli.exe", "whisper-cublas.exe", "main.exe"] {
+            let _ = silent_command("taskkill")
+                .args(["/F", "/IM", exe_name, "/T"])
+                .status();
+        }
+    }
+
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn run_whisper_transcribe(
     app: AppHandle,
     audio_path: String,
@@ -1360,7 +1390,18 @@ pub async fn run_whisper_transcribe(
             if language.is_empty() { "auto" } else { &language },
         ]);
 
-        if let Ok(output) = cmd.output() {
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => return Err(format!("Не ўдалося запусціць працэс Whisper: {}", e)),
+        };
+
+        let pid = child.id();
+        ACTIVE_WHISPER_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+
+        let output_res = child.wait_with_output();
+        ACTIVE_WHISPER_PID.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        if let Ok(output) = output_res {
             if output.status.success() {
                 let srt_file_path = format!("{}.srt", output_srt_path.to_str().unwrap_or(""));
                 let srt_file_with_ext = Path::new(&srt_file_path);
@@ -1372,7 +1413,7 @@ pub async fn run_whisper_transcribe(
             }
 
             let err_msg = String::from_utf8_lossy(&output.stderr);
-            // 2. Check if stderr indicates Python OpenAI Whisper CLI (e.g., --output_format / -f argument error)
+            // 2. Check if stderr indicates Python OpenAI Whisper CLI
             if err_msg.contains("usage: whisper") || err_msg.contains("output_format") || err_msg.contains("invalid choice") || err_msg.contains("unrecognized arguments") {
                 log::info!("[WhisperEngine] Detected Python OpenAI Whisper CLI, switching to Python CLI syntax...");
                 let audio_path_buf = PathBuf::from(&audio_path);
@@ -1418,7 +1459,18 @@ pub async fn run_whisper_transcribe(
 
                 py_cmd.args(&py_args);
 
-                if let Ok(py_output) = py_cmd.output() {
+                let mut py_child = match py_cmd.spawn() {
+                    Ok(c) => c,
+                    Err(e) => return Err(format!("Не ўдалося запусціць працэс Python Whisper: {}", e)),
+                };
+
+                let py_pid = py_child.id();
+                ACTIVE_WHISPER_PID.store(py_pid, std::sync::atomic::Ordering::SeqCst);
+
+                let py_output_res = py_child.wait_with_output();
+                ACTIVE_WHISPER_PID.store(0, std::sync::atomic::Ordering::SeqCst);
+
+                if let Ok(py_output) = py_output_res {
                     if py_output.status.success() || expected_srt_path.exists() {
                         if expected_srt_path.exists() {
                             let content = fs::read(&expected_srt_path).map_err(|e| e.to_string())?;

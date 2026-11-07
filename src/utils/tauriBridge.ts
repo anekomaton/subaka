@@ -919,14 +919,44 @@ export async function getWhisperEngineDetails(): Promise<WhisperEngineDetails | 
 }
 
 /**
+ * Cancels any active local Whisper transcription process immediately
+ */
+export async function cancelWhisperTranscribeDesktop(): Promise<boolean> {
+  if (!isTauriDesktop()) return false;
+  try {
+    logDesktopInfo('WhisperEngine', 'Cancelling active local whisper process');
+    await invoke<boolean>('cancel_whisper_transcribe');
+    return true;
+  } catch (err) {
+    console.warn('[TauriBridge] cancel_whisper_transcribe failed:', err);
+    return false;
+  }
+}
+
+/**
  * Invokes native local whisper.cpp sidecar engine for desktop transcription
  */
 export async function runWhisperTranscribeDesktop(
   audioInput: string | Blob | File,
   modelName = 'ggml-small.bin',
-  language = 'auto'
+  language = 'auto',
+  signal?: AbortSignal
 ): Promise<string | null> {
   if (!isTauriDesktop()) return null;
+
+  if (signal?.aborted) {
+    await cancelWhisperTranscribeDesktop();
+    throw new Error('Абпрацоўка адменена карыстальнікам');
+  }
+
+  const abortHandler = () => {
+    cancelWhisperTranscribeDesktop().catch(() => {});
+  };
+
+  if (signal) {
+    signal.addEventListener('abort', abortHandler);
+  }
+
   try {
     let wavPath = '';
     if (typeof audioInput === 'string') {
@@ -947,6 +977,11 @@ export async function runWhisperTranscribeDesktop(
       modelName: modelName || 'ggml-small.bin',
       language: language || 'auto',
     });
+
+    if (signal?.aborted) {
+      throw new Error('Абпрацоўка адменена карыстальнікам');
+    }
+
     logDesktopInfo('WhisperEngine', 'Local whisper.cpp transcription completed successfully');
     return srtOutput;
   } catch (err: any) {
@@ -954,6 +989,10 @@ export async function runWhisperTranscribeDesktop(
     console.warn('[TauriBridge] run_whisper_transcribe failed:', errorMsg);
     logDesktopError('WhisperEngine', 'Local whisper.cpp execution failed', { error: errorMsg });
     throw new Error(errorMsg);
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', abortHandler);
+    }
   }
 }
 
