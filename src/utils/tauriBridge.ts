@@ -886,19 +886,34 @@ export async function saveTempBinaryFileDesktop(content: Blob | File, filename: 
   return targetPath;
 }
 
+export interface WhisperEngineDetails {
+  binaryPath: string;
+  modelPath: string;
+  isCuda: boolean;
+  engineName: string;
+}
+
 /**
- * Retrieves the local Whisper binary and ggml-small model paths in AppData\Local\SUBaka\resources or resources folder
+ * Retrieves full details about the local Whisper engine (CPU vs NVIDIA CUDA GPU)
  */
-export async function getWhisperResourcePath(): Promise<{ binaryPath: string; modelPath: string } | null> {
+export async function getWhisperEngineDetails(): Promise<WhisperEngineDetails | null> {
   if (!isTauriDesktop()) return null;
   try {
-    const res = await invoke<{ binaryPath: string; modelPath: string }>('get_whisper_resource_paths');
-    return res;
+    const res = await invoke<{ binary_path: string; model_path: string; is_cuda: boolean; engine_name: string }>(
+      'get_whisper_engine_details'
+    );
+    return {
+      binaryPath: res.binary_path,
+      modelPath: res.model_path,
+      isCuda: res.is_cuda,
+      engineName: res.engine_name,
+    };
   } catch (_) {
-    // Return expected resources layout paths
     return {
       binaryPath: 'resources/whisper.exe',
       modelPath: 'resources/ggml-small.bin',
+      isCuda: false,
+      engineName: 'CPU (Standard whisper.cpp)',
     };
   }
 }

@@ -281,6 +281,7 @@ pub fn run() {
             restore_post_fullscreen_bounds,
             log_desktop_event,
             get_whisper_resource_paths,
+            get_whisper_engine_details,
             run_whisper_transcribe,
         ])
         .run(tauri::generate_context!())

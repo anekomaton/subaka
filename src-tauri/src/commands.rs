@@ -987,6 +987,158 @@ pub struct WhisperResourcePaths {
     pub model_path: String,
 }
 
+pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let target_dir = app
+        .path()
+        .app_local_data_dir()
+        .map(|p| p.join("resources"))
+        .unwrap_or_else(|_| {
+            std::env::var("LOCALAPPDATA")
+                .map(|l| Path::new(&l).join("SUBaka").join("resources"))
+                .unwrap_or_else(|_| PathBuf::from("resources"))
+        });
+
+    let _ = fs::create_dir_all(&target_dir);
+
+    let has_nvidia = if cfg!(target_os = "windows") {
+        silent_command("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*NVIDIA*' }",
+            ])
+            .output()
+            .map(|o| !o.stdout.is_empty())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let cuda_exe = target_dir.join("whisper-cuda.exe");
+    let cpu_exe = target_dir.join("whisper.exe");
+
+    if has_nvidia && cuda_exe.exists() && cuda_exe.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
+        return Ok(cuda_exe);
+    }
+    if cpu_exe.exists() && cpu_exe.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
+        return Ok(cpu_exe);
+    }
+
+    log::info!(
+        "[WhisperEngine] Auto-downloading native Whisper binary into {:?} (NVIDIA GPU detected: {})",
+        target_dir,
+        has_nvidia
+    );
+
+    if has_nvidia {
+        let cuda_url = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.4/whisper-cublas-12.2.0-x64.zip";
+        let zip_cuda = target_dir.join("whisper-cuda.zip");
+        let dl_res = silent_command("curl.exe")
+            .args(["-s", "-S", "-f", "-L", "--retry", "3", cuda_url, "-o", zip_cuda.to_str().unwrap_or("")])
+            .status();
+
+        if dl_res.map(|s| s.success()).unwrap_or(false) && zip_cuda.exists() {
+            let _ = silent_command("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!(
+                        "Expand-Archive -Path '{}' -DestinationPath '{}' -Force; Remove-Item '{}' -Force -ErrorAction SilentlyContinue",
+                        zip_cuda.display(),
+                        target_dir.display(),
+                        zip_cuda.display()
+                    ),
+                ])
+                .status();
+
+            let cli_exe = target_dir.join("whisper-cli.exe");
+            let main_exe = target_dir.join("main.exe");
+            if cli_exe.exists() {
+                let _ = fs::rename(&cli_exe, &cuda_exe);
+            } else if main_exe.exists() {
+                let _ = fs::rename(&main_exe, &cuda_exe);
+            }
+        }
+        if cuda_exe.exists() {
+            return Ok(cuda_exe);
+        }
+    }
+
+    let cpu_url = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.4/whisper-bin-x64.zip";
+    let zip_cpu = target_dir.join("whisper-bin-cpu.zip");
+    let dl_cpu = silent_command("curl.exe")
+        .args(["-s", "-S", "-f", "-L", "--retry", "3", cpu_url, "-o", zip_cpu.to_str().unwrap_or("")])
+        .status();
+
+    if dl_cpu.map(|s| s.success()).unwrap_or(false) && zip_cpu.exists() {
+        let _ = silent_command("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force; Remove-Item '{}' -Force -ErrorAction SilentlyContinue",
+                    zip_cpu.display(),
+                    target_dir.display(),
+                    zip_cpu.display()
+                ),
+            ])
+            .status();
+
+        let cli_exe = target_dir.join("whisper-cli.exe");
+        let main_exe = target_dir.join("main.exe");
+        if cli_exe.exists() {
+            let _ = fs::rename(&cli_exe, &cpu_exe);
+        } else if main_exe.exists() {
+            let _ = fs::rename(&main_exe, &cpu_exe);
+        }
+    }
+
+    if cpu_exe.exists() {
+        Ok(cpu_exe)
+    } else {
+        Err("Не ўдалося спампаваць бінарны файл Whisper для SUBaka.".to_string())
+    }
+}
+
+pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let target_dir = app
+        .path()
+        .app_local_data_dir()
+        .map(|p| p.join("resources"))
+        .unwrap_or_else(|_| {
+            std::env::var("LOCALAPPDATA")
+                .map(|l| Path::new(&l).join("SUBaka").join("resources"))
+                .unwrap_or_else(|_| PathBuf::from("resources"))
+        });
+
+    let _ = fs::create_dir_all(&target_dir);
+    let m_file = if requested_model.trim().is_empty() {
+        "ggml-small.bin"
+    } else {
+        requested_model.trim()
+    };
+    let target_model = target_dir.join(m_file);
+
+    if target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
+        return Ok(target_model);
+    }
+
+    log::info!("[WhisperEngine] Auto-downloading GGML Whisper model ({}) into {:?}", m_file, target_dir);
+
+    let model_url = format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", m_file);
+    let dl_res = silent_command("curl.exe")
+        .args(["-s", "-S", "-f", "-L", "--retry", "3", &model_url, "-o", target_model.to_str().unwrap_or("")])
+        .status();
+
+    if dl_res.map(|s| s.success()).unwrap_or(false) && target_model.exists() {
+        Ok(target_model)
+    } else {
+        Err(format!("Не ўдалося спампаваць мадэль Whisper ({}).", m_file))
+    }
+}
+
 pub fn resolve_whisper_executable_and_model(
     app: &AppHandle,
     requested_model: &str,
@@ -1026,8 +1178,16 @@ pub fn resolve_whisper_executable_and_model(
         candidate_dirs.push(cwd);
     }
 
-    // Binary candidates to search for
-    let binary_names = ["whisper-cli.exe", "main.exe", "whisper.exe", "whisper"];
+    // Binary candidates to search for (preferring CUDA/cuBLAS GPU variants first)
+    let binary_names = [
+        "whisper-cuda.exe",
+        "whisper-cublas.exe",
+        "whisper-gpu.exe",
+        "whisper-cli.exe",
+        "main.exe",
+        "whisper.exe",
+        "whisper",
+    ];
     let mut found_binary: Option<PathBuf> = None;
 
     for dir in &candidate_dirs {
@@ -1043,7 +1203,14 @@ pub fn resolve_whisper_executable_and_model(
         }
     }
 
-    // If binary not found in candidate folders, check if system PATH has whisper.exe
+    // Auto-download native Whisper into SUBaka AppData resources if missing in local candidate directories
+    if found_binary.is_none() {
+        if let Ok(dl_bin) = ensure_whisper_downloaded(app) {
+            found_binary = Some(dl_bin);
+        }
+    }
+
+    // Secondary fallback: check system PATH only if auto-download did not succeed
     if found_binary.is_none() {
         if let Ok(path_var) = std::env::var("PATH") {
             for path_entry in std::env::split_paths(&path_var) {
@@ -1065,7 +1232,7 @@ pub fn resolve_whisper_executable_and_model(
         Some(p) => p,
         None => {
             return Err(
-                "Не знойдзены бінарны файл Whisper (whisper.exe/whisper-cli.exe). Змесціце whisper.exe або whisper-cli.exe у тэчку resources/ праграмы або AppData/Local/SUBaka/resources."
+                "Не знойдзены бінарны файл Whisper і не ўдалася яго завантажка. Змесціце whisper.exe у AppData/Local/SUBaka/resources."
                     .to_string(),
             );
         }
@@ -1106,6 +1273,12 @@ pub fn resolve_whisper_executable_and_model(
         }
     }
 
+    if found_model.is_none() {
+        if let Ok(dl_mod) = ensure_whisper_model_downloaded(app, requested_model) {
+            found_model = Some(dl_mod);
+        }
+    }
+
     let model_path = match found_model {
         Some(p) => p,
         None => {
@@ -1116,12 +1289,40 @@ pub fn resolve_whisper_executable_and_model(
     Ok((binary_path, model_path))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WhisperEngineDetails {
+    pub binary_path: String,
+    pub model_path: String,
+    pub is_cuda: bool,
+    pub engine_name: String,
+}
+
 #[tauri::command]
 pub fn get_whisper_resource_paths(app: AppHandle) -> Result<WhisperResourcePaths, String> {
     let (binary, model) = resolve_whisper_executable_and_model(&app, "ggml-small.bin")?;
     Ok(WhisperResourcePaths {
         binary_path: binary.to_string_lossy().to_string(),
         model_path: model.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn get_whisper_engine_details(app: AppHandle) -> Result<WhisperEngineDetails, String> {
+    let (binary, model) = resolve_whisper_executable_and_model(&app, "ggml-small.bin")?;
+    let bin_str = binary.to_string_lossy().to_string();
+    let lower = bin_str.to_lowercase();
+    let is_cuda = lower.contains("cuda") || lower.contains("cublas") || lower.contains("gpu");
+    let engine_name = if is_cuda {
+        "NVIDIA CUDA GPU (cuBLAS)".to_string()
+    } else {
+        "CPU (Standard whisper.cpp)".to_string()
+    };
+
+    Ok(WhisperEngineDetails {
+        binary_path: bin_str,
+        model_path: model.to_string_lossy().to_string(),
+        is_cuda,
+        engine_name,
     })
 }
 
