@@ -226,7 +226,7 @@ jobs:
             Даступныя два варыянты інсталятара:
 
             - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-full_setup.exe`** - поўная аўтаномная версія «ўсё ў адным» з Whisper і падтрымкай NVIDIA CUDA.
-            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-lite_setup.exe`** - палегчаная версія (праграма + FFmpeg + слоўнікі Verbum і GrammarDB). Падчас усталёўкі птушачка для спампоўкі мадэлі Whisper (~500 МБ), альбо яе можна спампаваць у любы момант у праграме.
+            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-lite_setup.exe`** - палегчаная версія (праграма + FFmpeg + слоўнікі Verbum і GrammarDB). Падчас усталёўкі даступны выбар (птушачка) для спампоўкі мадэлі Whisper і паскарэння NVIDIA CUDA (~500 МБ), альбо іх можна спампаваць у любы момант непасрэдна ў праграме.
 
           draft: false
           prerelease: false
