@@ -81,11 +81,18 @@ Var WhisperOptChoice
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; Switch working directory out of $INSTDIR so Windows allows directory removal
+  SetOutPath "$TEMP"
+
   ; Clean up any legacy root files and resources on uninstall
   Delete /REBOOTOK "$INSTDIR\whisper.exe"
   Delete /REBOOTOK "$INSTDIR\whisper-cuda.exe"
   Delete /REBOOTOK "$INSTDIR\whisper-cli.exe"
   Delete /REBOOTOK "$INSTDIR\*.dll"
   RMDir /r /REBOOTOK "$INSTDIR\resources"
+
+  ; If uninstall was invoked by setup.exe, uninstall.exe might still be open in memory.
+  ; Spawn a lightweight background helper that waits for all processes to close and cleanly deletes $INSTDIR.
+  nsExec::Exec 'cmd.exe /C start /min "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Sleep -Seconds 2; if (Test-Path -LiteralPath \"$INSTDIR\") { Remove-Item -LiteralPath \"$INSTDIR\" -Recurse -Force -ErrorAction SilentlyContinue }"'
 !macroend
 
