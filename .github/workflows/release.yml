@@ -135,6 +135,89 @@ jobs:
             Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1MB, 2)) MB"
           }
 
+      - name: Cache NSIS and Tauri Bundler Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\tauri\NSIS
+          key: ${{ runner.os }}-tauri-nsis-3.11-v1
+
+      - name: Pre-populate NSIS 3.11 and Plugins for Tauri Bundler
+        shell: pwsh
+        run: |
+          $localAppData = $env:LOCALAPPDATA
+          if (-not $localAppData) {
+            $localAppData = Join-Path $env:USERPROFILE "AppData\Local"
+          }
+          $nsisBase = Join-Path $localAppData "tauri\NSIS"
+          $nsis311Dir = Join-Path $nsisBase "nsis-3.11"
+          $makensisExe = Join-Path $nsis311Dir "makensis.exe"
+          $pluginsDir = Join-Path $nsis311Dir "Plugins\x86-unicode"
+          $additionalDir = Join-Path $pluginsDir "additional"
+          $tauriUtilsDll = Join-Path $additionalDir "nsis_tauri_utils.dll"
+
+          New-Item -ItemType Directory -Force -Path $additionalDir | Out-Null
+
+          # 1. Ensure nsis-3.11 is present and makensis.exe exists
+          if (-not (Test-Path $makensisExe)) {
+            Write-Host "makensis.exe not found in cache. Downloading NSIS 3.11 with robust retry..."
+            $zipPath = Join-Path $nsisBase "nsis-3.11.zip"
+            $urls = @(
+              "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip",
+              "https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/nsis-3.11.zip/download"
+            )
+            $downloaded = $false
+            foreach ($url in $urls) {
+              Write-Host "Attempting download from: $url"
+              try {
+                & curl.exe -s -S -f -L --retry 10 --retry-all-errors --retry-delay 3 -H "User-Agent: Mozilla/5.0" $url -o $zipPath
+                if ((Test-Path $zipPath) -and (Get-Item $zipPath).Length -gt 1000000) {
+                  $downloaded = $true
+                  break
+                }
+              } catch {
+                Write-Host "Download attempt failed: $_"
+              }
+            }
+            if (-not $downloaded -or -not (Test-Path $zipPath)) {
+              Write-Error "Failed to download nsis-3.11.zip from all sources!"
+              exit 1
+            }
+            Write-Host "Extracting nsis-3.11.zip into $nsisBase..."
+            Expand-Archive -Path $zipPath -DestinationPath $nsisBase -Force
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+          }
+
+          # 2. Ensure nsis_tauri_utils.dll is present
+          if (-not (Test-Path $tauriUtilsDll) -or (Get-Item $tauriUtilsDll).Length -lt 20000) {
+            Write-Host "Downloading nsis_tauri_utils.dll with retry..."
+            $dllUrl = "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll"
+            try {
+              & curl.exe -s -S -f -L --retry 10 --retry-all-errors --retry-delay 3 -H "User-Agent: Mozilla/5.0" $dllUrl -o $tauriUtilsDll
+            } catch {
+              Write-Host "Warning downloading nsis_tauri_utils.dll: $_"
+            }
+          }
+          if (Test-Path $tauriUtilsDll) {
+            Copy-Item $tauriUtilsDll (Join-Path $pluginsDir "nsis_tauri_utils.dll") -Force -ErrorAction SilentlyContinue
+          }
+
+          # 3. Add NSIS directory to PATH
+          Write-Host "Adding $nsis311Dir to PATH..."
+          $env:PATH = "$nsis311Dir;" + $env:PATH
+          Add-Content -Path $env:GITHUB_PATH -Value $nsis311Dir
+
+          Write-Host "NSIS verification status:"
+          if (Test-Path $makensisExe) {
+            Write-Host "  makensis.exe: OK ($(Get-Item $makensisExe).FullName)"
+            & $makensisExe /VERSION
+          } else {
+            Write-Error "makensis.exe still missing after setup!"
+            exit 1
+          }
+          if (Test-Path $tauriUtilsDll) {
+            Write-Host "  nsis_tauri_utils.dll: OK ($(Get-Item $tauriUtilsDll).FullName)"
+          }
+
       - name: Build Desktop NSIS Installer
         run: npx tauri build --ci --no-sign --ignore-version-mismatches --verbose
 

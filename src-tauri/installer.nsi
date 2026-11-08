@@ -445,7 +445,7 @@ Function PageWhisperOptions
   ${NSD_CreateLabel} 0 0 100% 24u "SUBaka падтрымлівае хуткае афлайн-распазнаванне маўлення праз мадэль Whisper з апаратным паскарэннем на відэакартах NVIDIA CUDA."
   Pop $0
 
-  ${NSD_CreateCheckbox} 0 32u 100% 14u "Спампаваць мадэль Whisper і кампаненты NVIDIA CUDA (~600 МБ)"
+  ${NSD_CreateCheckbox} 0 32u 100% 14u "Спампаваць мадэль Whisper і кампаненты NVIDIA CUDA (~650 МБ)"
   Pop $CheckboxWhisper
   ${If} $WhisperOptChoice == "1"
     ${NSD_Check} $CheckboxWhisper
