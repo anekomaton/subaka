@@ -83,7 +83,10 @@ jobs:
           Copy-Item $target $copyTarget -Force
 
       - name: Build Frontend for Desktop
-        run: npm run build:client
+        shell: pwsh
+        run: |
+          $env:VITE_APP_EDITION = "${{ matrix.edition }}"
+          npm run build:client
 
       - name: Build Offline Dictionaries & Resources
         shell: pwsh
@@ -308,8 +311,8 @@ jobs:
 
             Даступныя два варыянты інсталятара:
 
-            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-full_setup.exe`** - поўная версія з Whisper і падтрымкай NVIDIA CUDA.
-            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-lite_setup.exe`** - палегчаная версія (праграма + FFmpeg + слоўнікі Verbum і GrammarDB). Падчас усталёўкі даступны выбар (птушачка) для спампоўкі мадэлі Whisper і паскарэння NVIDIA CUDA (~650 МБ), альбо іх можна спампаваць у любы момант непасрэдна ў праграме.
+            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-full_setup.exe`** - поўная версія з убудаваным рухавіком Whisper і паскарэннем NVIDIA CUDA.
+            - **`SUBaka_${{ steps.get_version.outputs.VERSION }}_x64-lite_setup.exe`** - палегчаная версія (праграма + FFmpeg + слоўнікі Verbum і GrammarDB, без Whisper).
 
           draft: false
           prerelease: false

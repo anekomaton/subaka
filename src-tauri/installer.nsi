@@ -420,54 +420,6 @@ Var AppStartMenuFolder
   !define FULL_EDITION
 !endif
 
-; Optional Whisper & CUDA offline components page
-Var DialogWhisper
-Var CheckboxWhisper
-Var WhisperOptChoice
-
-Function PageWhisperOptions
-  !ifdef FULL_EDITION
-    Abort
-  !endif
-  ; Skip if offline model already exists in target directory
-  ${If} ${FileExists} "$INSTDIR\resources\ggml-small.bin"
-    Abort
-  ${EndIf}
-
-  !insertmacro MUI_HEADER_TEXT "Дадатковыя кампаненты" "Афлайн-распазнаванне маўлення (Whisper) і NVIDIA CUDA"
-
-  nsDialogs::Create 1018
-  Pop $DialogWhisper
-  ${If} $DialogWhisper == error
-    Abort
-  ${EndIf}
-
-  ${NSD_CreateLabel} 0 0 100% 24u "SUBaka падтрымлівае хуткае афлайн-распазнаванне маўлення праз мадэль Whisper з апаратным паскарэннем на відэакартах NVIDIA CUDA."
-  Pop $0
-
-  ${NSD_CreateCheckbox} 0 32u 100% 14u "Спампаваць мадэль Whisper і кампаненты NVIDIA CUDA (~650 МБ)"
-  Pop $CheckboxWhisper
-  ${If} $WhisperOptChoice == "1"
-    ${NSD_Check} $CheckboxWhisper
-  ${EndIf}
-
-  ${NSD_CreateLabel} 12u 50u 94% 45u "Калі адзначыць гэты пункт, інсталятар загрузіць мадэль (ggml-small.bin), выканаўчыя файлы Whisper і бібліятэкі CUDA для працы на відэакарце.$\r$\n$\r$\nКалі не адзначаць, усталюецца хуткая Lite-версія. Мадэль заўсёды можна спампаваць пазней непасрэдна ў праграме."
-  Pop $0
-
-  nsDialogs::Show
-FunctionEnd
-
-Function PageWhisperOptionsLeave
-  ${NSD_GetState} $CheckboxWhisper $0
-  ${If} $0 == 1
-    StrCpy $WhisperOptChoice "1"
-  ${Else}
-    StrCpy $WhisperOptChoice "0"
-  ${EndIf}
-FunctionEnd
-
-Page custom PageWhisperOptions PageWhisperOptionsLeave
-
 ; 7. Installation page
 !insertmacro MUI_PAGE_INSTFILES
 
