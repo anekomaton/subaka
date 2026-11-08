@@ -2183,10 +2183,10 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                     !hasTransText
                       ? 'Пераклад пусты: няма тэксту для праверкі правапісу'
                       : entry.proofreadIssues && entry.proofreadIssues.length > 0
-                        ? `Заўвагі ШІ (${entry.proofreadIssues.length}): націсніце, каб паказаць (Alt+1)`
+                        ? `Заўвагі AI (${entry.proofreadIssues.length}): націсніце, каб паказаць (Alt+1)`
                         : entry.proofreadIssues !== undefined
-                          ? 'Праверана ШІ: памылак не знойдзена (Alt+1)'
-                          : 'Праверыць гэтую картку ШІ (Alt+1)'
+                          ? 'Праверана AI: памылак не знойдзена (Alt+1)'
+                          : 'Праверыць гэтую картку AI (Alt+1)'
                   }
                 >
                   {isProofreadingCard ? (
@@ -2336,7 +2336,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                               }`}
                               title={
                                 hasProofread
-                                  ? `${token.tooltip || 'Памылка правапісу'} | Заўвага ШІ: "${matchingProofread?.word}"`
+                                  ? `${token.tooltip || 'Памылка правапісу'} | Заўвага AI: "${matchingProofread?.word}"`
                                   : (token.tooltip || 'Памылка правапісу')
                               }
                             >
@@ -2348,7 +2348,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                             <span
                               key={idx}
                               className="text-transparent underline decoration-wavy decoration-purple-500 decoration-1 underline-offset-2"
-                              title={`Заўвага ШІ: "${matchingProofread.word}"`}
+                              title={`Заўвага AI: "${matchingProofread.word}"`}
                             >
                               {token.text}
                             </span>
@@ -2378,7 +2378,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                           <span
                             key={idx}
                             className="text-transparent underline decoration-wavy decoration-purple-500 decoration-1 underline-offset-2"
-                            title={`Заўвага ШІ для "${matchingIssue.word}"`}
+                            title={`Заўвага AI для "${matchingIssue.word}"`}
                           >
                             {part}
                           </span>
@@ -2416,7 +2416,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                   <div className="flex items-center justify-between gap-2 border-b border-purple-500/20 pb-2">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-purple-400 truncate">
                       <Sparkles className="w-4 h-4 shrink-0 text-purple-400" />
-                      <span className="truncate">Заўвага ШІ: "<span className="underline decoration-wavy decoration-purple-500 underline-offset-2">{activeIssue.word}</span>"</span>
+                      <span className="truncate">Заўвага AI: "<span className="underline decoration-wavy decoration-purple-500 underline-offset-2">{activeIssue.word}</span>"</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {entry.proofreadIssues && entry.proofreadIssues.length > 1 && (() => {
@@ -2490,7 +2490,7 @@ export const SubtitleItem: React.FC<SubtitleItemProps> = ({
                               ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                               : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                           }`}
-                          title="Скасаваць усе заўвагі ШІ на гэтай картцы"
+                          title="Скасаваць усе заўвагі AI на гэтай картцы"
                         >
                           Скасаваць
                         </button>

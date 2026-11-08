@@ -670,8 +670,8 @@ export default function Header({
                     }`}
                     title={
                       activeQuickFilter === 'comments'
-                        ? 'Зняць фільтр (паказаны толькі карткі з заўвагамі ШІ)'
-                        : 'Фільтраваць па заўвагах (паказаць толькі карткі з заўвагамі ШІ)'
+                        ? 'Зняць фільтр (паказаны толькі карткі з заўвагамі AI)'
+                        : 'Фільтраваць па заўвагах (паказаць толькі карткі з заўвагамі AI)'
                     }
                   >
                     <span className={`${activeQuickFilter === 'comments' ? 'font-bold text-purple-300 dark:text-purple-200' : 'text-slate-400 font-sans'} text-[7px] leading-none`}>
