@@ -1914,13 +1914,16 @@ interface TranscribeJob {
 
 const transcribeJobs = new Map<string, TranscribeJob>();
 
-const JOBS_DB_DIR = path.join("/tmp", "transcribe_jobs_db");
+const JOBS_DB_DIR = path.join(os.tmpdir(), "transcribe_jobs_db");
 if (!fs.existsSync(JOBS_DB_DIR)) {
   try { fs.mkdirSync(JOBS_DB_DIR, { recursive: true }); } catch (_) {}
 }
 
 function saveJobToDisk(job: TranscribeJob) {
   try {
+    if (!fs.existsSync(JOBS_DB_DIR)) {
+      fs.mkdirSync(JOBS_DB_DIR, { recursive: true });
+    }
     const jobFile = path.join(JOBS_DB_DIR, `${job.id}.json`);
     fs.writeFileSync(jobFile, JSON.stringify(job), "utf-8");
   } catch (e) {
@@ -2436,11 +2439,11 @@ app.post("/api/transcribe/cancel/:jobId", (req, res) => {
 app.post("/api/transcribe/clear", (_req, res) => {
   try {
     transcribeJobs.clear();
-    const dbDir = path.join("/tmp", "transcribe_jobs_db");
-    if (fs.existsSync(dbDir)) {
-      fs.rmSync(dbDir, { recursive: true, force: true });
+    if (fs.existsSync(JOBS_DB_DIR)) {
+      fs.rmSync(JOBS_DB_DIR, { recursive: true, force: true });
     }
-    const uploadsDir = path.join("/tmp", "uploads");
+    fs.mkdirSync(JOBS_DB_DIR, { recursive: true });
+    const uploadsDir = path.join(os.tmpdir(), "uploads");
     if (fs.existsSync(uploadsDir)) {
       fs.rmSync(uploadsDir, { recursive: true, force: true });
     }
