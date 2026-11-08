@@ -394,8 +394,8 @@ export default function ControlsPanel({
                 }`}
                 title={
                   isAllProofread
-                    ? "Праверана ШІ: усе карткі апрацаваны (націсніце, каб пераправерыць)"
-                    : "Праверыць беларускі пераклад і выправіць арфаграфію і граматыку ШІ"
+                    ? "Праверана AI: усе карткі апрацаваны (націсніце, каб пераправерыць)"
+                    : "Праверыць беларускі пераклад і выправіць арфаграфію і граматыку AI"
                 }
               >
                 <Sparkles className={`h-2.5 w-2.5 shrink-0 ${isAllProofread ? 'text-slate-400' : 'text-purple-400'}`} />
@@ -481,13 +481,13 @@ export default function ControlsPanel({
             {/* Transcribe / Create Subtitles (.srt) button */}
             {(() => {
               const isTranscribeDisabled = isTranscribing || !mediaFileName || isAudioProcessing || (mediaLoadingProgress !== null && mediaLoadingProgress < 100);
-              let transcribeTitle = "Аўтаматычна распазнаць мову і стварыць субцітры з медыяфайла";
+              let transcribeTitle = "Стварыць субцітры з медыяфайла";
               if (!mediaFileName) {
                 transcribeTitle = "Загрузіце медыяфайл для генерацыі субцітраў";
               } else if (isAudioProcessing || (mediaLoadingProgress !== null && mediaLoadingProgress < 100)) {
-                transcribeTitle = "Аўдыядарожка яшчэ апрацоўваецца, пачакайце...";
+                transcribeTitle = "Аўдыядарожка апрацоўваецца...";
               } else {
-                transcribeTitle = "Аўтаматычна распазнаць мову і стварыць субцітры з медыяфайла";
+                transcribeTitle = "Стварыць субцітры з медыяфайла";
               }
 
               if (isTranscribing) {

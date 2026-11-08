@@ -86,6 +86,7 @@
     "windows": {
       "nsis": {
         "compression": "lzma",
+        "template": "installer.nsi",
         "installerHooks": "nsis_hooks.nsh"
       }
     }

@@ -3256,7 +3256,7 @@ export default function App() {
         addToast("Для працы праверкі правапісу праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
         return;
       }
-      addToast("Праверка карткі ШІ...", "info");
+      addToast("Праверка карткі AI...", "info");
       try {
         const results = await desktopProofreadBatch([{ id: target.id, text: target.translatedText }], apiKey);
         const match = results.find((r) => String(r.id) === String(id));
@@ -3276,7 +3276,7 @@ export default function App() {
       return;
     }
 
-    addToast("Праверка карткі ШІ...", "info");
+    addToast("Праверка карткі AI...", "info");
     try {
       const response = await fetch("/api/proofread", {
         method: "POST",
@@ -3329,7 +3329,7 @@ export default function App() {
 
       setIsProofreadingTranslation(true);
       cancelProofreadingRef.current = false;
-      addToast("Пачалася праверка беларускага перакладу ШІ...", "info");
+      addToast("Пачалася праверка беларускага перакладу AI...", "info");
 
       try {
         const chunkSize = 25;
@@ -3410,7 +3410,7 @@ export default function App() {
 
     setIsProofreadingTranslation(true);
     cancelProofreadingRef.current = false;
-    addToast("Пачалася праверка беларускага перакладу ШІ...", "info");
+    addToast("Пачалася праверка беларускага перакладу AI...", "info");
 
     try {
       const chunkSize = 30;
@@ -3608,7 +3608,7 @@ export default function App() {
     setTimeout(() => {
       isClearingWorkspaceRef.current = false;
     }, 1500);
-    addToast("Працоўная вобласць, часовыя файлы і кэш ачышчаны (граматыка, слоўнікі, гласарый і настройкі захаваны)", "info");
+    addToast("Працоўная вобласць, часовыя файлы і кэш ачышчаны (слоўнікі, гласарый і настройкі захаваны)", "info");
   };
 
   const handleClearMedia = async () => {
@@ -3945,7 +3945,7 @@ export default function App() {
       const firstStartSec = srtTimeToSeconds(finalSubtitles[0].startTime);
       setPlaybackState((prev) => ({ ...prev, currentTime: firstStartSec }));
     }
-    addToast(`Аўтасубцітры паспяхова ўстаўлены ў працоўную вобласць (картак: ${targetAutoSubs.length})!`, "success");
+    addToast(`Аўтасубцітры ўстаўлены ў працоўную вобласць (картак: ${targetAutoSubs.length})!`, "success");
 
     if (autoTranslate && finalSubtitles.length > 0) {
       await handleTranslateAll(finalSubtitles);
@@ -3963,7 +3963,7 @@ export default function App() {
       setActiveSubtitleIndex(0);
     }
 
-    addToast(`Паспяхова загружаны пераклад (${entries.length} радкоў)`, "success");
+    addToast(`Загружаны пераклад (${entries.length} радкоў)`, "success");
   };
 
   // Derived counts for batch actions panel and status bar
@@ -3983,7 +3983,7 @@ export default function App() {
     for (let i = 0; i < subtitles.length; i++) {
       const sub = subtitles[i];
 
-      // 1. "заўвагі:" колькасць заўваг ШІ
+      // 1. "заўвагі:" колькасць заўваг AI
       if (sub.proofreadIssues && sub.proofreadIssues.length > 0) {
         aiRemarks += sub.proofreadIssues.length;
       }
@@ -4182,7 +4182,7 @@ export default function App() {
                   <span>
                     Фільтр:{' '}
                     <strong className="font-bold text-purple-600 dark:text-purple-300">
-                      {quickFilter === 'comments' && 'Заўвагі ШІ'}
+                      {quickFilter === 'comments' && 'Заўвагі AI'}
                       {quickFilter === 'errors' && 'Чырвоныя памылкі правапісу'}
                     </strong>
                     {' — '}
@@ -4258,11 +4258,11 @@ export default function App() {
                   <Filter className={`h-8 w-8 ${theme === 'dark' ? 'text-purple-400' : 'text-purple-600'}`} />
                   <div>
                     <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>
-                      {quickFilter === 'comments' && 'Няма картак з заўвагамі ШІ'}
+                      {quickFilter === 'comments' && 'Няма картак з заўвагамі AI'}
                       {quickFilter === 'errors' && 'Няма картак з чырвонымі памылкамі правапісу'}
                     </h3>
                     <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Усе субцітры ў праекце адпавядаюць патрабаванням альбо не ўтрымліваюць адпаведных заўваг.
+                      Усе субцітры ў праекце не ўтрымліваюць адпаведных заўваг.
                     </p>
                   </div>
                   <button
@@ -4326,7 +4326,7 @@ export default function App() {
               localStorage.setItem('subaka_split_ratio', '50');
             } catch {}
           }}
-          title="Перацягніце для змены прапорцый экрана (падвойны клік — 50/50)"
+          title="Цягніце для змены прапорцый экрана (двайны пстрык = 50/50)"
           className={`hidden lg:flex flex-col items-center justify-center w-4 -mx-1.5 relative cursor-col-resize select-none shrink-0 z-30 touch-none group order-2 lg:order-2 ${
             isDraggingSplit ? 'cursor-col-resize' : ''
           }`}
@@ -4508,7 +4508,7 @@ export default function App() {
             if (!apiKey) {
               setIsSubtitleTrackModalOpen(false);
               setIsGeminiKeyModalOpen(true);
-              addToast("Для працы генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
+              addToast("Для генерацыі субцітраў праз AI ў дэсктопнай версіі неабходна ўвесці Gemini API ключ", "warning");
               return;
             }
           }
@@ -4798,8 +4798,8 @@ export default function App() {
                           }`}
                           title={
                             quickFilter === 'comments'
-                              ? 'Зняць фільтр (паказаны толькі карткі з заўвагамі ШІ)'
-                              : 'Фільтраваць па заўвагах (паказаць толькі карткі з заўвагамі ШІ)'
+                              ? 'Зняць фільтр (паказаны толькі карткі з заўвагамі AI)'
+                              : 'Фільтраваць па заўвагах (паказаць толькі карткі з заўвагамі AI)'
                           }
                         >
                           <span className={`text-[7.5px] font-bold tracking-wider leading-none ${

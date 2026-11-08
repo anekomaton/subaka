@@ -264,7 +264,7 @@ export default function SubtitleTrackSelectModal({
                         ? 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800 cursor-pointer'
                         : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer'
                 }`}
-                title={!whisperDetails?.isInstalled ? 'Мадэль Whisper не ўсталявана ў гэтай версіі' : 'Лакальнае распазнаванне Whisper'}
+                title={!whisperDetails?.isInstalled ? 'Мадэль Whisper не ўсталявана' : 'Лакальнае распазнаванне Whisper'}
               >
                 <div className="flex items-center gap-2">
                   <input
@@ -350,10 +350,10 @@ export default function SubtitleTrackSelectModal({
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-0.5">
                     <p className={`text-[11px] font-semibold ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-800'}`}>
-                      Афлайн-мадэль Whisper не спампавана
+                      Мадэль Whisper не ўсталявана
                     </p>
                     <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Для лакальнай транскрыпцыі без Gemini спампуйце мадэль (~460 МБ).
+                      Для лакальнай генерацыі спампуйце мадэль.
                     </p>
                   </div>
                 </div>
@@ -399,7 +399,7 @@ export default function SubtitleTrackSelectModal({
                       className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Спампаваць мадэль Whisper (~460 МБ)
+                      Спампаваць мадэль Whisper
                     </button>
                   </div>
                 )}

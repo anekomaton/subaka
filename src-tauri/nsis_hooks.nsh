@@ -2,8 +2,6 @@
 ; Ensures no dangling SUBaka and Whisper background processes remain before installing or uninstalling.
 ; Whisper executables, runtime DLLs, and models reside cleanly inside $INSTDIR\resources\ without root duplication.
 
-Var WhisperOptChoice
-
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Checking for running SUBaka and Whisper processes..."
   nsExec::Exec 'taskkill /F /IM SUBaka.exe /T'
@@ -11,109 +9,6 @@ Var WhisperOptChoice
   nsExec::Exec 'taskkill /F /IM whisper-cuda.exe /T'
   nsExec::Exec 'taskkill /F /IM whisper-cli.exe /T'
   Sleep 500
-
-  ; Initialize choice as 0 (skip download by default)
-  StrCpy $WhisperOptChoice "0"
-
-  ; Check if model is already present on system or bundled in this installer
-  ${If} ${FileExists} "$INSTDIR\resources\ggml-small.bin"
-    DetailPrint "Offline Whisper model already present."
-  ${Else}
-    DetailPrint "Prompting for optional offline Whisper model and CUDA acceleration download..."
-    Delete "$TEMP\subaka_whisper_choice.txt"
-    Delete "$TEMP\subaka_whisper_prompt.ps1"
-    Delete "$TEMP\subaka_whisper_launcher.vbs"
-
-    ; Generate PowerShell script with clean Windows Form modal dialog
-    FileOpen $0 "$TEMP\subaka_whisper_prompt.ps1" w
-    FileWrite $0 "Add-Type -AssemblyName System.Windows.Forms$\r$\n"
-    FileWrite $0 "Add-Type -AssemblyName System.Drawing$\r$\n"
-    FileWrite $0 "[System.Windows.Forms.Application]::EnableVisualStyles()$\r$\n"
-    FileWrite $0 "function Get-Utf8($$b) { return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($$b)) }$\r$\n"
-    FileWrite $0 "$$choice = Join-Path $$env:TEMP 'subaka_whisper_choice.txt'$\r$\n"
-    FileWrite $0 "Set-Content -Path $$choice -Value '0' -Encoding ASCII -Force$\r$\n"
-    FileWrite $0 "$$f = New-Object Windows.Forms.Form$\r$\n"
-    FileWrite $0 "$$f.Text = Get-Utf8 '0KPRgdGC0LDQu9GR0Z7QutCwIFNVQmFrYSAoTGl0ZSk='$\r$\n"
-    FileWrite $0 "$$f.Size = New-Object Drawing.Size(520, 310)$\r$\n"
-    FileWrite $0 "$$f.StartPosition = 'CenterScreen'$\r$\n"
-    FileWrite $0 "$$f.FormBorderStyle = 'FixedDialog'$\r$\n"
-    FileWrite $0 "$$f.MaximizeBox = $$false$\r$\n"
-    FileWrite $0 "$$f.MinimizeBox = $$false$\r$\n"
-    FileWrite $0 "$$f.TopMost = $$true$\r$\n"
-    FileWrite $0 "$$lbl = New-Object Windows.Forms.Label$\r$\n"
-    FileWrite $0 "$$lbl.Text = Get-Utf8 'U1VCYWthINC/0LDQtNGC0YDRi9C80LvRltCy0LDQtSDRhdGD0YLQutCw0LUg0LDRhNC70LDQudC9LdGA0LDRgdC/0LDQt9C90LDQstCw0L3QvdC1INC80LDRntC70LXQvdC90Y8gKFdoaXNwZXIpINC3INC/0LDQtNGC0YDRi9C80LrQsNC5IE5WSURJQSBDVURBLg=='$\r$\n"
-    FileWrite $0 "$$lbl.Location = New-Object Drawing.Point(24, 18)$\r$\n"
-    FileWrite $0 "$$lbl.Size = New-Object Drawing.Size(460, 38)$\r$\n"
-    FileWrite $0 "$$lbl.Font = New-Object Drawing.Font('Segoe UI', 9.5)$\r$\n"
-    FileWrite $0 "$$f.Controls.Add($$lbl)$\r$\n"
-    FileWrite $0 "$$cb = New-Object Windows.Forms.CheckBox$\r$\n"
-    FileWrite $0 "$$cb.Text = Get-Utf8 '0KHQv9Cw0LzQv9Cw0LLQsNGG0Ywg0LzQsNC00Y3Qu9GMIFdoaXNwZXIg0ZYg0LrQsNC80L/QsNC90LXQvdGC0YsgQ1VEQSAofjUwMCDQnNCRKQ=='$\r$\n"
-    FileWrite $0 "$$cb.Location = New-Object Drawing.Point(24, 62)$\r$\n"
-    FileWrite $0 "$$cb.Size = New-Object Drawing.Size(460, 32)$\r$\n"
-    FileWrite $0 "$$cb.Font = New-Object Drawing.Font('Segoe UI', 9.5, [Drawing.FontStyle]::Bold)$\r$\n"
-    FileWrite $0 "$$cb.Checked = $$false$\r$\n"
-    FileWrite $0 "$$f.Controls.Add($$cb)$\r$\n"
-    FileWrite $0 "$$sub = New-Object Windows.Forms.Label$\r$\n"
-    FileWrite $0 "$$sub.Text = Get-Utf8 '0JHRg9C00YPRhtGMINGB0L/QsNC80L/QsNCy0LDQvdGL0Y8g0LzQsNC00Y3Qu9GMIChnZ21sLXNtYWxsLmJpbiksINCx0ZbQvdCw0YDQvdGW0LrRliBXaGlzcGVyINGWINCx0ZbQsdC70ZbRj9GC0Y3QutGWIE5WSURJQSBDVURBINC00LvRjyDRhdGD0YLQutCw0LPQsCDRgNCw0YHQv9Cw0LfQvdCw0LLQsNC90L3RjyDQvdCwINCy0ZbQtNGN0LDQutCw0YDRhtC1LgoK0JrQsNC70ZYg0L3QtSDQsNC00LfQvdCw0YfQsNGG0YwsINGD0YHRgtCw0LvRjtC10YbRhtCwINC/0LDQu9C10LPRh9Cw0L3QsNGPINCy0LXRgNGB0ZbRjyBTVUJha2EgTGl0ZS4g0JzQsNC00Y3Qu9GMINC30LDRntGB0ZHQtNGLINC80L7QttC90LAg0YHQv9Cw0LzQv9Cw0LLQsNGG0Ywg0L/QsNC30L3QtdC5INC90LXQv9Cw0YHRgNGN0LTQvdCwINGeINC/0YDQsNCz0YDQsNC80LUu'$\r$\n"
-    FileWrite $0 "$$sub.Location = New-Object Drawing.Point(44, 98)$\r$\n"
-    FileWrite $0 "$$sub.Size = New-Object Drawing.Size(440, 105)$\r$\n"
-    FileWrite $0 "$$sub.ForeColor = [Drawing.Color]::FromArgb(90, 90, 90)$\r$\n"
-    FileWrite $0 "$$sub.Font = New-Object Drawing.Font('Segoe UI', 8.5)$\r$\n"
-    FileWrite $0 "$$f.Controls.Add($$sub)$\r$\n"
-    FileWrite $0 "$$btn = New-Object Windows.Forms.Button$\r$\n"
-    FileWrite $0 "$$btn.Text = Get-Utf8 '0J/RgNCw0YbRj9Cz0L3Rg9GG0Yw='$\r$\n"
-    FileWrite $0 "$$btn.Location = New-Object Drawing.Point(370, 215)$\r$\n"
-    FileWrite $0 "$$btn.Size = New-Object Drawing.Size(120, 34)$\r$\n"
-    FileWrite $0 "$$btn.DialogResult = [Windows.Forms.DialogResult]::OK$\r$\n"
-    FileWrite $0 "$$btn.Font = New-Object Drawing.Font('Segoe UI', 9.5)$\r$\n"
-    FileWrite $0 "$$f.Controls.Add($$btn)$\r$\n"
-    FileWrite $0 "$$f.AcceptButton = $$btn$\r$\n"
-    FileWrite $0 "$$f.Add_Shown({ $$f.Activate(); $$f.BringToFront() })$\r$\n"
-    FileWrite $0 "[void]$$f.ShowDialog()$\r$\n"
-    FileWrite $0 "if ($$cb.Checked) { Set-Content -Path $$choice -Value '1' -Encoding ASCII -Force } else { Set-Content -Path $$choice -Value '0' -Encoding ASCII -Force }$\r$\n"
-    FileWrite $0 "$$f.Dispose()$\r$\n"
-    FileClose $0
-
-    ; Write VBS launcher to run powershell cleanly without console window popup
-    FileOpen $0 "$TEMP\subaka_whisper_launcher.vbs" w
-    FileWrite $0 'Set sh = CreateObject("WScript.Shell")$\r$\n'
-    FileWrite $0 'sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File """ & WScript.Arguments(0) & """", 0, True$\r$\n'
-    FileClose $0
-
-    ; Execute launcher and wait for user interaction
-    ExecWait 'wscript.exe "$TEMP\subaka_whisper_launcher.vbs" "$TEMP\subaka_whisper_prompt.ps1"' $0
-
-    ; Read user decision from result file
-    ${If} ${FileExists} "$TEMP\subaka_whisper_choice.txt"
-      FileOpen $0 "$TEMP\subaka_whisper_choice.txt" r
-      FileRead $0 $1 1
-      FileClose $0
-      ${If} $1 == "1"
-        StrCpy $WhisperOptChoice "1"
-        DetailPrint "User selected to download Whisper model and CUDA components."
-      ${Else}
-        StrCpy $WhisperOptChoice "0"
-        DetailPrint "User chose standard Lite installation."
-      ${EndIf}
-    ${Else}
-      ; Safe fallback: native NSIS prompt if external script execution was blocked
-      MessageBox MB_YESNO|MB_ICONQUESTION "SUBaka падтрымлівае афлайн-распазнаванне маўлення (Whisper).$\r$\n$\r$\nСпампаваць мадэль Whisper і кампаненты CUDA зараз (~500 МБ)?$\r$\n$\r$\n[Так] - Спампаваць мадэль і бінарнікі з CUDA$\r$\n[Не] - Усталяваць Lite-версію (мадэль можна спампаваць пазней у праграме)" IDYES opt_dl_yes IDNO opt_dl_no
-      opt_dl_yes:
-        StrCpy $WhisperOptChoice "1"
-        DetailPrint "User selected Whisper download via fallback prompt."
-        Goto opt_dl_done
-      opt_dl_no:
-        StrCpy $WhisperOptChoice "0"
-        DetailPrint "User declined Whisper download via fallback prompt."
-        Goto opt_dl_done
-      opt_dl_done:
-    ${EndIf}
-
-    ; Clean up temporary dialog assets
-    Delete "$TEMP\subaka_whisper_choice.txt"
-    Delete "$TEMP\subaka_whisper_prompt.ps1"
-    Delete "$TEMP\subaka_whisper_launcher.vbs"
-  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
