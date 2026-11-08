@@ -350,10 +350,14 @@ export default function SubtitleTrackSelectModal({
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-0.5">
                     <p className={`text-[11px] font-semibold ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-800'}`}>
-                      Рухавік Whisper не ўсталяваны
+                      {!whisperDetails?.binaryInstalled
+                        ? 'Файлы рухавіка Whisper адсутнічаюць у SUBaka\\resources'
+                        : 'Мадэль Whisper не спампавана'}
                     </p>
                     <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Для лакальнай генерацыі спампуйце выканаўчыя файлы, бібліятэкі DLL і мадэль.
+                      {!whisperDetails?.binaryInstalled
+                        ? 'Для лакальнай генерацыі спампуйце выканаўчыя файлы whisper.exe, бібліятэкі DLL і мадэль у SUBaka\\resources.'
+                        : 'Выканаўчыя файлы і DLL гатовыя ў SUBaka\\resources. Засталося спампаваць мадэль распазнавання (ggml-small, ~466 МБ).'}
                     </p>
                   </div>
                 </div>
@@ -399,7 +403,9 @@ export default function SubtitleTrackSelectModal({
                       className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Спампаваць кампаненты Whisper
+                      {!whisperDetails?.binaryInstalled
+                        ? 'Спампаваць файлы і мадэль Whisper'
+                        : 'Спампаваць мадэль Whisper'}
                     </button>
                   </div>
                 )}

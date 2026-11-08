@@ -1060,8 +1060,166 @@ pub fn resolve_whisper_target_dir(app: &AppHandle) -> PathBuf {
     PathBuf::from("resources")
 }
 
+/// Helper to verify whether a given directory contains a complete Whisper installation in SUBaka\resources.
+/// Checks that an executable binary exists AND that required companion runtime DLLs are present on Windows.
+pub fn find_whisper_binary_in_dir(dir: &Path) -> Option<PathBuf> {
+    if !dir.exists() || !dir.is_dir() {
+        return None;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, whisper.cpp requires runtime companion DLLs (whisper.dll, ggml*.dll, etc.)
+        // in SUBaka\resources alongside the binary. If DLLs are absent, the binary cannot execute.
+        let mut has_dlls = false;
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if ext.eq_ignore_ascii_case("dll") {
+                            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                            if file_name.contains("whisper") || file_name.contains("ggml") || file_name.contains("cublas") || file_name.contains("sdl") {
+                                has_dlls = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !has_dlls {
+            return None;
+        }
+    }
+
+    let binary_names = [
+        "whisper-cuda.exe",
+        "whisper-cublas.exe",
+        "whisper-gpu.exe",
+        "whisper.exe",
+        "whisper-cli.exe",
+        "whisper",
+    ];
+
+    for b_name in &binary_names {
+        let candidate = dir.join(b_name);
+        if candidate.exists() && candidate.is_file() {
+            if let Ok(meta) = candidate.metadata() {
+                if meta.len() > 100_000 {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Returns ONLY the directories corresponding to SUBaka\resources.
+/// Per requirements, files MUST ONLY be checked within SUBaka\resources
+/// (never in system PATH or other system locations from other programs).
+pub fn get_whisper_resources_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    use tauri::Manager;
+    let mut resources_dirs: Vec<PathBuf> = Vec::new();
+
+    // 1. Primary target dir (e.g. <exe_dir>\resources or %LOCALAPPDATA%\SUBaka\resources)
+    let target = resolve_whisper_target_dir(app);
+    resources_dirs.push(target);
+
+    // 2. Executable resources folder: <exe_dir>\resources (installed SUBaka\resources)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res_dir = exe_dir.join("resources");
+            if !resources_dirs.contains(&res_dir) {
+                resources_dirs.push(res_dir);
+            }
+        }
+    }
+
+    // 3. Fallback LOCALAPPDATA\SUBaka\resources
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let subaka_res = Path::new(&local_appdata).join("SUBaka").join("resources");
+        if !resources_dirs.contains(&subaka_res) {
+            resources_dirs.push(subaka_res);
+        }
+    }
+
+    // 4. Tauri app resource_dir / resources
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let r = if res_dir.file_name().and_then(|n| n.to_str()) == Some("resources") {
+            res_dir
+        } else {
+            res_dir.join("resources")
+        };
+        if !resources_dirs.contains(&r) {
+            resources_dirs.push(r);
+        }
+    }
+
+    // 5. Current working directory for dev mode (e.g. src-tauri/resources or resources)
+    if let Ok(cwd) = std::env::current_dir() {
+        let dev_res = cwd.join("src-tauri").join("resources");
+        if dev_res.is_dir() && !resources_dirs.contains(&dev_res) {
+            resources_dirs.push(dev_res);
+        }
+        let cwd_res = cwd.join("resources");
+        if cwd_res.is_dir() && !resources_dirs.contains(&cwd_res) {
+            resources_dirs.push(cwd_res);
+        }
+    }
+
+    resources_dirs
+}
+
+pub fn locate_whisper_binary(app: &AppHandle) -> Option<PathBuf> {
+    // Check ONLY in SUBaka\resources directories (never in system PATH or other programs' locations)
+    let res_dirs = get_whisper_resources_dirs(app);
+    for dir in &res_dirs {
+        if let Some(bin) = find_whisper_binary_in_dir(dir) {
+            return Some(bin);
+        }
+    }
+    None
+}
+
+pub fn locate_whisper_model(app: &AppHandle, requested_model: &str) -> Option<PathBuf> {
+    let mut model_names = Vec::new();
+    let req = requested_model.trim();
+    if !req.is_empty() && !req.contains('/') && !req.contains('\\') {
+        model_names.push(req.to_string());
+    }
+    model_names.push("ggml-small.bin".to_string());
+    model_names.push("ggml-base.bin".to_string());
+    model_names.push("ggml-medium.bin".to_string());
+    model_names.push("ggml-tiny.bin".to_string());
+
+    // Check ONLY in SUBaka\resources directories (never in system PATH or other programs' locations)
+    let res_dirs = get_whisper_resources_dirs(app);
+    for dir in &res_dirs {
+        for m_name in &model_names {
+            let candidate = dir.join(m_name);
+            if candidate.exists() && candidate.is_file() {
+                if let Ok(meta) = candidate.metadata() {
+                    if meta.len() > 10_000_000 {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     let target_dir = resolve_whisper_target_dir(app);
+    let _ = fs::create_dir_all(&target_dir);
+
+    // If a valid binary and companion DLLs already exist in SUBaka\resources, return it immediately
+    if let Some(existing_bin) = locate_whisper_binary(app) {
+        return Ok(existing_bin);
+    }
 
     let has_nvidia = if cfg!(target_os = "windows") {
         silent_command("powershell")
@@ -1077,40 +1235,14 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
         false
     };
 
-    // 1. Check if Whisper executable already exists in bundled resources directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let res_dir = exe_dir.join("resources");
-            let res_cuda = res_dir.join("whisper-cuda.exe");
-            let res_cpu = res_dir.join("whisper.exe");
-            if has_nvidia && res_cuda.exists() && res_cuda.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
-                return Ok(res_cuda);
-            }
-            if res_cpu.exists() && res_cpu.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
-                return Ok(res_cpu);
-            }
-        }
-    }
-
-    let cuda_exe = target_dir.join("whisper-cuda.exe");
-    let cpu_exe = target_dir.join("whisper.exe");
-
-    if has_nvidia && cuda_exe.exists() && cuda_exe.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
-        return Ok(cuda_exe);
-    }
-    if cpu_exe.exists() && cpu_exe.metadata().map(|m| m.len()).unwrap_or(0) > 100000 {
-        return Ok(cpu_exe);
-    }
-
-    let _ = fs::create_dir_all(&target_dir);
-
     let log_msg = sanitize_sensitive_info(&format!(
-        "[WhisperEngine] Auto-downloading native Whisper binary and DLLs into {:?} (NVIDIA GPU detected: {})",
+        "[WhisperEngine] Auto-downloading native Whisper binary and companion DLLs into SUBaka resources ({:?}) (NVIDIA GPU detected: {})",
         target_dir,
         has_nvidia
     ));
     log::info!("{}", log_msg);
 
+    // 1. If NVIDIA GPU detected, attempt to download CUDA cuBLAS Whisper + DLLs
     if has_nvidia {
         let cuda_urls = [
             "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-cublas-12.4.0-bin-x64.zip",
@@ -1118,12 +1250,35 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
             "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-cublas-12.4.0-bin-x64.zip",
         ];
         let zip_cuda = target_dir.join("whisper-cuda.zip");
+        let cuda_exe = target_dir.join("whisper-cuda.exe");
+
         for cuda_url in &cuda_urls {
+            let mut downloaded = false;
             let dl_res = silent_command("curl.exe")
                 .args(["-s", "-S", "-f", "-L", "--retry", "3", cuda_url, "-o", zip_cuda.to_str().unwrap_or("")])
                 .status();
 
-            if dl_res.map(|s| s.success()).unwrap_or(false) && zip_cuda.exists() && zip_cuda.metadata().map(|m| m.len()).unwrap_or(0) > 1000000 {
+            if dl_res.map(|s| s.success()).unwrap_or(false) && zip_cuda.exists() && zip_cuda.metadata().map(|m| m.len()).unwrap_or(0) > 1_000_000 {
+                downloaded = true;
+            } else {
+                let _ = silent_command("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        &format!(
+                            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+                             Invoke-WebRequest -Uri '{}' -OutFile '{}' -UserAgent 'Mozilla/5.0' -TimeoutSec 180",
+                            cuda_url,
+                            zip_cuda.display()
+                        ),
+                    ])
+                    .status();
+                if zip_cuda.exists() && zip_cuda.metadata().map(|m| m.len()).unwrap_or(0) > 1_000_000 {
+                    downloaded = true;
+                }
+            }
+
+            if downloaded {
                 let _ = silent_command("powershell")
                     .args([
                         "-NoProfile",
@@ -1132,7 +1287,8 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
                             "$ProgressPreference='SilentlyContinue'; \
                              $tempDir = Join-Path '{}' 'temp_cuda'; \
                              New-Item -ItemType Directory -Force -Path $tempDir | Out-Null; \
-                             Expand-Archive -Path '{}' -DestinationPath $tempDir -Force; \
+                             $tar = Get-Command 'tar.exe' -ErrorAction SilentlyContinue; \
+                             if ($tar) {{ & tar.exe -xf '{}' -C $tempDir }} else {{ Expand-Archive -Path '{}' -DestinationPath $tempDir -Force }}; \
                              $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Where-Object {{ $_.Name -match 'whisper-cli|whisper|main' }} | Select-Object -First 1; \
                              if (-not $exe) {{ $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Select-Object -First 1 }}; \
                              if ($exe) {{ Copy-Item $exe.FullName '{}' -Force }}; \
@@ -1141,31 +1297,57 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
                              Remove-Item '{}' -Force -ErrorAction SilentlyContinue;",
                             target_dir.display(),
                             zip_cuda.display(),
+                            zip_cuda.display(),
                             cuda_exe.display(),
                             target_dir.display(),
                             zip_cuda.display()
                         ),
                     ])
                     .status();
+
+                if let Some(bin) = find_whisper_binary_in_dir(&target_dir) {
+                    return Ok(bin);
+                }
                 break;
             }
         }
-        if cuda_exe.exists() {
-            return Ok(cuda_exe);
-        }
     }
 
+    // 2. Download standard CPU Whisper binary and DLLs into SUBaka\resources
     let cpu_urls = [
         "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip",
         "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip",
     ];
     let zip_cpu = target_dir.join("whisper-bin-cpu.zip");
+    let cpu_exe = target_dir.join("whisper.exe");
+
     for cpu_url in &cpu_urls {
+        let mut downloaded = false;
         let dl_cpu = silent_command("curl.exe")
             .args(["-s", "-S", "-f", "-L", "--retry", "3", cpu_url, "-o", zip_cpu.to_str().unwrap_or("")])
             .status();
 
-        if dl_cpu.map(|s| s.success()).unwrap_or(false) && zip_cpu.exists() && zip_cpu.metadata().map(|m| m.len()).unwrap_or(0) > 500000 {
+        if dl_cpu.map(|s| s.success()).unwrap_or(false) && zip_cpu.exists() && zip_cpu.metadata().map(|m| m.len()).unwrap_or(0) > 500_000 {
+            downloaded = true;
+        } else {
+            let _ = silent_command("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!(
+                        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+                         Invoke-WebRequest -Uri '{}' -OutFile '{}' -UserAgent 'Mozilla/5.0' -TimeoutSec 180",
+                        cpu_url,
+                        zip_cpu.display()
+                    ),
+                ])
+                .status();
+            if zip_cpu.exists() && zip_cpu.metadata().map(|m| m.len()).unwrap_or(0) > 500_000 {
+                downloaded = true;
+            }
+        }
+
+        if downloaded {
             let _ = silent_command("powershell")
                 .args([
                     "-NoProfile",
@@ -1174,7 +1356,8 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
                         "$ProgressPreference='SilentlyContinue'; \
                          $tempDir = Join-Path '{}' 'temp_cpu'; \
                          New-Item -ItemType Directory -Force -Path $tempDir | Out-Null; \
-                         Expand-Archive -Path '{}' -DestinationPath $tempDir -Force; \
+                         $tar = Get-Command 'tar.exe' -ErrorAction SilentlyContinue; \
+                         if ($tar) {{ & tar.exe -xf '{}' -C $tempDir }} else {{ Expand-Archive -Path '{}' -DestinationPath $tempDir -Force }}; \
                          $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Where-Object {{ $_.Name -match 'whisper-cli|whisper|main' }} | Select-Object -First 1; \
                          if (-not $exe) {{ $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Select-Object -First 1 }}; \
                          if ($exe) {{ Copy-Item $exe.FullName '{}' -Force }}; \
@@ -1183,20 +1366,25 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
                          Remove-Item '{}' -Force -ErrorAction SilentlyContinue;",
                         target_dir.display(),
                         zip_cpu.display(),
+                        zip_cpu.display(),
                         cpu_exe.display(),
                         target_dir.display(),
                         zip_cpu.display()
                     ),
                 ])
                 .status();
+
+            if let Some(bin) = find_whisper_binary_in_dir(&target_dir) {
+                return Ok(bin);
+            }
             break;
         }
     }
 
-    if cpu_exe.exists() {
-        Ok(cpu_exe)
+    if let Some(bin) = find_whisper_binary_in_dir(&target_dir) {
+        Ok(bin)
     } else {
-        Err("Не ўдалося спампаваць бінарны файл Whisper для SUBaka.".to_string())
+        Err("Не ўдалося спампаваць бінарныя файлы і бібліятэкі DLL рухавіка Whisper у каталог SUBaka\\resources.".to_string())
     }
 }
 
@@ -1209,160 +1397,58 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
         requested_model.trim()
     };
 
-    // 1. Check if model already exists in bundled resources directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let res_model = exe_dir.join("resources").join(m_file);
-            if res_model.exists() && res_model.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
-                return Ok(res_model);
-            }
-        }
+    // Check if model already exists in SUBaka\resources
+    if let Some(model) = locate_whisper_model(app, m_file) {
+        return Ok(model);
     }
 
     let target_model = target_dir.join(m_file);
-
-    if target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10000000 {
-        return Ok(target_model);
-    }
-
     let _ = fs::create_dir_all(&target_dir);
 
     let log_msg = sanitize_sensitive_info(&format!(
-        "[WhisperEngine] Auto-downloading GGML Whisper model ({}) into {:?}",
+        "[WhisperEngine] Auto-downloading GGML Whisper model ({}) into SUBaka resources ({:?})",
         m_file,
         target_dir
     ));
     log::info!("{}", log_msg);
 
-    let model_url = format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", m_file);
-    let dl_res = silent_command("curl.exe")
-        .args(["-s", "-S", "-f", "-L", "--retry", "3", &model_url, "-o", target_model.to_str().unwrap_or("")])
-        .status();
-
-    if dl_res.map(|s| s.success()).unwrap_or(false) && target_model.exists() {
-        Ok(target_model)
-    } else {
-        Err(format!("Не ўдалося спампаваць мадэль Whisper ({}).", m_file))
-    }
-}
-
-pub fn get_whisper_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
-    use tauri::Manager;
-    let mut candidate_dirs: Vec<PathBuf> = Vec::new();
-
-    // 1. Executable directory: <exe_dir>/resources and <exe_dir>
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            candidate_dirs.push(exe_dir.join("resources"));
-            candidate_dirs.push(exe_dir.to_path_buf());
-        }
-    }
-
-    // 2. Preferred target dir (e.g. SUBaka\resources)
-    let target = resolve_whisper_target_dir(app);
-    candidate_dirs.push(target.clone());
-    if let Some(p) = target.parent() {
-        candidate_dirs.push(p.to_path_buf());
-    }
-
-    // 3. Fallback LOCALAPPDATA / SUBaka / resources
-    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-        let base_dir = Path::new(&local_appdata).join("SUBaka");
-        candidate_dirs.push(base_dir.join("resources"));
-        candidate_dirs.push(base_dir);
-    }
-
-    // 4. Tauri resource_dir
-    if let Ok(res_dir) = app.path().resource_dir() {
-        candidate_dirs.push(res_dir.join("resources"));
-        candidate_dirs.push(res_dir);
-    }
-
-    // 5. Current working directory
-    if let Ok(cwd) = std::env::current_dir() {
-        candidate_dirs.push(cwd.join("resources"));
-        candidate_dirs.push(cwd);
-    }
-
-    candidate_dirs
-}
-
-pub fn locate_whisper_binary(app: &AppHandle) -> Option<PathBuf> {
-    let binary_names = [
-        "whisper-cuda.exe",
-        "whisper-cublas.exe",
-        "whisper-gpu.exe",
-        "whisper-cli.exe",
-        "main.exe",
-        "whisper.exe",
-        "whisper",
+    let model_urls = [
+        format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", m_file),
+        format!("https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/{}", m_file),
     ];
 
-    let dirs = get_whisper_candidate_dirs(app);
-    for dir in &dirs {
-        for b_name in &binary_names {
-            let candidate = dir.join(b_name);
-            if candidate.exists() && candidate.is_file() {
-                if let Ok(meta) = candidate.metadata() {
-                    if meta.len() > 100000 {
-                        return Some(candidate);
-                    }
-                }
-            }
+    for model_url in &model_urls {
+        let dl_res = silent_command("curl.exe")
+            .args(["-s", "-S", "-f", "-L", "--retry", "3", model_url, "-o", target_model.to_str().unwrap_or("")])
+            .status();
+
+        if dl_res.map(|s| s.success()).unwrap_or(false) && target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10_000_000 {
+            return Ok(target_model);
+        }
+
+        let _ = silent_command("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+                     Invoke-WebRequest -Uri '{}' -OutFile '{}' -UserAgent 'Mozilla/5.0' -TimeoutSec 300",
+                    model_url,
+                    target_model.display()
+                ),
+            ])
+            .status();
+
+        if target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10_000_000 {
+            return Ok(target_model);
         }
     }
 
-    // Check system PATH
-    if let Ok(path_var) = std::env::var("PATH") {
-        for path_entry in std::env::split_paths(&path_var) {
-            for b_name in &binary_names {
-                let candidate = path_entry.join(b_name);
-                if candidate.exists() && candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
+    if target_model.exists() && target_model.metadata().map(|m| m.len()).unwrap_or(0) > 10_000_000 {
+        Ok(target_model)
+    } else {
+        Err(format!("Не ўдалося спампаваць мадэль Whisper ({}) у SUBaka\\resources.", m_file))
     }
-
-    None
-}
-
-pub fn locate_whisper_model(app: &AppHandle, requested_model: &str) -> Option<PathBuf> {
-    let mut model_names = Vec::new();
-    if !requested_model.trim().is_empty() {
-        model_names.push(requested_model.trim().to_string());
-    }
-    model_names.push("ggml-small.bin".to_string());
-    model_names.push("ggml-base.bin".to_string());
-    model_names.push("ggml-medium.bin".to_string());
-    model_names.push("ggml-tiny.bin".to_string());
-
-    if !requested_model.trim().is_empty() {
-        let direct_path = Path::new(requested_model);
-        if direct_path.is_absolute() && direct_path.exists() {
-            if let Ok(meta) = direct_path.metadata() {
-                if meta.len() > 10000000 {
-                    return Some(direct_path.to_path_buf());
-                }
-            }
-        }
-    }
-
-    let dirs = get_whisper_candidate_dirs(app);
-    for dir in &dirs {
-        for m_name in &model_names {
-            let candidate = dir.join(m_name);
-            if candidate.exists() && candidate.is_file() {
-                if let Ok(meta) = candidate.metadata() {
-                    if meta.len() > 10000000 {
-                        return Some(candidate);
-                    }
-                }
-            }
-        }
-    }
-
-    None
 }
 
 pub fn resolve_whisper_executable_and_model(
@@ -1375,7 +1461,7 @@ pub fn resolve_whisper_executable_and_model(
             if let Ok(dl_bin) = ensure_whisper_downloaded(app) {
                 dl_bin
             } else {
-                return Err("Не знойдзены выканаўчы файл рухавіка Whisper (whisper.exe).".to_string());
+                return Err("Не знойдзены выканаўчы файл рухавіка Whisper або DLL у каталогу SUBaka\\resources.".to_string());
             }
         }
     };
@@ -1386,7 +1472,7 @@ pub fn resolve_whisper_executable_and_model(
             if let Ok(dl_mod) = ensure_whisper_model_downloaded(app, requested_model) {
                 dl_mod
             } else {
-                return Err("Мадэль афлайн-распазнавання Whisper (ggml-small.bin) не знойдзена. Спампуйце мадэль у мадальным акне выбару дарожкі або выкарыстоўвайце Gemini.".to_string());
+                return Err("Мадэль афлайн-распазнавання Whisper (ggml-small.bin) не знойдзена ў SUBaka\\resources. Спампуйце кампаненты ў мадальным акне выбару дарожкі або выкарыстоўвайце Gemini.".to_string());
             }
         }
     };
@@ -1484,20 +1570,20 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
         let target_dir = resolve_whisper_target_dir(&app_clone);
         let _ = fs::create_dir_all(&target_dir);
 
-        // 1. Ensure binary and companion DLLs exist
+        // 1. Ensure binary and companion DLLs exist ONLY in SUBaka\resources
         let binary_opt = locate_whisper_binary(&app_clone);
         if binary_opt.is_none() {
             let _ = app_clone.emit(
                 "whisper-download-progress",
                 WhisperDownloadProgress {
-                    stage: "Спампоўка бінарных файлаў і DLL рухавіка Whisper...".to_string(),
+                    stage: "Спампоўка выканаўчых файлаў і DLL рухавіка Whisper у SUBaka\\resources...".to_string(),
                     percent: 5.0,
                     downloaded_bytes: 0,
                     total_bytes: 520_000_000,
                 },
             );
             if let Err(e) = ensure_whisper_downloaded(&app_clone) {
-                return Err(format!("Памылка спампоўкі выканаўчага рухавіка Whisper: {}", e));
+                return Err(format!("Памылка спампоўкі выканаўчых файлаў і DLL рухавіка Whisper: {}", e));
             }
         }
 
@@ -1505,7 +1591,7 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
             return Err("Спампоўка адменена карыстальнікам.".to_string());
         }
 
-        // 2. Download ggml-small.bin
+        // 2. Download ggml-small.bin in SUBaka\resources
         let model_opt = locate_whisper_model(&app_clone, "ggml-small.bin");
         if model_opt.is_none() {
             let model_file = target_dir.join("ggml-small.bin");
@@ -1515,8 +1601,8 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
             let _ = app_clone.emit(
                 "whisper-download-progress",
                 WhisperDownloadProgress {
-                    stage: "Падключэнне для спампоўкі мадэлі Whisper...".to_string(),
-                    percent: 12.0,
+                    stage: "Падключэнне для спампоўкі мадэлі Whisper у SUBaka\\resources...".to_string(),
+                    percent: 15.0,
                     downloaded_bytes: 0,
                     total_bytes: expected_total_bytes,
                 },
@@ -1550,7 +1636,25 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
                     .spawn()
                 {
                     Ok(c) => c,
-                    Err(_) => continue,
+                    Err(_) => {
+                        let _ = silent_command("powershell")
+                            .args([
+                                "-NoProfile",
+                                "-Command",
+                                &format!(
+                                    "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+                                     Invoke-WebRequest -Uri '{}' -OutFile '{}' -UserAgent 'Mozilla/5.0' -TimeoutSec 300",
+                                    model_url,
+                                    temp_model_file.display()
+                                ),
+                            ])
+                            .status();
+                        if temp_model_file.exists() && temp_model_file.metadata().map(|m| m.len()).unwrap_or(0) > 10_000_000 {
+                            success = true;
+                            break;
+                        }
+                        continue;
+                    }
                 };
 
                 #[cfg(not(target_os = "windows"))]
@@ -1588,7 +1692,7 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
                         }
                         Ok(None) => {
                             let cur_len = temp_model_file.metadata().map(|m| m.len()).unwrap_or(0);
-                            let pct = (12.0 + (cur_len as f64 / expected_total_bytes as f64) * 86.0).min(98.0);
+                            let pct = (15.0 + (cur_len as f64 / expected_total_bytes as f64) * 83.0).min(98.0);
                             let _ = app_clone.emit(
                                 "whisper-download-progress",
                                 WhisperDownloadProgress {
@@ -1611,14 +1715,14 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
             }
 
             if !success && !model_file.exists() {
-                return Err("Не ўдалося спампаваць мадэль Whisper (ggml-small.bin).".to_string());
+                return Err("Не ўдалося спампаваць мадэль Whisper (ggml-small.bin) у SUBaka\\resources.".to_string());
             }
         }
 
         let _ = app_clone.emit(
             "whisper-download-progress",
             WhisperDownloadProgress {
-                stage: "Мадэль і выканаўчыя файлы Whisper паспяхова ўсталяваны!".to_string(),
+                stage: "Мадэль і выканаўчыя файлы Whisper паспяхова ўсталяваны ў SUBaka\\resources!".to_string(),
                 percent: 100.0,
                 downloaded_bytes: 488_000_000,
                 total_bytes: 488_000_000,
