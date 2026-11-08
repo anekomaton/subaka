@@ -386,8 +386,35 @@ export async function transcodeRawAudioLocallyWithWasm(
     const downmixFilter = 'aformat=channel_layouts=stereo';
 
     try {
+      // Strategy for voice-rec profile: Direct 16kHz mono PCM WAV encoding
+      if (codecHint === 'voice-rec') {
+        const outputNameWav = `voice_16k_${Date.now()}.wav`;
+        try {
+          await ffmpeg.exec([
+            '-y',
+            '-err_detect', 'ignore_err',
+            '-i', inputName,
+            '-vn',
+            '-sn',
+            '-dn',
+            '-c:a', 'pcm_s16le',
+            '-ar', '16000',
+            '-ac', '1',
+            outputNameWav
+          ]);
+          const res = await ffmpeg.readFile(outputNameWav);
+          if (res && (res as Uint8Array).length > 512) {
+            resData = res as Uint8Array;
+            mimeType = 'audio/wav';
+          }
+          try { await ffmpeg.deleteFile(outputNameWav); } catch {}
+        } catch (wavErr) {
+          console.warn('[FFmpeg WASM] 16k WAV direct transcode failed, trying generic fallback:', wavErr);
+        }
+      }
+
       // Strategy 0: Fast stream copy into .m4a if input is already AAC (0.01s, zero re-encoding)
-      if (ext === 'aac' || upperCodec.includes('AAC')) {
+      if (!resData && (ext === 'aac' || upperCodec.includes('AAC'))) {
         try {
           await ffmpeg.exec([
             '-y',

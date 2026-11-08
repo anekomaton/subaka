@@ -2645,12 +2645,7 @@ export default function App() {
             URL.revokeObjectURL(url);
           } catch (_) {}
 
-          // If browser extraction produced truncated audio (<75% of full media duration for files > 60s), use mediaFile directly for server FFmpeg extraction
-          if (sourceMediaDurationSec && sourceMediaDurationSec > 60 && speechDurationSec && speechDurationSec < sourceMediaDurationSec * 0.75) {
-            console.warn(`[Transcribe] Browser-extracted audio duration (${speechDurationSec.toFixed(1)}s) is significantly shorter than source media (${sourceMediaDurationSec.toFixed(1)}s). Using original media file for 100% server FFmpeg extraction.`);
-            addStatusMessage(`Выяўлена недакладнасць браўзернага дэмуксавання (${speechDurationSec.toFixed(0)}с супраць ${sourceMediaDurationSec.toFixed(0)}с). Адпраўка арыгінала для дакладнага выцягвання праз FFmpeg...`, 'info');
-            targetFile = mediaFile;
-          } else {
+          if (speechFile && speechFile.size > 512) {
             targetFile = speechFile;
             setProcessedForGenTracks((prev) => ({
               ...prev,
@@ -2660,6 +2655,10 @@ export default function App() {
                 label: `Аўдыя для генерацыі (дарожка #${currentTrackNum})`,
               },
             }));
+          } else if (cachedTrack) {
+            targetFile = cachedTrack;
+          } else {
+            targetFile = mediaFile;
           }
         } else if (cachedTrack) {
           targetFile = cachedTrack;
@@ -2672,6 +2671,24 @@ export default function App() {
 
       if (!targetFile) {
         throw new Error("Медыяфайл не знойдзены.");
+      }
+
+      // Guarantee client-side conversion: Ensure audio payload is converted to clean 16kHz WAV before uploading to server
+      const isTargetAlreadyWav = Boolean((targetFile as File).name?.toLowerCase().endsWith(".wav") || targetFile.type === "audio/wav");
+      if (!isTargetAlreadyWav && !isTauriDesktop()) {
+        try {
+          addStatusMessage("Пераўтварэнне аўдыя ў лёгкі 16kHz WAV у браўзеры...", "info");
+          setTranscribeProgress("Канвертаванне ў 16kHz WAV...");
+          const clientWav = await transcodeAudioForVoiceRecognition(targetFile, (p, m) => {
+            setTranscribeProgress(m);
+          }, controller.signal);
+          if (clientWav && clientWav.size > 512) {
+            targetFile = clientWav;
+            console.log(`[Transcribe] Pre-converted audio on client: ${clientWav.name} (${(clientWav.size / 1024 / 1024).toFixed(1)} MB)`);
+          }
+        } catch (prepErr) {
+          console.warn("[Transcribe] Client 16kHz WAV pre-conversion warning:", prepErr);
+        }
       }
 
       if (targetFile.size > 28 * 1024 * 1024 * 1024) {
@@ -2862,73 +2879,142 @@ export default function App() {
       setTranscribeProgress("Падрыхтоўка генерацыі...");
       addStatusMessage("Аўдыя загружана. Запуск распазнавання праз Gemini...", "info");
 
-      // Final request to initiate async transcription job
-      let finalResponse: Response | null = null;
-      let lastFinishErr: any = null;
-
-      for (let attempt = 1; attempt <= 5; attempt++) {
-        if (controller.signal.aborted) {
-          throw new DOMException("Aborted", "AbortError");
-        }
-        try {
-          finalResponse = await fetch("/api/transcribe/finish", {
-            method: "POST",
-            headers: getApiHeaders({
-              "Content-Type": "application/json"
-            }),
-            body: JSON.stringify({
-              uploadId,
-              fileName: targetFileName,
-              mimeType: detectedMimeType,
-              engine: engineChoice,
-              model: modelChoice,
-              trackNumber: targetFile === mediaFile ? currentTrackNum : 1
-            }),
-            signal: controller.signal
-          });
-          if (finalResponse && (finalResponse.ok || (finalResponse.status >= 400 && finalResponse.status < 500))) {
-            break;
-          }
-        } catch (fErr: any) {
-          if (fErr.name === 'AbortError' || (fErr instanceof DOMException && fErr.name === 'AbortError')) {
-            throw fErr;
-          }
-          lastFinishErr = fErr;
-          console.warn(`[Transcribe Finish] Attempt ${attempt}/5 failed: ${fErr.message || fErr}`);
-        }
-        if (attempt < 5) {
-          await new Promise((res) => setTimeout(res, 1000 * attempt));
-        }
-      }
-
-      if (!finalResponse || !finalResponse.ok) {
-        const errText = finalResponse ? await finalResponse.text().catch(() => "") : "";
-        let errMsg = "Памылка сервера пры запуску генерацыі";
-        try {
-          const errData = JSON.parse(errText);
-          if (errData && errData.error) {
-            errMsg = errData.error;
-          }
-        } catch {
-          if (errText) {
-            errMsg = errText.slice(0, 150);
-          } else if (lastFinishErr?.message) {
-            errMsg = lastFinishErr.message;
-          }
-        }
-        throw new Error(errMsg);
-      }
-
-      const finalResText = await finalResponse.text().catch(() => "");
-      let startData: any = {};
-      try {
-        startData = JSON.parse(finalResText);
-      } catch {}
-      const jobId = startData?.jobId || uploadId;
-
-      // Poll server for transcription progress and completion with retry tolerance
       let jobCompleted = false;
       let rawSrtResult = "";
+      const jobId = uploadId;
+
+      // 1. Direct Long-Running SSE Stream (keeps Cloud Run connection and CPU 100% active)
+      try {
+        setTranscribeProgress("Злучэнне са стрымам генерацыі...");
+        const streamResponse = await fetch("/api/transcribe/stream", {
+          method: "POST",
+          headers: getApiHeaders({
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream"
+          }),
+          body: JSON.stringify({
+            uploadId,
+            fileName: targetFileName,
+            mimeType: detectedMimeType,
+            engine: engineChoice,
+            model: modelChoice,
+            trackNumber: targetFile === mediaFile ? currentTrackNum : 1
+          }),
+          signal: controller.signal
+        });
+
+        if (streamResponse.ok && streamResponse.body) {
+          const reader = streamResponse.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let buffer = "";
+
+          while (!jobCompleted) {
+            if (controller.signal.aborted) {
+              reader.cancel().catch(() => {});
+              throw new DOMException("Aborted", "AbortError");
+            }
+
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith(":")) continue; // ignore keepalive comments
+              if (trimmed.startsWith("data:")) {
+                const jsonStr = trimmed.slice(5).trim();
+                try {
+                  const ev = JSON.parse(jsonStr);
+                  if (ev.type === "progress") {
+                    if (ev.message) {
+                      setTranscribeProgress(ev.message);
+                      addStatusMessage(ev.message, "info");
+                    }
+                  } else if (ev.type === "complete") {
+                    if (ev.srt) {
+                      rawSrtResult = ev.srt;
+                      jobCompleted = true;
+                    }
+                  } else if (ev.type === "error") {
+                    throw new Error(ev.error || "Памылка падчас генерацыі субцітраў");
+                  }
+                } catch (pe: any) {
+                  if (pe.message && !pe.message.includes("JSON")) throw pe;
+                }
+              }
+            }
+          }
+        }
+      } catch (streamErr: any) {
+        if (streamErr.name === "AbortError" || (streamErr instanceof DOMException && streamErr.name === "AbortError")) {
+          throw streamErr;
+        }
+        console.warn("[Transcribe Stream] SSE stream disconnected, falling back to polling:", streamErr?.message || streamErr);
+      }
+
+      // 2. Resilient Polling Fallback if stream was interrupted before completion
+      if (!jobCompleted && !rawSrtResult) {
+        let finalResponse: Response | null = null;
+        let lastFinishErr: any = null;
+
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          if (controller.signal.aborted) {
+            throw new DOMException("Aborted", "AbortError");
+          }
+          try {
+            finalResponse = await fetch("/api/transcribe/finish", {
+              method: "POST",
+              headers: getApiHeaders({
+                "Content-Type": "application/json"
+              }),
+              body: JSON.stringify({
+                uploadId,
+                fileName: targetFileName,
+                mimeType: detectedMimeType,
+                engine: engineChoice,
+                model: modelChoice,
+                trackNumber: targetFile === mediaFile ? currentTrackNum : 1
+              }),
+              signal: controller.signal
+            });
+            if (finalResponse && (finalResponse.ok || (finalResponse.status >= 400 && finalResponse.status < 500))) {
+              break;
+            }
+          } catch (fErr: any) {
+            if (fErr.name === 'AbortError' || (fErr instanceof DOMException && fErr.name === 'AbortError')) {
+              throw fErr;
+            }
+            lastFinishErr = fErr;
+            console.warn(`[Transcribe Finish] Attempt ${attempt}/5 failed: ${fErr.message || fErr}`);
+          }
+          if (attempt < 5) {
+            await new Promise((res) => setTimeout(res, 1000 * attempt));
+          }
+        }
+
+        if (!finalResponse || !finalResponse.ok) {
+          const errText = finalResponse ? await finalResponse.text().catch(() => "") : "";
+          let errMsg = "Памылка сервера пры запуску генерацыі";
+          try {
+            const errData = JSON.parse(errText);
+            if (errData && errData.error) {
+              errMsg = errData.error;
+            }
+          } catch {
+            if (errText) {
+              errMsg = errText.slice(0, 150);
+            } else if (lastFinishErr?.message) {
+              errMsg = lastFinishErr.message;
+            }
+          }
+          throw new Error(errMsg);
+        }
+      }
+
+      // Poll server for transcription progress and completion with retry tolerance
       let consecutiveErrors = 0;
       let consecutive404 = 0;
       const MAX_CONSECUTIVE_ERRORS = 120;

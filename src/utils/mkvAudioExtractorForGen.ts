@@ -612,9 +612,10 @@ export async function transcodeAudioForVoiceRecognition(
     }
 
     if (transcoded && transcoded.size > 512) {
-      const cleanName = `${baseName || 'voice'}_16k.m4a`;
+      const isWav = transcoded.type === 'audio/wav';
+      const cleanName = `${baseName || 'voice'}_16k.${isWav ? 'wav' : 'm4a'}`;
       if (onProgress) onProgress(98, 'Аўдыя паспяхова транскадавана пад распазнаванне голасу');
-      return new File([transcoded], cleanName, { type: transcoded.type || 'audio/mp4' });
+      return new File([transcoded], cleanName, { type: transcoded.type || (isWav ? 'audio/wav' : 'audio/mp4') });
     }
   } catch (wasmErr) {
     console.warn('[mkvAudioExtractorForGen] WASM / Server transcode fallback failed:', wasmErr);

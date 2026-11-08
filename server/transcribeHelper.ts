@@ -1,10 +1,102 @@
 import fs from "fs";
 import path from "path";
-import { execFile } from "child_process";
+import { execFile, spawnSync } from "child_process";
 import { promisify } from "util";
 import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
 
 export const execFilePromise = promisify(execFile);
+
+let cachedFfmpegAvailable: boolean | null = null;
+export function isFfmpegAvailable(): boolean {
+  if (cachedFfmpegAvailable !== null) return cachedFfmpegAvailable;
+  try {
+    const res = spawnSync("ffmpeg", ["-version"]);
+    cachedFfmpegAvailable = res.status === 0;
+  } catch {
+    cachedFfmpegAvailable = false;
+  }
+  return cachedFfmpegAvailable;
+}
+
+export function readWavHeaderDuration(filePath: string): number {
+  try {
+    if (!fs.existsSync(filePath)) return 0;
+    const stat = fs.statSync(filePath);
+    if (stat.size < 44) return 0;
+    const fd = fs.openSync(filePath, "r");
+    const header = Buffer.alloc(44);
+    fs.readSync(fd, header, 0, 44, 0);
+    fs.closeSync(fd);
+
+    if (header.toString("ascii", 0, 4) === "RIFF" && header.toString("ascii", 8, 12) === "WAVE") {
+      const numChannels = header.readUInt16LE(22) || 1;
+      const sampleRate = header.readUInt32LE(24) || 16000;
+      const byteRate = header.readUInt32LE(28);
+      const bitsPerSample = header.readUInt16LE(34) || 16;
+      const dataSize = stat.size - 44;
+      if (byteRate > 0) {
+        return Math.max(0, dataSize / byteRate);
+      }
+      if (sampleRate > 0 && numChannels > 0 && bitsPerSample > 0) {
+        return Math.max(0, dataSize / (sampleRate * numChannels * (bitsPerSample / 8)));
+      }
+    }
+  } catch (_) {}
+  return 0;
+}
+
+export function slicePcmWav(sourceWavPath: string, destWavPath: string, startSec: number, durationSec: number): boolean {
+  try {
+    if (!fs.existsSync(sourceWavPath)) return false;
+    const stat = fs.statSync(sourceWavPath);
+    if (stat.size < 44) return false;
+
+    const fd = fs.openSync(sourceWavPath, "r");
+    const header = Buffer.alloc(44);
+    fs.readSync(fd, header, 0, 44, 0);
+
+    const numChannels = header.readUInt16LE(22) || 1;
+    const sampleRate = header.readUInt32LE(24) || 16000;
+    const bitsPerSample = header.readUInt16LE(34) || 16;
+    const bytesPerSec = sampleRate * numChannels * (bitsPerSample / 8);
+
+    const startByte = 44 + Math.floor(startSec * bytesPerSec);
+    const totalBytesToRead = Math.floor(durationSec * bytesPerSec);
+    const actualBytes = Math.max(0, Math.min(totalBytesToRead, stat.size - startByte));
+
+    if (actualBytes <= 0) {
+      fs.closeSync(fd);
+      return false;
+    }
+
+    const outHeader = Buffer.alloc(44);
+    header.copy(outHeader);
+    outHeader.writeUInt32LE(36 + actualBytes, 4); // file length - 8
+    outHeader.writeUInt32LE(actualBytes, 40); // data chunk length
+
+    const outFd = fs.openSync(destWavPath, "w");
+    fs.writeSync(outFd, outHeader, 0, 44);
+
+    const chunkBuf = Buffer.alloc(64 * 1024);
+    let remaining = actualBytes;
+    let pos = startByte;
+    while (remaining > 0) {
+      const toRead = Math.min(chunkBuf.length, remaining);
+      const bytesRead = fs.readSync(fd, chunkBuf, 0, toRead, pos);
+      if (bytesRead <= 0) break;
+      fs.writeSync(outFd, chunkBuf, 0, bytesRead);
+      pos += bytesRead;
+      remaining -= bytesRead;
+    }
+
+    fs.closeSync(outFd);
+    fs.closeSync(fd);
+    return true;
+  } catch (err) {
+    console.warn("[Transcribe Helper] slicePcmWav error:", err);
+    return false;
+  }
+}
 
 export interface AudioStreamInfo {
   index: number;
@@ -66,6 +158,20 @@ export async function extractAudioWithFfmpeg(
   console.log(`[Transcribe Helper] Extracting clean 16kHz WAV audio with ffmpeg from: ${inputFilePath}${trackMsg}`);
 
   const fileNameLower = path.basename(inputFilePath).toLowerCase();
+  
+  // Instant bypass if already a WAV file (clean pre-extracted on client)
+  if (fileNameLower.endsWith(".wav") && fs.existsSync(inputFilePath) && fs.statSync(inputFilePath).size > 100) {
+    try {
+      if (inputFilePath !== outputAudioPath) {
+        fs.copyFileSync(inputFilePath, outputAudioPath);
+      }
+      console.log(`[Transcribe Helper] Audio is already a WAV file, bypassed FFmpeg extraction (${fs.statSync(outputAudioPath).size} bytes).`);
+      return true;
+    } catch (copyErr) {
+      console.warn(`[Transcribe Helper] Copying existing WAV failed:`, copyErr);
+    }
+  }
+
   const isStandaloneAudio = ['.aac', '.m4a', '.wav', '.mp3', '.ogg', '.flac', '.opus', '.wma'].some(ext => fileNameLower.endsWith(ext)) || fileNameLower.includes('_subtitles_track');
 
   let audioStreams: AudioStreamInfo[] = [];
@@ -262,6 +368,17 @@ export async function extractAudioWithFfmpeg(
 }
 
 export async function getMediaDurationInSeconds(filePath: string): Promise<number> {
+  // 1. Pure Node.js WAV header check (instant, 0 child processes, 100% compatible with Cloud Run)
+  const wavDur = readWavHeaderDuration(filePath);
+  if (wavDur > 0) {
+    return wavDur;
+  }
+
+  if (!isFfmpegAvailable()) {
+    console.warn("[Transcribe Helper] ffmpeg/ffprobe not available in environment; returning WAV header duration:", wavDur);
+    return wavDur;
+  }
+
   try {
     const { stdout } = await execFilePromise("ffprobe", [
       "-v", "error",
@@ -507,7 +624,20 @@ export async function segmentAudioBySilence(
     const segFilePath = path.join(outputDir, segFileName);
 
     try {
-      // Fast input seeking with -ss before -i and -t for duration
+      // 1. Pure Node.js WAV slicing (instant, zero process spawn, Cloud Run compatible)
+      if (masterWavPath.toLowerCase().endsWith(".wav") && fs.existsSync(masterWavPath)) {
+        const sliced = slicePcmWav(masterWavPath, segFilePath, startSec, endSec - startSec);
+        if (sliced && fs.existsSync(segFilePath) && fs.statSync(segFilePath).size > 1000) {
+          segments.push({
+            filePath: segFilePath,
+            startSec,
+            endSec,
+          });
+          continue;
+        }
+      }
+
+      // 2. FFmpeg input seeking fallback
       await execFilePromise(
         "ffmpeg",
         [

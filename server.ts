@@ -2037,7 +2037,8 @@ async function runTranscribeTask(
   trackLanguage?: string,
   trackTitle?: string,
   mkvTrackNumber?: number,
-  preferredModel?: string
+  preferredModel?: string,
+  onProgressCb?: (msg: string, pct: number) => void
 ) {
   const job = getJobState(jobId);
   if (!job) return;
@@ -2047,6 +2048,9 @@ async function runTranscribeTask(
       job.progressMessage = msg;
       job.percent = Math.min(98, Math.max(job.percent, pct));
       saveJobToDisk(job);
+      try {
+        onProgressCb?.(msg, job.percent);
+      } catch (_) {}
     }
   };
 
@@ -2095,68 +2099,78 @@ async function runTranscribeTask(
 
     let finalSrtText = "";
 
-    const trackTag = trackNumber && trackNumber > 1 ? ` (дарожка #${trackNumber}${trackLanguage ? `, ${trackLanguage.toUpperCase()}` : ''})` : "";
-    updateProgress(`Пераўтварэнне аўдыя ў чысты 16kHz WAV${trackTag}...`, 15);
-    const extractedAudioPath = path.join(uploadDir, "extracted_audio.wav");
-    let audioExtracted = await extractAudioWithFfmpeg(
-      finalFilePath,
-      extractedAudioPath,
-      trackNumber,
-      { language: trackLanguage, title: trackTitle, mkvTrackNumber }
-    );
-
-    if (!audioExtracted || !fs.existsSync(extractedAudioPath) || fs.statSync(extractedAudioPath).size < 100) {
-      if (trackNumber && trackNumber > 1) {
-        console.log(`[Transcribe Job ${jobId}] Initial audio extraction failed for track #${trackNumber}. Attempting strict raw audio re-encode...`);
-        try {
-          await execFilePromise("ffmpeg", [
-            "-analyzeduration", "100000000",
-            "-probesize", "100000000",
-            "-err_detect", "ignore_err",
-            "-fflags", "+discardcorrupt",
-            "-max_error_rate", "1.0",
-            "-i", finalFilePath,
-            "-map", `0:a:${trackNumber - 1}`,
-            "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
-            extractedAudioPath, "-y"
-          ], { maxBuffer: 1024 * 1024 * 50 });
-          if (fs.existsSync(extractedAudioPath) && fs.statSync(extractedAudioPath).size > 100) {
-            audioExtracted = true;
-          }
-        } catch (reErr: any) {
-          console.warn(`[Transcribe Job ${jobId}] Strict track re-encode pass failed:`, reErr?.message || reErr);
-        }
-      } else {
-        console.log(`[Transcribe Job ${jobId}] Initial audio extraction failed. Attempting fallback re-encode...`);
-        try {
-          await execFilePromise("ffmpeg", [
-            "-analyzeduration", "50000000",
-            "-probesize", "50000000",
-            "-err_detect", "ignore_err",
-            "-fflags", "+discardcorrupt",
-            "-i", finalFilePath,
-            "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
-            extractedAudioPath, "-y"
-          ], { maxBuffer: 1024 * 1024 * 50 });
-          if (fs.existsSync(extractedAudioPath) && fs.statSync(extractedAudioPath).size > 100) {
-            audioExtracted = true;
-          }
-        } catch (reErr: any) {
-          console.warn(`[Transcribe Job ${jobId}] Fallback re-encode failed:`, reErr?.message || reErr);
-        }
-      }
-    }
-
     const fileNameLower = path.basename(finalFilePath).toLowerCase();
+    const isInputAlreadyWav = fileNameLower.endsWith(".wav");
     const isInputAlreadyAudio = ['.aac', '.m4a', '.wav', '.mp3', '.ogg', '.flac', '.opus', '.wma'].some(ext => fileNameLower.endsWith(ext)) || fileNameLower.includes('_subtitles_track') || fileNameLower.includes('_16k');
 
-    if ((!audioExtracted || !fs.existsSync(extractedAudioPath) || fs.statSync(extractedAudioPath).size < 100) && trackNumber && trackNumber > 1 && !isInputAlreadyAudio) {
-      throw new Error(`Не ўдалося выцягнуць аўдыядарожку #${trackNumber}${trackLanguage ? ` (${trackLanguage.toUpperCase()})` : ''} з медыяфайла. Праверце файл або загрузіце дарожку асобна.`);
-    }
+    let sourceAudioPath = finalFilePath;
+    const extractedAudioPath = path.join(uploadDir, "extracted_audio.wav");
 
-    const sourceAudioPath = audioExtracted && fs.existsSync(extractedAudioPath) && fs.statSync(extractedAudioPath).size > 100
-      ? extractedAudioPath
-      : finalFilePath;
+    // Fast bypass: If client already extracted/converted audio into a 16kHz WAV file, skip server FFmpeg extraction completely
+    if (isInputAlreadyWav && fs.existsSync(finalFilePath) && fs.statSync(finalFilePath).size > 100) {
+      console.log(`[Transcribe Job ${jobId}] Audio input is already a pre-extracted WAV file (${fileSizeMb} MB). Bypassing server FFmpeg extraction.`);
+      updateProgress("Аўдыя падрыхтавана (16kHz WAV)...", 15);
+      sourceAudioPath = finalFilePath;
+    } else {
+      const trackTag = trackNumber && trackNumber > 1 ? ` (дарожка #${trackNumber}${trackLanguage ? `, ${trackLanguage.toUpperCase()}` : ''})` : "";
+      updateProgress(`Пераўтварэнне аўдыя ў чысты 16kHz WAV${trackTag}...`, 15);
+      let audioExtracted = await extractAudioWithFfmpeg(
+        finalFilePath,
+        extractedAudioPath,
+        trackNumber,
+        { language: trackLanguage, title: trackTitle, mkvTrackNumber }
+      );
+
+      if (!audioExtracted || !fs.existsSync(extractedAudioPath) || fs.statSync(extractedAudioPath).size < 100) {
+        if (trackNumber && trackNumber > 1) {
+          console.log(`[Transcribe Job ${jobId}] Initial audio extraction failed for track #${trackNumber}. Attempting strict raw audio re-encode...`);
+          try {
+            await execFilePromise("ffmpeg", [
+              "-analyzeduration", "100000000",
+              "-probesize", "100000000",
+              "-err_detect", "ignore_err",
+              "-fflags", "+discardcorrupt",
+              "-max_error_rate", "1.0",
+              "-i", finalFilePath,
+              "-map", `0:a:${trackNumber - 1}`,
+              "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+              extractedAudioPath, "-y"
+            ], { maxBuffer: 1024 * 1024 * 50 });
+            if (fs.existsSync(extractedAudioPath) && fs.statSync(extractedAudioPath).size > 100) {
+              audioExtracted = true;
+            }
+          } catch (reErr: any) {
+            console.warn(`[Transcribe Job ${jobId}] Strict track re-encode pass failed:`, reErr?.message || reErr);
+          }
+        } else {
+          console.log(`[Transcribe Job ${jobId}] Initial audio extraction failed. Attempting fallback re-encode...`);
+          try {
+            await execFilePromise("ffmpeg", [
+              "-analyzeduration", "50000000",
+              "-probesize", "50000000",
+              "-err_detect", "ignore_err",
+              "-fflags", "+discardcorrupt",
+              "-i", finalFilePath,
+              "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+              extractedAudioPath, "-y"
+            ], { maxBuffer: 1024 * 1024 * 50 });
+            if (fs.existsSync(extractedAudioPath) && fs.statSync(extractedAudioPath).size > 100) {
+              audioExtracted = true;
+            }
+          } catch (reErr: any) {
+            console.warn(`[Transcribe Job ${jobId}] Fallback re-encode failed:`, reErr?.message || reErr);
+          }
+        }
+      }
+
+      if ((!audioExtracted || !fs.existsSync(extractedAudioPath) || fs.statSync(extractedAudioPath).size < 100) && trackNumber && trackNumber > 1 && !isInputAlreadyAudio) {
+        throw new Error(`Не ўдалося выцягнуць аўдыядарожку #${trackNumber}${trackLanguage ? ` (${trackLanguage.toUpperCase()})` : ''} з медыяфайла. Праверце файл або загрузіце дарожку асобна.`);
+      }
+
+      sourceAudioPath = audioExtracted && fs.existsSync(extractedAudioPath) && fs.statSync(extractedAudioPath).size > 100
+        ? extractedAudioPath
+        : finalFilePath;
+    }
 
     // Measure exact audio duration directly from the extracted WAV/source audio
     const extractedDurationSec = await getMediaDurationInSeconds(sourceAudioPath);
@@ -2302,11 +2316,13 @@ async function runTranscribeTask(
     job.status = "completed";
     saveJobToDisk(job);
     console.log(`[Transcribe Job ${jobId}] Successfully completed with exact timing alignment.`);
+    return job;
   } catch (err: any) {
     console.error(`[Transcribe Job ${jobId}] Error:`, err);
     job.status = "error";
     job.error = getFriendlyErrorMessage(err);
     saveJobToDisk(job);
+    throw err;
   } finally {
     if (fs.existsSync(uploadDir)) {
       try {
@@ -2317,6 +2333,157 @@ async function runTranscribeTask(
     }
   }
 }
+
+// Live Streaming SSE Transcription Endpoint (keeps HTTP connection active to prevent Cloud Run CPU throttling)
+app.post("/api/transcribe/stream", async (req, res) => {
+  const { uploadId, fileName, mimeType, language, engine, model, trackNumber, trackLanguage, trackTitle, mkvTrackNumber } = req.body || {};
+  if (!uploadId || !fileName) {
+    return res.status(400).json({ error: "Missing uploadId or fileName" });
+  }
+
+  const uploadDir = path.join("/tmp", "uploads", uploadId);
+  if (!fs.existsSync(uploadDir)) {
+    return res.status(404).json({ error: "Upload directory not found" });
+  }
+
+  const jobId = uploadId;
+  const jobTrackNum = trackNumber ? Number(trackNumber) : undefined;
+  const job: TranscribeJob = {
+    id: jobId,
+    status: "processing",
+    progressMessage: "Падрыхтоўка файла...",
+    percent: 5,
+    createdAt: Date.now(),
+    uploadDir,
+    fileName,
+    mimeType,
+    engine: engine || "gemini",
+    model: model || "gemini-3.1-flash-lite",
+    language,
+    trackNumber: jobTrackNum,
+    trackLanguage: trackLanguage ? String(trackLanguage) : undefined,
+    trackTitle: trackTitle ? String(trackTitle) : undefined,
+    mkvTrackNumber: mkvTrackNumber ? Number(mkvTrackNumber) : undefined,
+    apiKey: ((req?.headers?.["x-gemini-api-key"] as string) || (req?.headers?.["x-goog-api-key"] as string) || (req?.query?.gemini_key as string) || "").trim() || undefined
+  };
+  transcribeJobs.set(jobId, job);
+  saveJobToDisk(job);
+
+  // Set SSE Headers
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof (res as any).flushHeaders === "function") {
+    (res as any).flushHeaders();
+  }
+
+  const sendEvent = (payload: any) => {
+    try {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    } catch (_) {}
+  };
+
+  // Immediate initial progress event
+  sendEvent({ type: "progress", percent: 5, message: "Падрыхтоўка файла..." });
+
+  // Keep-alive heartbeat every 10 seconds to keep Cloud Run connection and CPU 100% active
+  const keepAliveTimer = setInterval(() => {
+    try {
+      res.write(": keepalive\n\n");
+    } catch (_) {}
+  }, 10000);
+
+  req.on("close", () => {
+    clearInterval(keepAliveTimer);
+  });
+
+  const client = getAiClientForRequest(req);
+
+  try {
+    await runTranscribeTask(
+      jobId,
+      uploadDir,
+      fileName,
+      mimeType,
+      client,
+      engine || "gemini",
+      language,
+      jobTrackNum,
+      job.trackLanguage,
+      job.trackTitle,
+      job.mkvTrackNumber,
+      job.model,
+      (msg, pct) => {
+        sendEvent({ type: "progress", percent: pct, message: msg });
+      }
+    );
+
+    clearInterval(keepAliveTimer);
+    const finalState = getJobState(jobId);
+    if (finalState && finalState.status === "completed" && finalState.srt) {
+      sendEvent({ type: "complete", percent: 100, srt: finalState.srt, message: "Завяршэнне распазнавання!" });
+    } else {
+      sendEvent({ type: "error", error: finalState?.error || "Не ўдалося згенераваць субцітры" });
+    }
+    res.end();
+  } catch (err: any) {
+    clearInterval(keepAliveTimer);
+    console.error(`[Transcribe Stream ${jobId}] Error:`, err);
+    sendEvent({ type: "error", error: getFriendlyErrorMessage(err) });
+    res.end();
+  }
+});
+
+// Stream status for existing job
+app.get("/api/transcribe/stream/:jobId", (req, res) => {
+  const { jobId } = req.params;
+  const job = getJobState(jobId);
+  if (!job) {
+    return res.status(404).json({ error: "Задача не знойдзена" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof (res as any).flushHeaders === "function") {
+    (res as any).flushHeaders();
+  }
+
+  if (job.status === "completed" && job.srt) {
+    res.write(`data: ${JSON.stringify({ type: "complete", percent: 100, srt: job.srt })}\n\n`);
+    return res.end();
+  }
+  if (job.status === "error") {
+    res.write(`data: ${JSON.stringify({ type: "error", error: job.error || "Памылка" })}\n\n`);
+    return res.end();
+  }
+
+  res.write(`data: ${JSON.stringify({ type: "progress", percent: job.percent, message: job.progressMessage })}\n\n`);
+  
+  const timer = setInterval(() => {
+    const current = getJobState(jobId);
+    if (!current) {
+      clearInterval(timer);
+      res.write(`data: ${JSON.stringify({ type: "error", error: "Задача не знойдзена" })}\n\n`);
+      return res.end();
+    }
+    if (current.status === "completed" && current.srt) {
+      clearInterval(timer);
+      res.write(`data: ${JSON.stringify({ type: "complete", percent: 100, srt: current.srt })}\n\n`);
+      return res.end();
+    }
+    if (current.status === "error") {
+      clearInterval(timer);
+      res.write(`data: ${JSON.stringify({ type: "error", error: current.error || "Памылка" })}\n\n`);
+      return res.end();
+    }
+    res.write(`data: ${JSON.stringify({ type: "progress", percent: current.percent, message: current.progressMessage })}\n\n`);
+  }, 2000);
+
+  req.on("close", () => clearInterval(timer));
+});
 
 // Return available transcription models (Gemini Flash API & Speech-to-Text)
 app.get("/api/transcribe/models", async (_req, res) => {
