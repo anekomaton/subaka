@@ -2568,7 +2568,7 @@ export default function App() {
       // 1. Transcode selected audio track specifically for speech recognition via mkvAudioExtractorForGen
       if (customAudioFile) {
         addStatusMessage(`Падрыхтоўка загружанага аўдыяфайла (${customAudioFile.name}) пад распазнаванне...`, "info");
-        setTranscribeProgress("Транскадаванне аўдыя пад распазнаванне голасу...");
+        setTranscribeProgress("Транскод пад распазнаванне голасу...");
         targetFile = await transcodeAudioForVoiceRecognition(
           customAudioFile,
           (pct, msg) => {
@@ -2579,7 +2579,7 @@ export default function App() {
         );
       } else if (isExternalTrack && extAudioFile) {
         addStatusMessage(`Падрыхтоўка знешняй аўдыядарожкі (${extAudioFile.name}) пад распазнаванне...`, "info");
-        setTranscribeProgress("Транскадаванне аўдыя пад распазнаванне голасу...");
+        setTranscribeProgress("Транскод пад распазнаванне голасу...");
         targetFile = await transcodeAudioForVoiceRecognition(
           extAudioFile,
           (pct, msg) => {
@@ -2590,7 +2590,7 @@ export default function App() {
         );
       } else if (mediaFile) {
         const cachedTrack = processedForGenTracks[currentTrackNum]?.audioFile || processedTracks[currentTrackNum]?.audioFile || null;
-        addStatusMessage(`Выцягванне аўдыядарожкі #${currentTrackNum} з ${mediaFile.name} і транскадаванне пад распазнаванне голасу...`, "info");
+        addStatusMessage(`Выцягванне аўдыядарожкі #${currentTrackNum} з ${mediaFile.name} пад распазнаванне голасу...`, "info");
         setTranscribeProgress(`Выцягванне дарожкі #${currentTrackNum}...`);
 
         const speechFile = await extractAudioForSubtitleGen(
@@ -3101,8 +3101,13 @@ export default function App() {
   const handleCancelTranscribe = () => {
     if (transcribeAbortControllerRef.current) {
       transcribeAbortControllerRef.current.abort();
+      transcribeAbortControllerRef.current = null;
     }
     cancelWhisperTranscribeDesktop().catch(() => {});
+    setIsTranscribing(false);
+    setTranscribeProgress(null);
+    addStatusMessage("Прыпынена карыстальнікам", "info");
+    addToast("Прыпынена карыстальнікам", "info");
   };
 
   const handleCancelSynthesizeAll = () => {

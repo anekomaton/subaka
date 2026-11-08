@@ -2,7 +2,7 @@ import { transcodeRawAudioLocallyWithWasm, transcodeRawAudioOnServer } from './f
 import { probeMkvAudioCodec, extractRawAudioTrackFromMp4, extractRawAudioTrackFromAvi } from './mkvAudioExtractor';
 import { isTauriDesktop, extractAudioTrackNative, getDesktopStorageInfo, getDesktopAssetUrl } from './tauriBridge';
 
-export const GEMINI_TRANSCRIBE_MODEL = 'gemini-3.5-transcribe';
+export const GEMINI_TRANSCRIBE_MODEL = 'gemini-3.1-flash-lite';
 
 
 /**

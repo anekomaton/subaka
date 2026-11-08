@@ -1568,7 +1568,7 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
     if (preferredModel && !isModelDeprecated(preferredModel)) {
       baseList.push(preferredModel);
     }
-    baseList.push("gemini-3.5-transcribe", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite");
+    baseList.push("gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest", "gemini-3.8-flash");
     const filteredDynamic = allModels.filter(m =>
       !m.includes("image") && !m.includes("tts") && !m.includes("live") && !m.includes("pro")
     );
@@ -1650,12 +1650,16 @@ STRICT TIMING & TIMESTAMP ACCURACY RULES:
           }
 
           if (responseText) {
-            transcribeResponse = { text: responseText };
-            break;
+            const parsed = parseSrtString(responseText);
+            if (parsed.length > 0) {
+              transcribeResponse = { text: responseText };
+              break;
+            }
+            console.warn(`[Transcribe Gemini] Model ${model} returned text without valid SRT timestamps on ${fileName}, trying next fallback model...`);
           }
 
-          // If model returned empty text (e.g. no speech detected or model did not transcribe), switch to fallback model
-          console.log(`[Transcribe Gemini] Model ${model} returned empty transcript on ${fileName}, trying next fallback model...`);
+          // If model returned empty text or invalid format, switch to fallback model
+          console.log(`[Transcribe Gemini] Model ${model} returned empty/invalid transcript on ${fileName}, trying next fallback model...`);
           break;
         } catch (err: any) {
           const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : String(err);
@@ -1821,13 +1825,10 @@ CRITICAL MANDATES:
    - Do NOT wrap in markdown code blocks (\`\`\`srt). Do NOT add extra conversational commentary.`;
 
   const allModels = await getDynamicModels(client);
-  let transcribeModels = allModels.filter(m =>
-    (m === "gemini-3.8-flash" || m === "gemini-3.1-flash-lite" || m === "gemini-flash-latest" || m === "gemini-3.7-flash" || m === "gemini-3.6-flash" || m.includes("3.8") || m.includes("3.1-flash-lite") || m.includes("flash-latest") || m.includes("3.7") || m.includes("3.6")) &&
+  const baseInlineList = ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest", "gemini-3.8-flash"];
+  let transcribeModels = Array.from(new Set([...baseInlineList, ...allModels.filter(m =>
     !m.includes("image") && !m.includes("tts") && !m.includes("live") && !m.includes("pro")
-  );
-  if (transcribeModels.length === 0) {
-    transcribeModels = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"];
-  }
+  )]));
 
   for (const model of transcribeModels) {
     try {
@@ -1876,7 +1877,11 @@ CRITICAL MANDATES:
       if (srtText.startsWith("```")) {
         srtText = srtText.replace(/^```[a-zA-Z]*\n?/, "").replace(/```$/, "").trim();
       }
-      if (srtText) return srtText;
+      if (srtText) {
+        const parsed = parseSrtString(srtText);
+        if (parsed.length > 0) return srtText;
+        console.warn(`[Transcribe Inline Chunk] Model ${model} returned text without valid SRT timestamps, trying next model...`);
+      }
     } catch (err: any) {
       console.warn(`[Transcribe Inline Chunk] Model ${model} chunk transcription warning:`, err?.message || err);
     }
@@ -2155,7 +2160,7 @@ async function runTranscribeTask(
     const totalAudioDurationSec = extractedDurationSec > 0 ? extractedDurationSec : durationSec;
     console.log(`[Transcribe Job ${jobId}] Extracted audio exact duration: ${totalAudioDurationSec.toFixed(1)}s (${(totalAudioDurationSec / 60).toFixed(1)} min)`);
 
-    const jobModel = preferredModel || job.model || "gemini-3.5-transcribe";
+    const jobModel = preferredModel || job.model || "gemini-3.1-flash-lite";
 
     // Strategy 1: COHESIVE FULL-FILE PASS (Files up to 25 minutes, e.g. 23 min episodes)
     // Avoids chopping into dozens of tiny pieces, eliminates 15 RPM rate limiting,
@@ -2314,9 +2319,9 @@ async function runTranscribeTask(
 app.get("/api/transcribe/models", async (_req, res) => {
   try {
     const models = [
-      { id: "gemini-3.5-transcribe", label: "Gemini 3.5 Transcribe (Google Speech-to-Text)" },
-      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash (Мультымадальная мадэль Google)" },
-      { id: "gemini-3.1-flash-lite", label: "Gemini Flash Lite (Хуткая мадэль)" }
+      { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite (Рэкамендаваная)" },
+      { id: "gemini-flash-latest", label: "Gemini Flash Latest (Google AI)" },
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash (Флагман)" }
     ];
     res.json({ models });
   } catch (err: any) {
@@ -2349,7 +2354,7 @@ app.post("/api/transcribe/finish", async (req, res) => {
       fileName,
       mimeType,
       engine: engine || "gemini",
-      model: model || "gemini-3.5-transcribe",
+      model: model || "gemini-3.1-flash-lite",
       language,
       trackNumber: jobTrackNum,
       trackLanguage: trackLanguage ? String(trackLanguage) : undefined,

@@ -350,63 +350,8 @@ export function parseSrt(srtText: string, maxMediaDurationSec?: number): Subtitl
   }
 
   if (foundTimestamps.length === 0) {
-    // Check for single-timestamp lines (e.g. "[00:12.50] Тэкст" or "00:12 - Тэкст" or "(00:01:23) Тэкст")
-    const singleTsRegex = /^[\[\(]?\s*((?:\d{1,2}:){1,2}\d{1,2}(?:[,.]\d{1,3})?)\s*[\]\)]?[\s:-]*(.*)$/;
-    const singleMatches: { timeSec: number; text: string }[] = [];
-
-    for (const rawLine of rawLines) {
-      const line = rawLine.trim();
-      if (!line || /^\d+$/.test(line) || /^(WEBVTT|NOTE|Kind:|Language:|```)/i.test(line)) continue;
-      const m = line.match(singleTsRegex);
-      if (m && m[1]) {
-        const tSec = srtTimeToSeconds(m[1]);
-        const cleanTxt = (m[2] || '').replace(/<\/?font[^>]*>/gi, '').trim();
-        if (cleanTxt) {
-          singleMatches.push({ timeSec: tSec, text: cleanTxt });
-        }
-      }
-    }
-
-    if (singleMatches.length > 0) {
-      for (let i = 0; i < singleMatches.length; i++) {
-        const cur = singleMatches[i];
-        const nextTime = i + 1 < singleMatches.length ? singleMatches[i + 1].timeSec : cur.timeSec + 3.0;
-        const endSec = nextTime > cur.timeSec ? nextTime : cur.timeSec + 2.5;
-        entries.push({
-          id: `sub-${i + 1}-${Math.random().toString(36).substring(2, 7)}`,
-          startTime: secondsToSrtTime(cur.timeSec),
-          endTime: secondsToSrtTime(endSec),
-          text: cur.text,
-        });
-      }
-      return entries;
-    }
-
-    // Fallback: If no timestamps found at all, split non-empty lines into progressive timed cards
-    const cleanLines = rawLines
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0 && !/^\d+$/.test(l) && !/^(WEBVTT|NOTE|Kind:|Language:|```|here|this|transcription|subrip|subtitle|sure|okay)/i.test(l));
-
-    if (cleanLines.length > 0) {
-      let currentClock = 0;
-      for (let i = 0; i < cleanLines.length; i++) {
-        const cl = cleanLines[i];
-        const text = cl.replace(/<\/?font[^>]*>/gi, '').trim();
-        if (text) {
-          const dur = Math.min(6.0, Math.max(2.0, text.split(/\s+/).length * 0.4));
-          entries.push({
-            id: `sub-${i + 1}-${Math.random().toString(36).substring(2, 7)}`,
-            startTime: secondsToSrtTime(currentClock),
-            endTime: secondsToSrtTime(currentClock + dur),
-            text,
-          });
-          currentClock += dur + 0.1;
-        }
-      }
-      return entries;
-    }
-
-    return entries;
+    // If no subtitle timestamps found at all, return empty array (absence of timestamps is a critical error)
+    return [];
   }
 
   // Handle orphan lead text that appeared BEFORE the very first timestamp line

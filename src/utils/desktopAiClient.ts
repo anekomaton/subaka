@@ -375,7 +375,17 @@ async function callGenerativeLanguageApi(
         // In Desktop mode: execute directly through native subaka.exe process (postJsonNative).
         if (isTauriDesktop()) {
           try {
-            const nativeResp = await postJsonNative(url, JSON.stringify(bodyObj), { 'x-goog-api-key': cleanKey });
+            const nativeReqPromise = postJsonNative(url, JSON.stringify(bodyObj), { 'x-goog-api-key': cleanKey });
+            let nativeResp: string;
+            if (options?.signal) {
+              const abortPromise = new Promise<never>((_, reject) => {
+                if (options.signal!.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+                options.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+              });
+              nativeResp = await Promise.race([nativeReqPromise, abortPromise]);
+            } else {
+              nativeResp = await nativeReqPromise;
+            }
             if (isCanceled()) {
               throw new DOMException('Aborted', 'AbortError');
             }
@@ -822,8 +832,16 @@ export async function desktopTranscribeAudio(
     throw new DOMException('Aborted', 'AbortError');
   }
 
-  const transcribeModel = options?.preferredModel || 'gemini-3.5-transcribe';
-  options?.onProgress?.(`Падрыхтоўка аўдыя для распазнавання (${transcribeModel})...`);
+  const userModel = options?.preferredModel && options.preferredModel !== 'auto' ? options.preferredModel : null;
+  const candidateModels = Array.from(new Set([
+    ...(userModel ? [userModel] : []),
+    'gemini-3.1-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-flash-latest',
+    'gemini-3.8-flash'
+  ]));
+
+  options?.onProgress?.(`Падрыхтоўка аўдыя для распазнавання (${candidateModels[0]})...`);
 
   const systemInstruction = `You are an expert speech transcriber and audio timeline aligner.
 Your sole job is to transcribe all spoken dialogue from the provided audio segment into standard SubRip (.srt) subtitle format with precise frame-accurate timestamp alignment.
@@ -854,7 +872,7 @@ CRITICAL MANDATES:
    - DO NOT place text or lyrics before the first timestamp block.
    - Do NOT wrap in markdown code blocks (\`\`\`srt). Do NOT add extra conversational commentary.`;
 
-  const prompt = 'Транскрыбуй усе сказаныя фразы з гэтага аўдыя ў фармат субцітраў SubRip (.srt) НА МОВЕ АРЫГІНАЛУ (без перакладу).';
+  const prompt = 'Транскрыбуй усе сказаныя фразы з гэтага аўдыя ў фармат субцітраў SubRip (.srt) НА МОВЕ АРЫГІНАЛУ (без перакладу). Выкарыстоўвай дакладныя пазнакі часу пачатку і канца кожнай рэплікі (00:00:00,000 --> 00:00:02,500).';
 
   // Attempt decoding to 16kHz mono WAV for high-speed transcription and clean chunking
   let decoded: { samples: Float32Array; sampleRate: number; duration: number } | null = null;
@@ -898,53 +916,73 @@ CRITICAL MANDATES:
       const wavBytes = encodeWav16BitMono(chunkSamples, sampleRate);
       const base64Audio = uint8ArrayToBase64(wavBytes);
 
-      const isTranscribeModel = transcribeModel.includes('transcribe');
-      const effectivePrompt = isTranscribeModel
-        ? 'Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.'
-        : prompt;
+      let shiftedChunkSrt = '';
+      let chunkCount = 0;
 
-      const bodyObj: any = {
-        contents: [
-          {
-            parts: [
+      for (const modelToTry of candidateModels) {
+        if (options?.signal?.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
+
+        try {
+          const isTranscribeModel = modelToTry.includes('transcribe');
+          const effectivePrompt = isTranscribeModel
+            ? 'Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.'
+            : prompt;
+
+          const bodyObj: any = {
+            contents: [
               {
-                inlineData: {
-                  mimeType: 'audio/wav',
-                  data: base64Audio,
-                },
-              },
-              {
-                text: effectivePrompt,
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: 'audio/wav',
+                      data: base64Audio,
+                    },
+                  },
+                  {
+                    text: effectivePrompt,
+                  },
+                ],
               },
             ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.0,
-          maxOutputTokens: 16384,
-        },
-      };
+            generationConfig: {
+              maxOutputTokens: 16384,
+            },
+          };
 
-      if (!isTranscribeModel) {
-        bodyObj.systemInstruction = {
-          parts: [{ text: systemInstruction }],
-        };
+          if (!isTranscribeModel) {
+            bodyObj.systemInstruction = {
+              parts: [{ text: systemInstruction }],
+            };
+          }
+
+          const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, modelToTry, true, { signal: options?.signal });
+
+          if (rawChunkSrt && typeof rawChunkSrt === 'string') {
+            const { srt: shiftedSrt, count } = shiftSrtTimestamps(rawChunkSrt, startSec, currentSubtitleIndex);
+            if (count > 0 && shiftedSrt) {
+              shiftedChunkSrt = shiftedSrt;
+              chunkCount = count;
+              break;
+            }
+            console.warn(`[Desktop AI] Model ${modelToTry} returned text without valid SRT timestamps on chunk ${c + 1}, trying next fallback model...`);
+          }
+        } catch (mErr: any) {
+          if (mErr.name === 'AbortError' || mErr.message === 'Aborted') throw mErr;
+          console.warn(`[Desktop AI] Model ${modelToTry} failed on chunk ${c + 1}:`, mErr);
+        }
       }
 
-      const rawChunkSrt = await callGenerativeLanguageApi(apiKey, bodyObj, transcribeModel, true, { signal: options?.signal });
-
-      if (rawChunkSrt && typeof rawChunkSrt === 'string') {
-        const { srt: shiftedSrt, count } = shiftSrtTimestamps(rawChunkSrt, startSec, currentSubtitleIndex);
-        if (shiftedSrt) {
-          allSrtParts.push(shiftedSrt);
-          currentSubtitleIndex += count;
-        }
+      if (shiftedChunkSrt && chunkCount > 0) {
+        allSrtParts.push(shiftedChunkSrt);
+        currentSubtitleIndex += chunkCount;
       }
     }
 
     const finalSrt = allSrtParts.join('\n\n').trim();
     if (!finalSrt) {
-      throw new Error('Мадэль Gemini не выявіла разборлівага маўлення ў аўдыяфайле.');
+      throw new Error('Мадэль Gemini не выявіла разборлівага маўлення ў аўдыяфайле альбо адказ не змяшчае таймкодаў.');
     }
     return finalSrt;
   }
@@ -958,46 +996,61 @@ CRITICAL MANDATES:
       mimeType = 'audio/mp3';
     }
 
-    const isTranscribeModel = transcribeModel.includes('transcribe');
-    const effectivePrompt = isTranscribeModel
-      ? 'Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.'
-      : prompt;
+    for (const modelToTry of candidateModels) {
+      if (options?.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
 
-    const bodyObj: any = {
-      contents: [
-        {
-          parts: [
+      try {
+        const isTranscribeModel = modelToTry.includes('transcribe');
+        const effectivePrompt = isTranscribeModel
+          ? 'Transcribe all audible speech from this audio file verbatim in its ORIGINAL spoken language into standard SubRip (.srt) format with frame-accurate timestamps. Format as sequential numbered blocks with timestamps (00:00:00,000 --> 00:00:02,500) separated by double newlines. DO NOT translate.'
+          : prompt;
+
+        const bodyObj: any = {
+          contents: [
             {
-              inlineData: {
-                mimeType,
-                data: base64Audio,
-              },
-            },
-            {
-              text: effectivePrompt,
+              parts: [
+                {
+                  inlineData: {
+                    mimeType,
+                    data: base64Audio,
+                  },
+                },
+                {
+                  text: effectivePrompt,
+                },
+              ],
             },
           ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.0,
-        maxOutputTokens: 16384,
-      },
-    };
+          generationConfig: {
+            maxOutputTokens: 16384,
+          },
+        };
 
-    if (!isTranscribeModel) {
-      bodyObj.systemInstruction = {
-        parts: [{ text: systemInstruction }],
-      };
+        if (!isTranscribeModel) {
+          bodyObj.systemInstruction = {
+            parts: [{ text: systemInstruction }],
+          };
+        }
+
+        options?.onProgress?.(`Генерацыя субцітраў і таймкодаў з Gemini (${modelToTry})...`);
+        const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, modelToTry, true, { signal: options?.signal });
+
+        if (rawSrt && typeof rawSrt === 'string' && rawSrt.trim()) {
+          const { srt: shiftedSrt, count } = shiftSrtTimestamps(rawSrt, 0, 1);
+          if (count > 0 && shiftedSrt) {
+            return shiftedSrt;
+          }
+          console.warn(`[Desktop AI] Model ${modelToTry} returned text without valid SRT timestamps, trying next fallback model...`);
+        }
+      } catch (mErr: any) {
+        if (mErr.name === 'AbortError' || mErr.message === 'Aborted') throw mErr;
+        console.warn(`[Desktop AI] Model ${modelToTry} direct pass failed:`, mErr);
+      }
     }
 
-    options?.onProgress?.(`Генерацыя субцітраў і таймкодаў з Gemini (${transcribeModel})...`);
-    const rawSrt = await callGenerativeLanguageApi(apiKey, bodyObj, transcribeModel, true, { signal: options?.signal });
-
-    if (rawSrt && typeof rawSrt === 'string' && rawSrt.trim()) {
-      return rawSrt.trim();
-    }
-    throw new Error('Мадэль Gemini не выявіла разборлівага маўлення ў аўдыяфайле.');
+    throw new Error('Мадэль Gemini не выявіла разборлівага маўлення ў аўдыяфайле альбо адказ не змяшчае таймкодаў.');
   }
 
   throw new Error('Не ўдалося дэкадаваць аўдыяфайл для генерацыі субцітраў. Калі ласка, папярэдне выцягніце аўдыядарожку праз меню плэера альбо канвертуйце ў .mp3 ці .wav.');

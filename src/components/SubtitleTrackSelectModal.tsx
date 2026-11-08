@@ -350,10 +350,10 @@ export default function SubtitleTrackSelectModal({
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-0.5">
                     <p className={`text-[11px] font-semibold ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-800'}`}>
-                      Мадэль Whisper не ўсталявана
+                      Рухавік Whisper не ўсталяваны
                     </p>
                     <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Для лакальнай генерацыі спампуйце мадэль.
+                      Для лакальнай генерацыі спампуйце выканаўчыя файлы, бібліятэкі DLL і мадэль.
                     </p>
                   </div>
                 </div>
@@ -399,7 +399,7 @@ export default function SubtitleTrackSelectModal({
                       className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Спампаваць мадэль Whisper
+                      Спампаваць кампаненты Whisper
                     </button>
                   </div>
                 )}

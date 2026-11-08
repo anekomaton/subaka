@@ -1025,16 +1025,43 @@ pub struct WhisperResourcePaths {
 static ACTIVE_WHISPER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static WHISPER_CANCELLED_BY_USER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
+pub fn resolve_whisper_target_dir(app: &AppHandle) -> PathBuf {
     use tauri::Manager;
-    let target_dir = app
-        .path()
-        .app_local_data_dir()
-        .unwrap_or_else(|_| {
-            std::env::var("LOCALAPPDATA")
-                .map(|l| Path::new(&l).join("SUBaka"))
-                .unwrap_or_else(|_| PathBuf::from("."))
-        });
+    // 1. Try executable resources directory (<exe_dir>/resources, matching installed SUBaka\resources)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res_dir = exe_dir.join("resources");
+            if fs::create_dir_all(&res_dir).is_ok() {
+                let test_file = res_dir.join(".subaka_write_test");
+                if fs::write(&test_file, b"1").is_ok() {
+                    let _ = fs::remove_file(&test_file);
+                    return res_dir;
+                }
+            }
+        }
+    }
+
+    // 2. Try %LOCALAPPDATA%\SUBaka\resources
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let subaka_res = Path::new(&local_appdata).join("SUBaka").join("resources");
+        if fs::create_dir_all(&subaka_res).is_ok() {
+            return subaka_res;
+        }
+    }
+
+    // 3. Fallback to resource_dir
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let r = res_dir.join("resources");
+        if fs::create_dir_all(&r).is_ok() {
+            return r;
+        }
+    }
+
+    PathBuf::from("resources")
+}
+
+pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
+    let target_dir = resolve_whisper_target_dir(app);
 
     let has_nvidia = if cfg!(target_os = "windows") {
         silent_command("powershell")
@@ -1078,7 +1105,7 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     let _ = fs::create_dir_all(&target_dir);
 
     let log_msg = sanitize_sensitive_info(&format!(
-        "[WhisperEngine] Auto-downloading native Whisper binary into {:?} (NVIDIA GPU detected: {})",
+        "[WhisperEngine] Auto-downloading native Whisper binary and DLLs into {:?} (NVIDIA GPU detected: {})",
         target_dir,
         has_nvidia
     ));
@@ -1107,6 +1134,7 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
                              New-Item -ItemType Directory -Force -Path $tempDir | Out-Null; \
                              Expand-Archive -Path '{}' -DestinationPath $tempDir -Force; \
                              $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Where-Object {{ $_.Name -match 'whisper-cli|whisper|main' }} | Select-Object -First 1; \
+                             if (-not $exe) {{ $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Select-Object -First 1 }}; \
                              if ($exe) {{ Copy-Item $exe.FullName '{}' -Force }}; \
                              Get-ChildItem -Path $tempDir -Recurse -Filter '*.dll' | ForEach-Object {{ Copy-Item $_.FullName '{}' -Force }}; \
                              Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue; \
@@ -1148,6 +1176,7 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
                          New-Item -ItemType Directory -Force -Path $tempDir | Out-Null; \
                          Expand-Archive -Path '{}' -DestinationPath $tempDir -Force; \
                          $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Where-Object {{ $_.Name -match 'whisper-cli|whisper|main' }} | Select-Object -First 1; \
+                         if (-not $exe) {{ $exe = Get-ChildItem -Path $tempDir -Recurse -Filter '*.exe' | Select-Object -First 1 }}; \
                          if ($exe) {{ Copy-Item $exe.FullName '{}' -Force }}; \
                          Get-ChildItem -Path $tempDir -Recurse -Filter '*.dll' | ForEach-Object {{ Copy-Item $_.FullName '{}' -Force }}; \
                          Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue; \
@@ -1172,15 +1201,7 @@ pub fn ensure_whisper_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    let target_dir = app
-        .path()
-        .app_local_data_dir()
-        .unwrap_or_else(|_| {
-            std::env::var("LOCALAPPDATA")
-                .map(|l| Path::new(&l).join("SUBaka"))
-                .unwrap_or_else(|_| PathBuf::from("."))
-        });
+    let target_dir = resolve_whisper_target_dir(app);
 
     let m_file = if requested_model.trim().is_empty() {
         "ggml-small.bin"
@@ -1226,6 +1247,7 @@ pub fn ensure_whisper_model_downloaded(app: &AppHandle, requested_model: &str) -
 }
 
 pub fn get_whisper_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    use tauri::Manager;
     let mut candidate_dirs: Vec<PathBuf> = Vec::new();
 
     // 1. Executable directory: <exe_dir>/resources and <exe_dir>
@@ -1236,21 +1258,24 @@ pub fn get_whisper_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
         }
     }
 
-    // 2. Tauri resource_dir
+    // 2. Preferred target dir (e.g. SUBaka\resources)
+    let target = resolve_whisper_target_dir(app);
+    candidate_dirs.push(target.clone());
+    if let Some(p) = target.parent() {
+        candidate_dirs.push(p.to_path_buf());
+    }
+
+    // 3. Fallback LOCALAPPDATA / SUBaka / resources
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let base_dir = Path::new(&local_appdata).join("SUBaka");
+        candidate_dirs.push(base_dir.join("resources"));
+        candidate_dirs.push(base_dir);
+    }
+
+    // 4. Tauri resource_dir
     if let Ok(res_dir) = app.path().resource_dir() {
         candidate_dirs.push(res_dir.join("resources"));
         candidate_dirs.push(res_dir);
-    }
-
-    // 3. App local data directory (%LOCALAPPDATA%/SUBaka)
-    if let Ok(app_dir) = app.path().app_local_data_dir() {
-        candidate_dirs.push(app_dir);
-    }
-
-    // 4. Fallback LOCALAPPDATA environment variable
-    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-        let base_dir = Path::new(&local_appdata).join("SUBaka");
-        candidate_dirs.push(base_dir);
     }
 
     // 5. Current working directory
@@ -1456,26 +1481,19 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
     let app_clone = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let target_dir = app_clone
-            .path()
-            .app_local_data_dir()
-            .unwrap_or_else(|_| {
-                std::env::var("LOCALAPPDATA")
-                    .map(|l| Path::new(&l).join("SUBaka"))
-                    .unwrap_or_else(|_| PathBuf::from("."))
-            });
+        let target_dir = resolve_whisper_target_dir(&app_clone);
         let _ = fs::create_dir_all(&target_dir);
 
-        // 1. Ensure binary exists
+        // 1. Ensure binary and companion DLLs exist
         let binary_opt = locate_whisper_binary(&app_clone);
         if binary_opt.is_none() {
             let _ = app_clone.emit(
                 "whisper-download-progress",
                 WhisperDownloadProgress {
-                    stage: "Спампоўка бінарных файлаў Whisper...".to_string(),
+                    stage: "Спампоўка бінарных файлаў і DLL рухавіка Whisper...".to_string(),
                     percent: 5.0,
                     downloaded_bytes: 0,
-                    total_bytes: 0,
+                    total_bytes: 520_000_000,
                 },
             );
             if let Err(e) = ensure_whisper_downloaded(&app_clone) {
@@ -1497,8 +1515,8 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
             let _ = app_clone.emit(
                 "whisper-download-progress",
                 WhisperDownloadProgress {
-                    stage: "Падключэнне для спампоўкі мадэлі...".to_string(),
-                    percent: 10.0,
+                    stage: "Падключэнне для спампоўкі мадэлі Whisper...".to_string(),
+                    percent: 12.0,
                     downloaded_bytes: 0,
                     total_bytes: expected_total_bytes,
                 },
@@ -1570,7 +1588,7 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
                         }
                         Ok(None) => {
                             let cur_len = temp_model_file.metadata().map(|m| m.len()).unwrap_or(0);
-                            let pct = (10.0 + (cur_len as f64 / expected_total_bytes as f64) * 88.0).min(98.0);
+                            let pct = (12.0 + (cur_len as f64 / expected_total_bytes as f64) * 86.0).min(98.0);
                             let _ = app_clone.emit(
                                 "whisper-download-progress",
                                 WhisperDownloadProgress {
@@ -1600,7 +1618,7 @@ pub async fn download_whisper_bundle(app: AppHandle) -> Result<WhisperEngineDeta
         let _ = app_clone.emit(
             "whisper-download-progress",
             WhisperDownloadProgress {
-                stage: "Мадэль Whisper паспяхова спампавана!".to_string(),
+                stage: "Мадэль і выканаўчыя файлы Whisper паспяхова ўсталяваны!".to_string(),
                 percent: 100.0,
                 downloaded_bytes: 488_000_000,
                 total_bytes: 488_000_000,
